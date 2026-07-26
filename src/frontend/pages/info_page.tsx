@@ -108,10 +108,6 @@ export function InfoPage() {
             ['stderr', compactPath(process.errLogPath)],
           ]}
         />
-        <div className="rounded-xl border border-dashed border-cyan/25 px-4 py-3 font-mono text-xs text-muted">
-          ◆ Environment values are never shown. Use{' '}
-          <span className="text-cyan">pm2 env {process.pmId}</span> locally.
-        </div>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import { LoaderCircle, ShieldCheck } from 'lucide-react';
 
 import type { IProcessListResult } from '@shared/contracts';
@@ -51,22 +52,27 @@ export function AppHeader({
       }
     >
       <div className="flex min-w-0 items-center gap-3">
-        <div className="relative grid size-8 place-items-center">
-          <img
-            src="/pm2-captain-logo-on-dark.png"
-            alt=""
-            className="size-8 object-contain"
-            onError={event => {
-              event.currentTarget.style.display = 'none';
-              event.currentTarget.nextElementSibling?.classList.remove('hidden');
-            }}
-          />
-          <ShieldCheck className="hidden size-7 text-cyan" aria-hidden="true" />
-        </div>
-        <div className="whitespace-nowrap text-lg font-bold">
-          <span className="text-white">PM2 </span>
-          <span className="text-cyan">Captain</span>
-        </div>
+        <Link
+          to="/"
+          className="flex min-w-0 items-center gap-3 rounded-md transition-[filter,opacity] hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+        >
+          <div className="relative grid size-8 place-items-center">
+            <img
+              src="/pm2-captain-logo-on-dark.png"
+              alt=""
+              className="size-8 object-contain"
+              onError={event => {
+                event.currentTarget.style.display = 'none';
+                event.currentTarget.nextElementSibling?.classList.remove('hidden');
+              }}
+            />
+            <ShieldCheck className="hidden size-7 text-cyan" aria-hidden="true" />
+          </div>
+          <div className="whitespace-nowrap text-lg font-bold">
+            <span className="text-white">PM2 </span>
+            <span className="text-cyan">Captain</span>
+          </div>
+        </Link>
         {!sidebar && loading ? (
           <LoaderCircle
             className="hidden size-3.5 animate-spin text-cyan sm:block"

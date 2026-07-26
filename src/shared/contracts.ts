@@ -34,6 +34,12 @@ export interface IProcessDetail extends IProcessSummary {
   cronRestart: string | null;
   outLogPath: string | null;
   errLogPath: string | null;
+  environment?: IEnvironmentVariable[];
+}
+
+export interface IEnvironmentVariable {
+  name: string;
+  value: string;
 }
 
 export interface IProcessListResult {

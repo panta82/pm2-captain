@@ -3,9 +3,12 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
+  type SortingState,
   useReactTable,
 } from '@tanstack/react-table';
-import { Eye, RotateCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, RotateCw } from 'lucide-react';
+import { useState } from 'react';
 
 import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
@@ -18,8 +21,25 @@ import type { IProcessSummary } from '@shared/contracts';
 
 const column = createColumnHelper<IProcessSummary>();
 
+function compareNullableNumber(
+  left: number | null | undefined,
+  right: number | null | undefined
+): number {
+  if (left == null && right == null) {
+    return 0;
+  }
+  if (left == null) {
+    return 1;
+  }
+  if (right == null) {
+    return -1;
+  }
+  return left - right;
+}
+
 export function StatusPage() {
   const navigate = useNavigate();
+  const [sorting, setSorting] = useState<SortingState>([]);
   const query = trpc.processes.list.useQuery(undefined, {
     refetchInterval: 2_000,
   });
@@ -58,6 +78,11 @@ export function StatusPage() {
     }),
     column.accessor('cpu', {
       header: 'CPU',
+      sortingFn: (left, right, columnId) =>
+        compareNullableNumber(
+          left.getValue<number | null>(columnId),
+          right.getValue<number | null>(columnId)
+        ),
       cell: info => (
         <span className="text-cyan">
           {info.getValue() === null ? '—' : `${info.getValue()!.toFixed(1)}%`}
@@ -66,14 +91,29 @@ export function StatusPage() {
     }),
     column.accessor('memory', {
       header: 'MEM',
+      sortingFn: (left, right, columnId) =>
+        compareNullableNumber(
+          left.getValue<number | null>(columnId),
+          right.getValue<number | null>(columnId)
+        ),
       cell: info => <span className="text-[#73a8ff]">{formatBytes(info.getValue())}</span>,
     }),
     column.accessor('uptime', {
       header: 'UPTIME',
+      sortingFn: (left, right, columnId) =>
+        compareNullableNumber(
+          left.getValue<number | null>(columnId),
+          right.getValue<number | null>(columnId)
+        ),
       cell: info => formatDuration(info.getValue()),
     }),
     column.accessor('pid', {
       header: 'PID',
+      sortingFn: (left, right, columnId) =>
+        compareNullableNumber(
+          left.getValue<number | null>(columnId),
+          right.getValue<number | null>(columnId)
+        ),
       cell: info => info.getValue() || '—',
     }),
     column.accessor('version', {
@@ -91,13 +131,17 @@ export function StatusPage() {
     column.display({
       id: 'actions',
       header: '',
+      enableSorting: false,
       cell: info => <ProcessActions process={info.row.original} compact />,
     }),
   ];
   const table = useReactTable({
     data: query.data?.processes || [],
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   if (query.isLoading) {
@@ -128,21 +172,50 @@ export function StatusPage() {
           <thead>
             {table.getHeaderGroups().map(group => (
               <tr key={group.id} className="h-11 border-b border-line bg-topbar/70">
-                {group.headers.map(header => (
-                  <th
-                    key={header.id}
-                    className={cn(
-                      'px-4 text-[10px] font-semibold text-muted first:pl-6',
-                      header.column.id === 'restarts' || header.column.id === 'watching'
-                        ? 'text-center'
-                        : 'text-left'
-                    )}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
+                {group.headers.map(header => {
+                  const canSort = header.column.getCanSort();
+                  const sorted = header.column.getIsSorted();
+                  const isCentered =
+                    header.column.id === 'restarts' || header.column.id === 'watching';
+                  return (
+                    <th
+                      key={header.id}
+                      className={cn(
+                        'px-4 text-[10px] font-semibold first:pl-6',
+                        isCentered ? 'text-center' : 'text-left',
+                        sorted ? 'text-white' : 'text-muted'
+                      )}
+                    >
+                      {header.isPlaceholder ? null : canSort ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            'inline-flex items-center gap-1 transition-colors hover:text-white',
+                            isCentered && 'justify-center'
+                          )}
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {sorted === 'asc' ? (
+                            <ChevronUp className="size-3 shrink-0" />
+                          ) : sorted === 'desc' ? (
+                            <ChevronDown className="size-3 shrink-0" />
+                          ) : (
+                            <span className="size-3 shrink-0" aria-hidden />
+                          )}
+                        </button>
+                      ) : (
+                        flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>

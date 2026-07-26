@@ -15,7 +15,7 @@ chmod 600 "$e2e_home/pm2-captain-token"
 
 PM2_HOME="$e2e_home" ./node_modules/.bin/pm2 delete all >/dev/null 2>&1 || true
 PM2_HOME="$e2e_home" ./node_modules/.bin/pm2 flush >/dev/null 2>&1 || true
-PM2_HOME="$e2e_home" ./node_modules/.bin/pm2 start test/fixtures/process.cjs \
+PM2_CAPTAIN_E2E_ENV=visible PM2_HOME="$e2e_home" ./node_modules/.bin/pm2 start test/fixtures/process.cjs \
   --name captain-fixture >/dev/null
 
 cleanup() {

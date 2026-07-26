@@ -7,7 +7,7 @@ test('requires a launch session for APIs', async ({ request }) => {
   expect(response.status()).toBe(401);
 });
 
-test('navigates status, info, and streaming logs', async ({ page }) => {
+test('navigates status, info, environment, and streaming logs', async ({ page }) => {
   await page.goto(launchPath);
   await expect(page.getByText('captain-fixture', { exact: true }).first()).toBeVisible();
 
@@ -22,7 +22,12 @@ test('navigates status, info, and streaming logs', async ({ page }) => {
   const processHeadingBox = await processHeading.boundingBox();
   expect(processHeadingBox?.y).toBeLessThan(60);
   await expect(page.getByRole('navigation', { name: 'Processes' })).not.toContainText('%');
-  await expect(page.getByText('Environment values are never shown')).toBeVisible();
+  await expect(page.getByText('Environment values are never shown')).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Env' }).click();
+  await expect(page).toHaveURL(/\/processes\/0\/env$/);
+  await expect(page.getByText('PM2_CAPTAIN_E2E_ENV', { exact: true })).toBeVisible();
+  await expect(page.getByText('visible', { exact: true })).toBeVisible();
 
   await page.getByRole('link', { name: 'Logs' }).click();
   await expect(page.getByText('fixture output').first()).toBeVisible();
@@ -37,7 +42,7 @@ test('navigates status, info, and streaming logs', async ({ page }) => {
   await page.getByRole('button', { name: 'Regular expression' }).click();
   await page.getByPlaceholder('search loaded logs…').fill('fixture error \\d+');
   await expect(page.getByText('fixture error').first()).toBeVisible();
-  await page.getByRole('button', { name: 'err', exact: true }).click();
+  await page.getByRole('button', { name: 'Err', exact: true }).click();
   await expect(page.getByText('fixture error').first()).toBeVisible();
 });
 

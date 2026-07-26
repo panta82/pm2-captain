@@ -13,6 +13,7 @@ import { trpc } from '@/lib/trpc';
 import { AppHeader } from '@/components/app_header';
 import { RestartOverlay } from '@/components/restart_overlay';
 
+import { EnvPage } from '@/pages/env_page';
 import { ErrorPage } from '@/pages/error_page';
 import { InfoPage } from '@/pages/info_page';
 import { LogsPage } from '@/pages/logs_page';
@@ -70,6 +71,11 @@ const infoRoute = createRoute({
   path: 'info',
   component: InfoPage,
 });
+const envRoute = createRoute({
+  getParentRoute: () => processRoute,
+  path: 'env',
+  component: EnvPage,
+});
 const logsRoute = createRoute({
   getParentRoute: () => processRoute,
   path: 'logs',
@@ -78,7 +84,7 @@ const logsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   statusRoute,
-  processRoute.addChildren([infoRoute, logsRoute]),
+  processRoute.addChildren([infoRoute, envRoute, logsRoute]),
 ]);
 const router = createRouter({
   routeTree,

@@ -29,6 +29,8 @@ export function ProcessLayout() {
   useEffect(() => {
     if (pathname.endsWith('/logs')) {
       setProcessTab('logs');
+    } else if (pathname.endsWith('/env')) {
+      setProcessTab('env');
     } else if (pathname.endsWith('/info')) {
       setProcessTab('info');
     }
@@ -138,7 +140,7 @@ export function ProcessLayout() {
                         : 'border border-muted'
                     )}
                   />
-                  <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
+                  <h1 className="truncate text-md font-bold text-white sm:text-xl">
                     {process.name}
                   </h1>
                 </div>
@@ -182,6 +184,19 @@ export function ProcessLayout() {
                   className="border-b px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Info
+                </Link>
+                <Link
+                  to="/processes/$pmId/env"
+                  params={{ pmId }}
+                  onClick={() => setProcessTab('env')}
+                  activeProps={{ className: 'border-b-transparent text-cyan' }}
+                  inactiveProps={{
+                    className:
+                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                  }}
+                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
+                >
+                  Env
                 </Link>
                 <Link
                   to="/processes/$pmId/logs"

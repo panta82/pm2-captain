@@ -68,6 +68,31 @@ describe('processManager', () => {
     expect(JSON.stringify(result)).not.toContain('PASSWORD');
   });
 
+  it('returns environment values only when explicitly requested', async () => {
+    const { manager } = setup(
+      description({
+        SECRET_VALUE: 'shown-on-env-page',
+        NUMERIC_VALUE: 42,
+        env: { NESTED_SECRET: 'not-a-process-variable' },
+      })
+    );
+
+    const detail = await manager.detail(4);
+    const detailWithEnvironment = await manager.detail(4, true);
+
+    expect(JSON.stringify(detail)).not.toContain('shown-on-env-page');
+    expect(detailWithEnvironment.environment).toContainEqual({
+      name: 'SECRET_VALUE',
+      value: 'shown-on-env-page',
+    });
+    expect(detailWithEnvironment.environment).toContainEqual({
+      name: 'NUMERIC_VALUE',
+      value: '42',
+    });
+    expect(JSON.stringify(detailWithEnvironment.environment)).not.toContain('NESTED_SECRET');
+    expect(detailWithEnvironment.environment?.map(item => item.name)).not.toContain('pm_id');
+  });
+
   it('rejects stopping Captain itself before invoking PM2', async () => {
     const item = description();
     item.pid = process.pid;

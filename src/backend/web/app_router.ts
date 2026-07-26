@@ -28,8 +28,17 @@ export function createAppRouter(container: IContainer) {
     processes: router({
       list: protectedProcedure.query(() => container.processManager.list()),
       detail: protectedProcedure
-        .input(z.object({ pmId: z.number().int().nonnegative() }))
-        .query(({ input }) => withProcessErrors(() => container.processManager.detail(input.pmId))),
+        .input(
+          z.object({
+            pmId: z.number().int().nonnegative(),
+            includeEnvironment: z.boolean().optional(),
+          })
+        )
+        .query(({ input }) =>
+          withProcessErrors(() =>
+            container.processManager.detail(input.pmId, input.includeEnvironment)
+          )
+        ),
       action: protectedProcedure
         .input(
           z.object({

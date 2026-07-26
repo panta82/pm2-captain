@@ -10,6 +10,53 @@ import {
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 
+const PM2_ENVIRONMENT_KEYS = new Set([
+  'args',
+  'automation',
+  'autorestart',
+  'autostart',
+  'axm_actions',
+  'axm_dynamic',
+  'axm_monitor',
+  'axm_options',
+  'command',
+  'created_at',
+  'env',
+  'exec_interpreter',
+  'exec_mode',
+  'exit_code',
+  'filter_env',
+  'instance_var',
+  'instances',
+  'kill_retry_time',
+  'merge_logs',
+  'MODULE_DEBUG',
+  'name',
+  'node_args',
+  'pm_cwd',
+  'pm_err_log_path',
+  'pm_exec_path',
+  'pm_id',
+  'pm_out_log_path',
+  'pm_pid_path',
+  'pm_uptime',
+  'pmx',
+  'pmx_module',
+  'prev_restart_delay',
+  'restart_time',
+  'status',
+  'stop_exit_codes',
+  'treekill',
+  'unstable_restart',
+  'unstable_restarts',
+  'username',
+  'versioning',
+  'vizion',
+  'vizion_runing',
+  'watch',
+  'windowsHide',
+]);
+
 export class ProcessNotFoundError extends Error {
   readonly code = 'PM2_PROCESS_NOT_FOUND';
 
@@ -32,7 +79,10 @@ function stringArray(value: unknown): string[] {
 export function createProcessManager({ pm2Client, log }: IContainer) {
   const actionQueues = new Map<number, Promise<unknown>>();
 
-  const normalize = (description: ProcessDescription): IProcessDetail => {
+  const normalize = (
+    description: ProcessDescription,
+    includeEnvironment = false
+  ): IProcessDetail => {
     const environment = (description.pm2_env || {}) as Record<string, any>;
     const status = (environment.status || 'unknown') as IProcessStatus;
     const startedAt = typeof environment.pm_uptime === 'number' ? environment.pm_uptime : null;
@@ -66,6 +116,20 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
         typeof environment.pm_out_log_path === 'string' ? environment.pm_out_log_path : null,
       errLogPath:
         typeof environment.pm_err_log_path === 'string' ? environment.pm_err_log_path : null,
+      ...(includeEnvironment
+        ? {
+            environment: Object.entries(environment)
+              .filter(
+                ([name, value]) =>
+                  !PM2_ENVIRONMENT_KEYS.has(name) &&
+                  value !== null &&
+                  value !== undefined &&
+                  typeof value !== 'object'
+              )
+              .map(([name, value]) => ({ name, value: String(value) }))
+              .sort((left, right) => left.name.localeCompare(right.name)),
+          }
+        : {}),
     };
   };
 
@@ -75,7 +139,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       return {
         hostLabel: `${libOs.userInfo().username}@${libOs.hostname()}`,
         processes: processes
-          .map(normalize)
+          .map(description => normalize(description))
           .map(
             ({
               script,
@@ -89,6 +153,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
               cronRestart,
               outLogPath,
               errLogPath,
+              environment,
               ...summary
             }) => summary
           )
@@ -96,12 +161,12 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       };
     };
 
-    detail = async (pmId: number): Promise<IProcessDetail> => {
+    detail = async (pmId: number, includeEnvironment = false): Promise<IProcessDetail> => {
       const result = await pm2Client.describe(pmId);
       if (!result.length) {
         throw new ProcessNotFoundError(pmId);
       }
-      return normalize(result[0]);
+      return normalize(result[0], includeEnvironment);
     };
 
     action = async (pmId: number, action: IProcessAction) => {
