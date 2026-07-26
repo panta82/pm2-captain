@@ -1,9 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams } from '@tanstack/react-router';
 import {
-  ArrowUp,
   CaseSensitive,
-  LoaderCircle,
   Pause,
   Play,
   Regex,
@@ -36,7 +34,6 @@ export function LogsPage() {
   const [entries, setEntries] = useState<ILogEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [approximate, setApproximate] = useState(false);
   const [sharedFile, setSharedFile] = useState(false);
   const [paused, setPaused] = useState(false);
   const [bufferedCount, setBufferedCount] = useState(0);
@@ -75,7 +72,6 @@ export function LogsPage() {
     setEntries([]);
     setCursor(null);
     setHasMore(false);
-    setApproximate(false);
     setSharedFile(false);
     bufferRef.current = [];
     setBufferedCount(0);
@@ -91,7 +87,6 @@ export function LogsPage() {
     setEntries(initialPage.data.entries);
     setCursor(initialPage.data.cursor);
     setHasMore(initialPage.data.hasMore);
-    setApproximate(initialPage.data.approximateOrder);
     setSharedFile(initialPage.data.sharedFile);
   }, [initialPage.data]);
 
@@ -153,7 +148,6 @@ export function LogsPage() {
       );
       setCursor(page.cursor);
       setHasMore(page.hasMore);
-      setApproximate(value => value || page.approximateOrder);
       setSharedFile(page.sharedFile);
       if (page.rotated) {
         toast.warning('The active log file rotated; history cursor was reset.');
@@ -283,40 +277,23 @@ export function LogsPage() {
         </span>
       </div>
 
-      <div className="shrink-0 px-3 py-3 sm:px-7">
-        <div className="flex justify-center">
-          <Button
-            className="h-8 rounded-full px-4 font-mono text-xs"
-            disabled={!hasMore || loadingOlder}
-            onClick={loadOlder}
-          >
-            {loadingOlder ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
-            ) : (
-              <ArrowUp className="size-3.5" />
-            )}
-            {hasMore ? 'Older' : 'Start of active log'}
-          </Button>
+      {sharedFile || dropped || searchResult.error ? (
+        <div className="shrink-0 space-y-3 px-3 py-3 sm:px-7">
+          {sharedFile ? (
+            <div className="rounded-lg border border-cyan/30 bg-cyan/5 px-4 py-2 font-mono text-xs text-cyan">
+              stdout and stderr share one active file; historical channel separation is unavailable.
+            </div>
+          ) : null}
+          {dropped ? (
+            <div className="rounded-lg border border-danger/40 bg-danger/8 px-4 py-2 font-mono text-xs text-danger">
+              {dropped} paused events were dropped from memory. Load history to recover them.
+            </div>
+          ) : null}
+          {searchResult.error ? (
+            <div className="font-mono text-xs text-danger">{searchResult.error}</div>
+          ) : null}
         </div>
-        {approximate && view === 'combined' ? (
-          <div className="mt-3 rounded-lg border border-warning/40 bg-warning/8 px-4 py-2 font-mono text-xs text-warning">
-            △ Combined order is approximate in this range.
-          </div>
-        ) : null}
-        {sharedFile ? (
-          <div className="mt-3 rounded-lg border border-cyan/30 bg-cyan/5 px-4 py-2 font-mono text-xs text-cyan">
-            stdout and stderr share one active file; historical channel separation is unavailable.
-          </div>
-        ) : null}
-        {dropped ? (
-          <div className="mt-3 rounded-lg border border-danger/40 bg-danger/8 px-4 py-2 font-mono text-xs text-danger">
-            {dropped} paused events were dropped from memory. Load history to recover them.
-          </div>
-        ) : null}
-        {searchResult.error ? (
-          <div className="mt-3 font-mono text-xs text-danger">{searchResult.error}</div>
-        ) : null}
-      </div>
+      ) : null}
 
       <div
         ref={scrollRef}

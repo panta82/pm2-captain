@@ -11,6 +11,7 @@ import { Toaster } from 'sonner';
 import { AppHeader } from '@/components/app_header';
 import { RestartOverlay } from '@/components/restart_overlay';
 import { trpc } from '@/lib/trpc';
+import { ErrorPage } from '@/pages/error_page';
 import { InfoPage } from '@/pages/info_page';
 import { LogsPage } from '@/pages/logs_page';
 import { NotFoundPage } from '@/pages/not_found_page';
@@ -51,6 +52,7 @@ function RootLayout() {
 const rootRoute = createRootRoute({
   component: RootLayout,
   notFoundComponent: NotFoundPage,
+  errorComponent: ErrorPage,
 });
 const statusRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -80,6 +82,7 @@ const routeTree = rootRoute.addChildren([
 const router = createRouter({
   routeTree,
   defaultNotFoundComponent: NotFoundPage,
+  defaultErrorComponent: ErrorPage,
 });
 
 declare module '@tanstack/react-router' {
