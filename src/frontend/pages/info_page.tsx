@@ -18,7 +18,7 @@ function Metric({
 }) {
   return (
     <div className="rounded-xl border border-line bg-panel p-4">
-      <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted">
+      <p className="font-mono text-[10px] font-semibold text-muted">
         {label}
       </p>
       <p className={`mt-2 font-mono text-2xl font-semibold ${accent || 'text-white'}`}>
@@ -37,7 +37,7 @@ function DetailPanel({
 }) {
   return (
     <section className="overflow-hidden rounded-xl border border-line bg-topbar">
-      <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-muted">
+      <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
         {title}
       </h2>
       <dl className="grid gap-y-4 px-5 py-4 font-mono text-[13px] sm:grid-cols-[180px_1fr]">

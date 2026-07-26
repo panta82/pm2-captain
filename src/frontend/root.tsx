@@ -4,6 +4,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  useRouterState,
 } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
 
@@ -12,14 +13,24 @@ import { RestartOverlay } from '@/components/restart_overlay';
 import { trpc } from '@/lib/trpc';
 import { InfoPage } from '@/pages/info_page';
 import { LogsPage } from '@/pages/logs_page';
+import { NotFoundPage } from '@/pages/not_found_page';
 import { ProcessLayout } from '@/pages/process_layout';
 import { StatusPage } from '@/pages/status_page';
 
 function RootLayout() {
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
+  const processDetailOpen = useRouterState({
+    select: state => state.location.pathname.startsWith('/processes/'),
+  });
   return (
     <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-navy text-white">
-      <AppHeader data={list.data} />
+      {!processDetailOpen ? (
+        <AppHeader
+          data={list.data}
+          loading={list.isPending && !list.data}
+          failed={list.isError}
+        />
+      ) : null}
       <Outlet />
       <RestartOverlay />
       <Toaster
@@ -37,7 +48,10 @@ function RootLayout() {
   );
 }
 
-const rootRoute = createRootRoute({ component: RootLayout });
+const rootRoute = createRootRoute({
+  component: RootLayout,
+  notFoundComponent: NotFoundPage,
+});
 const statusRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -63,7 +77,10 @@ const routeTree = rootRoute.addChildren([
   statusRoute,
   processRoute.addChildren([infoRoute, logsRoute]),
 ]);
-const router = createRouter({ routeTree });
+const router = createRouter({
+  routeTree,
+  defaultNotFoundComponent: NotFoundPage,
+});
 
 declare module '@tanstack/react-router' {
   interface Register {

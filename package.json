@@ -6,11 +6,11 @@
   "bin": {
     "pm2-captain": "dist/backend/app.js"
   },
-    "files": [
-      "dist",
-      "README.md",
-      "REFERENCE_SOURCES.md",
-      "LICENSE"
+  "files": [
+    "dist",
+    "README.md",
+    "REFERENCE_SOURCES.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "cross-env NODE_ENV=development SERVER_DEV_MODE=true tsx watch src/backend/app.ts",
@@ -35,7 +35,6 @@
     "@fastify/static": "latest",
     "@fontsource/ibm-plex-mono": "latest",
     "@fontsource/inter": "latest",
-    "@radix-ui/react-alert-dialog": "latest",
     "@tanstack/react-query": "latest",
     "@tanstack/react-router": "latest",
     "@tanstack/react-table": "latest",

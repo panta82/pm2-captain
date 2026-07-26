@@ -1,17 +1,17 @@
 import { hasOwnProperty, isObject, isPlainObject } from './tools';
-import type { AnyRecord, StringKeys } from './types';
+import type { IAnyRecord, IStringKeys } from './types';
 
 /**
  * Classes can implement this static hook to control how they are merged.
  * Return true if merging has been handled. Otherwise, customMerge will also do its own thing.
  */
 export type IDeepMergeCustomHook<
-  TTarget extends AnyRecord = AnyRecord,
-  TSource extends AnyRecord = AnyRecord,
+  TTarget extends IAnyRecord = IAnyRecord,
+  TSource extends IAnyRecord = IAnyRecord,
 > = (
   target: TTarget,
   source: TSource,
-  sourceKey: StringKeys<TSource>,
+  sourceKey: IStringKeys<TSource>,
   options: IDeepMergeOptions
 ) => boolean;
 
@@ -44,7 +44,7 @@ export interface IDeepMergeOptions {
  *       This is done to avoid complications of trying to "magically" clone constructed objects.
  *       If it ever becomes a problem, then adjust. If you need "pure" cloned objects, look into lodash.clone()
  */
-export function deepMerge<TObject extends AnyRecord>(
+export function deepMerge<TObject extends IAnyRecord>(
   target: Partial<TObject>,
   ...sources: Partial<TObject>[]
 ): TObject {
@@ -73,7 +73,7 @@ function getKeysLookup(prop: string, target: any) {
 /**
  * CustomMerge with customizable options. Used internally by customMerge()
  */
-export function customMergeWithOptions<TObject extends AnyRecord>(
+export function customMergeWithOptions<TObject extends IAnyRecord>(
   target: Partial<TObject>,
   sources: Partial<TObject>[],
   options: IDeepMergeOptions

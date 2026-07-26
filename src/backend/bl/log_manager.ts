@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { observable } from '@trpc/server/observable';
 
 import {
-  LogChannel,
-  LogEntry,
-  LogPage,
-  LogStreamEvent,
-  LogView,
+  ILogChannel,
+  ILogEntry,
+  ILogPage,
+  ILogStreamEvent,
+  ILogView,
 } from '../../shared/contracts';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
@@ -72,9 +72,9 @@ function parseLine(
   line: string,
   pmId: number,
   processName: string,
-  channel: LogChannel,
+  channel: ILogChannel,
   sequence: number
-): LogEntry {
+): ILogEntry {
   let text = line;
   let timestamp: number | null = null;
 
@@ -118,10 +118,10 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
   return new (class LogManager {
     page = async (
       pmId: number,
-      view: LogView,
+      view: ILogView,
       cursorValue?: string | null,
       requestedLimit = 500
-    ): Promise<LogPage> => {
+    ): Promise<ILogPage> => {
       const detail = await processManager.detail(pmId);
       const limit = Math.min(1_000, Math.max(1, requestedLimit));
       const cursor = decodeCursor(cursorValue);
@@ -211,8 +211,8 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
       };
     };
 
-    stream = (pmId: number, view: LogView) =>
-      observable<LogStreamEvent>(emit => {
+    stream = (pmId: number, view: ILogView) =>
+      observable<ILogStreamEvent>(emit => {
         const removeLog = pm2Client.onLog((event: IPM2LogEvent) => {
           if (event.packet.process.pm_id !== pmId) {
             return;

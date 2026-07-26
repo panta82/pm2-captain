@@ -1,22 +1,27 @@
 import { Play, RotateCw, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
-import type { ProcessDetail, ProcessSummary } from '@shared/contracts';
+import type { IProcessDetail, IProcessSummary } from '@shared/contracts';
 
 import { trpc } from '@/lib/trpc';
-import { Button, ConfirmAction } from './ui';
+import { Button } from './ui';
 
 export function ProcessActions({
   process,
   compact = false,
 }: {
-  process: ProcessSummary | ProcessDetail;
+  process: IProcessSummary | IProcessDetail;
   compact?: boolean;
 }) {
   const utils = trpc.useUtils();
   const action = trpc.processes.action.useMutation({
-    onSuccess: async result => {
-      toast.success(result.reconnecting ? 'Captain is restarting…' : 'PM2 action completed');
+    onSuccess: async (result, variables) => {
+      const completedAction = {
+        start: 'started',
+        restart: 'restarted',
+        stop: 'stopped',
+      }[variables.action];
+      toast.success(`App "${process.name}" was ${completedAction}`);
       if (result.reconnecting) {
         sessionStorage.setItem('pm2-captain-reconnecting', 'true');
         window.dispatchEvent(new Event('pm2-captain-reconnecting'));
@@ -30,19 +35,20 @@ export function ProcessActions({
   });
   const stopped = process.status !== 'online';
   const buttonClass = compact ? 'h-8 px-2.5 text-xs' : '';
+  const pendingAction = action.isPending ? action.variables?.action : undefined;
 
   if (stopped) {
     return (
       <Button
         variant="primary"
         className={buttonClass}
-        loading={action.isPending}
+        loading={pendingAction === 'start'}
         onClick={event => {
           event.stopPropagation();
           action.mutate({ pmId: process.pmId, action: 'start' });
         }}
       >
-        <Play className="size-3.5" />
+        {pendingAction !== 'start' ? <Play className="size-3.5" /> : null}
         Start
       </Button>
     );
@@ -53,32 +59,24 @@ export function ProcessActions({
       <Button
         variant="primary"
         className={buttonClass}
-        loading={action.isPending && action.variables?.action === 'restart'}
+        loading={pendingAction === 'restart'}
         onClick={() => action.mutate({ pmId: process.pmId, action: 'restart' })}
       >
-        <RotateCw className="size-3.5" />
+        {pendingAction !== 'restart' ? <RotateCw className="size-3.5" /> : null}
         Restart
       </Button>
-      <ConfirmAction
-        title={`Stop ${process.name}?`}
-        description={
-          process.isCaptain
-            ? 'Captain protects its own control process from being stopped.'
-            : 'PM2 will stop this process but keep it in the process list so it can be started again.'
+      <Button
+        className={buttonClass}
+        disabled={process.isCaptain || action.isPending}
+        loading={pendingAction === 'stop'}
+        title={process.isCaptain ? 'Captain cannot stop itself' : undefined}
+        onClick={() =>
+          action.mutate({ pmId: process.pmId, action: 'stop' })
         }
-        confirmLabel="Stop process"
-        onConfirm={() => action.mutate({ pmId: process.pmId, action: 'stop' })}
-        trigger={
-          <Button
-            className={buttonClass}
-            disabled={process.isCaptain || action.isPending}
-            title={process.isCaptain ? 'Captain cannot stop itself' : undefined}
-          >
-            <Square className="size-3" />
-            Stop
-          </Button>
-        }
-      />
+      >
+        {pendingAction !== 'stop' ? <Square className="size-3" /> : null}
+        Stop
+      </Button>
     </div>
   );
 }

@@ -12,13 +12,14 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import { toast } from 'sonner';
 
-import type { LogEntry, LogView } from '@shared/contracts';
+import type { ILogEntry, ILogView } from '@shared/contracts';
 
 import { Button } from '@/components/ui';
 import { trpc } from '@/lib/trpc';
@@ -30,8 +31,8 @@ const MAX_PAUSED_LINES = 5_000;
 export function LogsPage() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
   const numericId = Number(pmId);
-  const [view, setView] = useState<LogView>('combined');
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [view, setView] = useState<ILogView>('combined');
+  const [entries, setEntries] = useState<ILogEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [approximate, setApproximate] = useState(false);
@@ -46,9 +47,17 @@ export function LogsPage() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(paused);
-  const bufferRef = useRef<LogEntry[]>([]);
+  const bufferRef = useRef<ILogEntry[]>([]);
   const isFollowingRef = useRef(true);
   const utils = trpc.useUtils();
+
+  const pinToBottom = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || !isFollowingRef.current) {
+      return;
+    }
+    element.scrollTop = element.scrollHeight;
+  }, []);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -70,23 +79,19 @@ export function LogsPage() {
     bufferRef.current = [];
     setBufferedCount(0);
     setDropped(0);
+    isFollowingRef.current = true;
   }, [numericId, view]);
 
   useEffect(() => {
     if (!initialPage.data) {
       return;
     }
+    isFollowingRef.current = true;
     setEntries(initialPage.data.entries);
     setCursor(initialPage.data.cursor);
     setHasMore(initialPage.data.hasMore);
     setApproximate(initialPage.data.approximateOrder);
     setSharedFile(initialPage.data.sharedFile);
-    requestAnimationFrame(() => {
-      const element = scrollRef.current;
-      if (element) {
-        element.scrollTop = element.scrollHeight;
-      }
-    });
   }, [initialPage.data]);
 
   trpc.logs.stream.useSubscription(
@@ -112,12 +117,6 @@ export function LogsPage() {
           return;
         }
         setEntries(current => [...current, event.entry!].slice(-MAX_LOADED_LINES));
-        requestAnimationFrame(() => {
-          const element = scrollRef.current;
-          if (element && isFollowingRef.current) {
-            element.scrollTop = element.scrollHeight;
-          }
-        });
       },
       onError(error) {
         toast.error(`Log stream: ${error.message}`);
@@ -130,13 +129,8 @@ export function LogsPage() {
     bufferRef.current = [];
     setBufferedCount(0);
     setPaused(false);
+    isFollowingRef.current = true;
     setEntries(current => [...current, ...buffered].slice(-MAX_LOADED_LINES));
-    requestAnimationFrame(() => {
-      const element = scrollRef.current;
-      if (element) {
-        element.scrollTop = element.scrollHeight;
-      }
-    });
   };
 
   const loadOlder = useCallback(async () => {
@@ -207,6 +201,12 @@ export function LogsPage() {
     overscan: 20,
     useFlushSync: false,
   });
+  const totalSize = virtualizer.getTotalSize();
+
+  // Keep pinned to bottom after React/virtualizer layout when following.
+  useLayoutEffect(() => {
+    pinToBottom();
+  }, [pinToBottom, searchResult.entries.length, totalSize]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-topbar">
@@ -271,7 +271,7 @@ export function LogsPage() {
         </Button>
         <span
           className={cn(
-            'ml-auto flex h-8 items-center gap-2 rounded-lg border px-3 font-mono text-[10px] font-semibold tracking-wider',
+            'ml-auto flex h-8 items-center gap-2 rounded-lg border px-3 font-mono text-[10px] font-semibold',
             paused
               ? 'border-warning/40 bg-warning/10 text-warning'
               : 'border-online/40 bg-online/10 text-online'

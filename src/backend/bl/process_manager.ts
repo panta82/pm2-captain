@@ -2,7 +2,12 @@ import libOs from 'node:os';
 
 import { ProcessDescription } from 'pm2';
 
-import { ProcessAction, ProcessDetail, ProcessListResult, ProcessStatus, ProcessSummary } from '../../shared/contracts';
+import {
+  IProcessAction,
+  IProcessDetail,
+  IProcessListResult,
+  IProcessStatus,
+} from '../../shared/contracts';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 
@@ -28,9 +33,9 @@ function stringArray(value: unknown): string[] {
 export function createProcessManager({ pm2Client, log }: IContainer) {
   const actionQueues = new Map<number, Promise<unknown>>();
 
-  const normalize = (description: ProcessDescription): ProcessDetail => {
+  const normalize = (description: ProcessDescription): IProcessDetail => {
     const environment = (description.pm2_env || {}) as Record<string, any>;
-    const status = (environment.status || 'unknown') as ProcessStatus;
+    const status = (environment.status || 'unknown') as IProcessStatus;
     const startedAt = typeof environment.pm_uptime === 'number' ? environment.pm_uptime : null;
 
     return {
@@ -74,7 +79,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
   };
 
   return new (class ProcessManager {
-    list = async (): Promise<ProcessListResult> => {
+    list = async (): Promise<IProcessListResult> => {
       const processes = await pm2Client.list();
       return {
         hostLabel: `${libOs.userInfo().username}@${libOs.hostname()}`,
@@ -85,7 +90,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       };
     };
 
-    detail = async (pmId: number): Promise<ProcessDetail> => {
+    detail = async (pmId: number): Promise<IProcessDetail> => {
       const result = await pm2Client.describe(pmId);
       if (!result.length) {
         throw new ProcessNotFoundError(pmId);
@@ -93,7 +98,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       return normalize(result[0]);
     };
 
-    action = async (pmId: number, action: ProcessAction) => {
+    action = async (pmId: number, action: IProcessAction) => {
       const process = await this.detail(pmId);
       if (action === 'stop' && process.isCaptain) {
         throw new Error('PM2 Captain cannot stop itself');

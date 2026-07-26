@@ -6,7 +6,7 @@ import { IServiceIdentifier, define } from '../framework/dependency_injection';
 import { Enum } from '../framework/enum';
 import { CustomError } from '../framework/errors';
 import { IPromtzel, arrToStr, promtzel, waitFor } from '../framework/tools';
-import { ReplaceProperty } from '../framework/types';
+import { IReplaceProperty } from '../framework/types';
 
 export const APP_LIFECYCLE_METHOD_NAMES = new Enum('initialize', 'start', 'stop', 'dispose');
 export type IAppLifecycleMethodName = (typeof APP_LIFECYCLE_METHOD_NAMES.tuple)[number];
@@ -38,7 +38,7 @@ export const AppStateSchema = z.object({
   enrollments: z.set(z.union([z.string(), z.literal('*')])),
   serviceSequence: z.array(z.string()).nullable(),
 });
-export type IAppState = ReplaceProperty<
+export type IAppState = IReplaceProperty<
   z.infer<typeof AppStateSchema>,
   'serviceSequence',
   IServiceIdentifier[] | null

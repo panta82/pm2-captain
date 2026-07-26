@@ -1,4 +1,4 @@
-export type ProcessStatus =
+export type IProcessStatus =
   | 'online'
   | 'stopping'
   | 'stopped'
@@ -7,15 +7,15 @@ export type ProcessStatus =
   | 'one-launch-status'
   | 'unknown';
 
-export type ProcessAction = 'start' | 'stop' | 'restart';
-export type LogView = 'combined' | 'out' | 'err';
-export type LogChannel = 'out' | 'err' | 'shared';
+export type IProcessAction = 'start' | 'stop' | 'restart';
+export type ILogView = 'combined' | 'out' | 'err';
+export type ILogChannel = 'out' | 'err' | 'shared';
 
-export interface ProcessSummary {
+export interface IProcessSummary {
   pmId: number;
   name: string;
   namespace: string;
-  status: ProcessStatus;
+  status: IProcessStatus;
   pid: number | null;
   mode: string;
   cpu: number | null;
@@ -28,7 +28,7 @@ export interface ProcessSummary {
   isCaptain: boolean;
 }
 
-export interface ProcessDetail extends ProcessSummary {
+export interface IProcessDetail extends IProcessSummary {
   script: string | null;
   args: string[];
   cwd: string | null;
@@ -42,23 +42,23 @@ export interface ProcessDetail extends ProcessSummary {
   errLogPath: string | null;
 }
 
-export interface ProcessListResult {
+export interface IProcessListResult {
   hostLabel: string;
-  processes: ProcessSummary[];
+  processes: IProcessSummary[];
 }
 
-export interface LogEntry {
+export interface ILogEntry {
   id: string;
   pmId: number;
   processName: string;
-  channel: LogChannel;
+  channel: ILogChannel;
   text: string;
   timestamp: number | null;
   sequence: number;
 }
 
-export interface LogPage {
-  entries: LogEntry[];
+export interface ILogPage {
+  entries: ILogEntry[];
   cursor: string | null;
   hasMore: boolean;
   approximateOrder: boolean;
@@ -66,9 +66,9 @@ export interface LogPage {
   rotated: boolean;
 }
 
-export interface LogStreamEvent {
+export interface ILogStreamEvent {
   type: 'log' | 'daemon-status';
-  entry?: LogEntry;
+  entry?: ILogEntry;
   connected?: boolean;
   message?: string;
 }

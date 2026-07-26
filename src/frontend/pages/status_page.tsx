@@ -7,14 +7,14 @@ import {
 import { useNavigate } from '@tanstack/react-router';
 import { Eye, RotateCw } from 'lucide-react';
 
-import type { ProcessSummary } from '@shared/contracts';
+import type { IProcessSummary } from '@shared/contracts';
 
 import { ProcessActions } from '@/components/process_actions';
 import { Skeleton } from '@/components/ui';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
-const column = createColumnHelper<ProcessSummary>();
+const column = createColumnHelper<IProcessSummary>();
 
 export function StatusPage() {
   const navigate = useNavigate();
@@ -131,7 +131,7 @@ export function StatusPage() {
                 {group.headers.map(header => (
                   <th
                     key={header.id}
-                    className="px-4 text-left text-[10px] font-semibold tracking-[0.16em] text-muted first:pl-6"
+                    className="px-4 text-left text-[10px] font-semibold text-muted first:pl-6"
                   >
                     {header.isPlaceholder
                       ? null

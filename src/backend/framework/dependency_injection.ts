@@ -3,7 +3,7 @@ import libPath from 'path';
 import { assert } from './assertions';
 import { CustomError } from './errors';
 import { typedValues } from './tools';
-import { StringKeys } from './types';
+import { IStringKeys } from './types';
 
 export interface IServiceDefinitionImporter<TDefinition extends { identifier: string }> {
   identifier: TDefinition['identifier'];
@@ -121,7 +121,7 @@ export function define<
 /** Declaration merging target */
 export interface IServiceImporters {}
 
-export type IServiceIdentifier = StringKeys<IServiceImporters>;
+export type IServiceIdentifier = IStringKeys<IServiceImporters>;
 type IServiceImporterUnion = IServiceImporters[IServiceIdentifier];
 
 type IServiceDefinitions = {

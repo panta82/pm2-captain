@@ -18,6 +18,13 @@ test('navigates status, info, and streaming logs', async ({ page }) => {
   await page.getByText('captain-fixture', { exact: true }).first().click();
   await expect(page).toHaveURL(/\/processes\/0\/info$/);
   await expect(page.getByRole('heading', { name: 'PROCESS' })).toBeVisible();
+  const processHeading = page.getByRole('heading', {
+    name: 'captain-fixture',
+    exact: true,
+  });
+  const processHeadingBox = await processHeading.boundingBox();
+  expect(processHeadingBox?.y).toBeLessThan(60);
+  await expect(page.getByRole('navigation', { name: 'Processes' })).not.toContainText('%');
   await expect(page.getByText('Environment values are never shown')).toBeVisible();
 
   await page.getByRole('link', { name: 'Logs' }).click();
@@ -41,10 +48,10 @@ test('restarts, stops, and starts a fixture', async ({ page }) => {
   await page.goto(launchPath);
   const row = page.getByRole('row', { name: /captain-fixture/ });
   await row.getByRole('button', { name: 'Restart' }).click();
-  await expect(page.getByText('PM2 action completed')).toBeVisible();
+  await expect(page.getByText('App "captain-fixture" was restarted')).toBeVisible();
 
   await row.getByRole('button', { name: 'Stop' }).click();
-  await page.getByRole('button', { name: 'Stop process' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Start' })).toBeVisible({
     timeout: 10_000,
   });
@@ -60,6 +67,12 @@ test('keeps process actions on compact mobile cards', async ({ page }) => {
 
   const card = page.locator('article').filter({ hasText: 'captain-fixture' });
   await expect(card.getByText('captain-fixture', { exact: true })).toBeVisible();
+
+  const startButton = card.getByRole('button', { name: 'Start' });
+  if (await startButton.isVisible()) {
+    await startButton.click();
+  }
+
   await expect(card.getByRole('button', { name: 'Restart' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Stop' })).toBeVisible();
   await page.getByRole('button', { name: 'Open captain-fixture' }).click();
@@ -71,4 +84,15 @@ test('redirects a stale process route back to status', async ({ page }) => {
   await page.goto(launchPath);
   await page.goto('/processes/99999/info');
   await expect(page).toHaveURL('http://127.0.0.1:3214/');
+});
+
+test('offers a clear way home from an unknown route', async ({ page }) => {
+  await page.goto(launchPath);
+  await page.goto('/does-not-exist');
+
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(page.getByText('Bad url? Click the button below to go back home.')).toBeVisible();
+  await page.getByRole('link', { name: 'Go home' }).click();
+  await expect(page).toHaveURL('http://127.0.0.1:3214/');
+  await expect(page.getByText('captain-fixture', { exact: true }).first()).toBeVisible();
 });

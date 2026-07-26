@@ -1,6 +1,6 @@
 import { CustomError } from './errors';
 import { arrToStr, hasOwnProperty } from './tools';
-import { AnyRecord } from './types';
+import { IAnyRecord } from './types';
 
 export class AssertionError extends CustomError {
   constructor(message?: string) {
@@ -19,7 +19,7 @@ export function assert(condition: any, message?: string | (() => string)): asser
   throw new AssertionError(message);
 }
 
-assert.provided = (vals: AnyRecord) => {
+assert.provided = (vals: IAnyRecord) => {
   const missing = [];
   for (const key in vals) {
     if (hasOwnProperty(vals, key)) {

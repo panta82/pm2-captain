@@ -2,6 +2,7 @@ import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { AppHeader } from '@/components/app_header';
 import { ProcessActions } from '@/components/process_actions';
 import { ProcessSidebar } from '@/components/process_sidebar';
 import { Button, Skeleton } from '@/components/ui';
@@ -76,9 +77,16 @@ export function ProcessLayout() {
         </div>
       ) : null}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <section className="shrink-0 border-b border-line bg-panel/45 px-4 pt-4 sm:px-7 sm:pt-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
+        <div className="lg:hidden">
+          <AppHeader
+            data={list.data}
+            loading={false}
+            failed={false}
+          />
+        </div>
+        <section className="shrink-0 border-b border-line bg-panel/45 px-4 sm:h-16 sm:px-7">
+          <div className="grid h-full grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+            <div className="flex min-w-0 items-center gap-3 self-center py-3 sm:py-0">
               <Button
                 variant="ghost"
                 className="size-9 shrink-0 p-0 lg:hidden"
@@ -86,31 +94,33 @@ export function ProcessLayout() {
               >
                 <Menu className="size-4" />
               </Button>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
-                    {detail.data.name}
-                  </h1>
-                  <span className="font-mono text-xs text-muted">id {detail.data.pmId}</span>
-                  <span
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider',
-                      detail.data.status === 'online'
-                        ? 'border-online/50 bg-online/10 text-online'
-                        : 'border-muted/40 text-muted'
-                    )}
-                  >
-                    {detail.data.status}
-                  </span>
-                </div>
-                <p className="mt-1 truncate font-mono text-xs text-muted sm:text-sm">
-                  {detail.data.args.join(' ') || detail.data.script || 'PM2 process'} · {detail.data.mode}
-                  {detail.data.nodeVersion ? ` · ${detail.data.nodeVersion}` : ''}
-                </p>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
+                  {detail.data.name}
+                </h1>
+                <span className="font-mono text-xs text-muted">
+                  id {detail.data.pmId}
+                </span>
+                <span
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase',
+                    detail.data.status === 'online'
+                      ? 'border-online/50 bg-online/10 text-online'
+                      : 'border-muted/40 text-muted'
+                  )}
+                >
+                  {detail.data.status}
+                </span>
               </div>
             </div>
-            <div className="hidden items-center gap-2 sm:flex">
-              <ProcessActions process={detail.data} />
+
+            <div className="flex items-center justify-end gap-2 self-center py-3 sm:col-start-3 sm:py-0">
+              <div className="sm:hidden">
+                <ProcessActions process={detail.data} compact />
+              </div>
+              <div className="hidden sm:block">
+                <ProcessActions process={detail.data} />
+              </div>
               <Button
                 variant="ghost"
                 className="size-10 p-0"
@@ -120,31 +130,33 @@ export function ProcessLayout() {
                 <X className="size-4" />
               </Button>
             </div>
-          </div>
-          <div className="mt-4 flex items-end justify-between">
-            <nav className="flex gap-3">
-              <Link
-                to="/processes/$pmId/info"
-                params={{ pmId }}
-                activeProps={{ className: 'border-cyan text-cyan' }}
-                inactiveProps={{ className: 'border-transparent text-muted hover:text-white' }}
-                className="border-b-2 px-3 pb-3 text-sm font-semibold transition-colors"
-              >
-                Info
-              </Link>
-              <Link
-                to="/processes/$pmId/logs"
-                params={{ pmId }}
-                activeProps={{ className: 'border-cyan text-cyan' }}
-                inactiveProps={{ className: 'border-transparent text-muted hover:text-white' }}
-                className="border-b-2 px-3 pb-3 text-sm font-semibold transition-colors"
-              >
-                Logs
-              </Link>
+
+            <nav className="col-span-2 flex justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+              <div className="relative top-px flex overflow-hidden rounded-t-lg border border-b-0 border-line bg-navy">
+                <Link
+                  to="/processes/$pmId/info"
+                  params={{ pmId }}
+                  activeProps={{ className: 'text-cyan' }}
+                  inactiveProps={{
+                    className: 'bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                  }}
+                  className="px-5 py-2.5 text-sm font-semibold transition-colors"
+                >
+                  Info
+                </Link>
+                <Link
+                  to="/processes/$pmId/logs"
+                  params={{ pmId }}
+                  activeProps={{ className: 'text-cyan' }}
+                  inactiveProps={{
+                    className: 'bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                  }}
+                  className="border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
+                >
+                  Logs
+                </Link>
+              </div>
             </nav>
-            <div className="pb-2 sm:hidden">
-              <ProcessActions process={detail.data} compact />
-            </div>
           </div>
         </section>
         <Outlet />

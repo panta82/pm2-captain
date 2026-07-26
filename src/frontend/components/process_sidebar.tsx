@@ -1,19 +1,26 @@
 import { Link } from '@tanstack/react-router';
 
-import type { ProcessSummary } from '@shared/contracts';
+import type { IProcessSummary } from '@shared/contracts';
 
+import { AppHeader } from '@/components/app_header';
 import { cn } from '@/lib/utils';
 
 export function ProcessSidebar({
   processes,
   selectedId,
 }: {
-  processes: ProcessSummary[];
+  processes: IProcessSummary[];
   selectedId: number;
 }) {
   return (
-    <aside className="hidden w-[244px] shrink-0 border-r border-line bg-topbar py-3 lg:block">
-      <nav aria-label="Processes">
+    <aside className="hidden w-[244px] shrink-0 border-r border-line bg-topbar lg:block">
+      <AppHeader
+        data={{ processes, hostLabel: '' }}
+        loading={false}
+        failed={false}
+        sidebar
+      />
+      <nav aria-label="Processes" className="py-3">
         {processes.map(process => (
           <Link
             key={process.pmId}
@@ -43,9 +50,6 @@ export function ProcessSidebar({
                 YOU
               </span>
             ) : null}
-            <span className="font-mono text-[11px] text-muted">
-              {process.cpu === null ? '—' : `${process.cpu.toFixed(1)}%`}
-            </span>
           </Link>
         ))}
       </nav>

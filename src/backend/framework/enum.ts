@@ -1,7 +1,7 @@
 import { ZodEnum } from 'zod';
 
-type UnionToTuple<U extends string | number, R extends any[] = []> = {
-  [S in U]: Exclude<U, S> extends never ? [...R, S] : UnionToTuple<Exclude<U, S>, [...R, S]>;
+type IUnionToTuple<U extends string | number, R extends any[] = []> = {
+  [S in U]: Exclude<U, S> extends never ? [...R, S] : IUnionToTuple<Exclude<U, S>, [...R, S]>;
 }[U];
 
 /**
@@ -9,7 +9,7 @@ type UnionToTuple<U extends string | number, R extends any[] = []> = {
  */
 export class Enum<T extends string | number> {
   public readonly lookup: { [key in T]: key };
-  public readonly tuple: UnionToTuple<T>;
+  public readonly tuple: IUnionToTuple<T>;
   public labels: { [key in T]: string };
   //public schema: ZodEnum<T[]>;
 

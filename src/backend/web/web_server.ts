@@ -13,6 +13,14 @@ import { createLoggerOptions } from '../lib/logger';
 import { IAppRouter, createAppRouter } from './app_router';
 import { AUTH_COOKIE_NAME, makeCreateContext } from './trpc';
 
+export function isBackendRequestPath(path: string) {
+  return (
+    path === '/health' ||
+    path === '/launch' ||
+    path.startsWith('/api/')
+  );
+}
+
 export function createWebServer({ log, container }: IContainer) {
   const app = fastify({
     logger: { ...createLoggerOptions(container.settings.debug), level: 'warn' },
@@ -66,10 +74,20 @@ export function createWebServer({ log, container }: IContainer) {
         const vite = await import('vite');
         viteServer = await vite.createServer({
           configFile: libPath.join(ROOT_DIR, 'vite.config.mjs'),
-          server: { middlewareMode: true },
+          server: {
+            middlewareMode: true,
+            hmr: { server: app.server },
+          },
           appType: 'spa',
         });
-        app.use(viteServer.middlewares);
+        app.use((request, response, next) => {
+          const path = request.url?.split('?', 1)[0] || '';
+          if (isBackendRequestPath(path)) {
+            next();
+            return;
+          }
+          viteServer!.middlewares(request, response, next);
+        });
       } else {
         await app.register(fastifyStatic, {
           root: libPath.join(ROOT_DIR, 'dist/frontend'),
