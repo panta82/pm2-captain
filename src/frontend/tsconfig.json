@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["vite/client", "vitest/globals"]
+  },
+  "include": [".", "../shared", "../backend/web/app_router.ts"],
+  "exclude": ["../../dist", "../../node_modules"]
+}

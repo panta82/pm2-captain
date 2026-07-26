@@ -1,0 +1,80 @@
+{
+  "name": "pm2-captain",
+  "version": "1.0.0",
+  "description": "A local web control room for PM2 processes and logs",
+  "main": "dist/backend/app.js",
+  "bin": {
+    "pm2-captain": "dist/backend/app.js"
+  },
+    "files": [
+      "dist",
+      "README.md",
+      "REFERENCE_SOURCES.md",
+      "LICENSE"
+  ],
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development SERVER_DEV_MODE=true tsx watch src/backend/app.ts",
+    "start": "node dist/backend/app.js",
+    "build": "bash support/build.sh",
+    "build:frontend": "vite build",
+    "build:backend": "bash support/build-backend.sh",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project src/frontend/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/cookie": "latest",
+    "@fastify/middie": "latest",
+    "@fastify/static": "latest",
+    "@fontsource/ibm-plex-mono": "latest",
+    "@fontsource/inter": "latest",
+    "@radix-ui/react-alert-dialog": "latest",
+    "@tanstack/react-query": "latest",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-table": "latest",
+    "@tanstack/react-virtual": "latest",
+    "@trpc/client": "latest",
+    "@trpc/react-query": "latest",
+    "@trpc/server": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+    "commander": "latest",
+    "fastify": "latest",
+    "lucide-react": "latest",
+    "open": "latest",
+    "pino": "latest",
+    "pm2": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "sonner": "latest",
+    "superjson": "latest",
+    "tailwind-merge": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@tailwindcss/vite": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "cross-env": "latest",
+    "esbuild": "latest",
+    "jsdom": "latest",
+    "pino-pretty": "latest",
+    "prettier": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}

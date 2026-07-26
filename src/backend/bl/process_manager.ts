@@ -1,0 +1,137 @@
+import libOs from 'node:os';
+
+import { ProcessDescription } from 'pm2';
+
+import { ProcessAction, ProcessDetail, ProcessListResult, ProcessStatus, ProcessSummary } from '../../shared/contracts';
+import { IContainer } from '../container';
+import { define } from '../framework/dependency_injection';
+
+export class ProcessNotFoundError extends Error {
+  readonly code = 'PM2_PROCESS_NOT_FOUND';
+
+  constructor(readonly pmId: number) {
+    super(`PM2 process ${pmId} was not found`);
+    this.name = 'ProcessNotFoundError';
+  }
+}
+
+function stringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(String);
+  }
+  if (typeof value === 'string' && value.length) {
+    return value.split(' ');
+  }
+  return [];
+}
+
+export function createProcessManager({ pm2Client, log }: IContainer) {
+  const actionQueues = new Map<number, Promise<unknown>>();
+
+  const normalize = (description: ProcessDescription): ProcessDetail => {
+    const environment = (description.pm2_env || {}) as Record<string, any>;
+    const status = (environment.status || 'unknown') as ProcessStatus;
+    const startedAt = typeof environment.pm_uptime === 'number' ? environment.pm_uptime : null;
+
+    return {
+      pmId: Number(environment.pm_id ?? -1),
+      name: environment.name || description.name || 'unnamed',
+      namespace: environment.namespace || 'default',
+      status,
+      pid:
+        typeof description.pid === 'number' && description.pid > 0
+          ? description.pid
+          : null,
+      mode: environment.exec_mode === 'cluster_mode' ? 'cluster' : 'fork',
+      cpu: typeof description.monit?.cpu === 'number' ? description.monit.cpu : null,
+      memory:
+        typeof description.monit?.memory === 'number' ? description.monit.memory : null,
+      uptime: status === 'online' && startedAt ? Math.max(0, Date.now() - startedAt) : null,
+      restarts: Number(environment.restart_time || 0),
+      unstableRestarts: Number(environment.unstable_restarts || 0),
+      version: typeof environment.version === 'string' ? environment.version : null,
+      watching: Boolean(environment.watch),
+      isCaptain: description.pid === global.process.pid,
+      script: typeof environment.pm_exec_path === 'string' ? environment.pm_exec_path : null,
+      args: stringArray(environment.args),
+      cwd: typeof environment.pm_cwd === 'string' ? environment.pm_cwd : null,
+      interpreter:
+        typeof environment.exec_interpreter === 'string' ? environment.exec_interpreter : null,
+      nodeVersion: typeof environment.node_version === 'string' ? environment.node_version : null,
+      instances: typeof environment.instances === 'number' ? environment.instances : null,
+      createdAt:
+        typeof environment.created_at === 'number'
+          ? environment.created_at
+          : startedAt,
+      exitCode: typeof environment.exit_code === 'number' ? environment.exit_code : null,
+      cronRestart:
+        typeof environment.cron_restart === 'string' ? environment.cron_restart : null,
+      outLogPath:
+        typeof environment.pm_out_log_path === 'string' ? environment.pm_out_log_path : null,
+      errLogPath:
+        typeof environment.pm_err_log_path === 'string' ? environment.pm_err_log_path : null,
+    };
+  };
+
+  return new (class ProcessManager {
+    list = async (): Promise<ProcessListResult> => {
+      const processes = await pm2Client.list();
+      return {
+        hostLabel: `${libOs.userInfo().username}@${libOs.hostname()}`,
+        processes: processes
+          .map(normalize)
+          .map(({ script, args, cwd, interpreter, nodeVersion, instances, createdAt, exitCode, cronRestart, outLogPath, errLogPath, ...summary }) => summary)
+          .sort((left, right) => left.pmId - right.pmId),
+      };
+    };
+
+    detail = async (pmId: number): Promise<ProcessDetail> => {
+      const result = await pm2Client.describe(pmId);
+      if (!result.length) {
+        throw new ProcessNotFoundError(pmId);
+      }
+      return normalize(result[0]);
+    };
+
+    action = async (pmId: number, action: ProcessAction) => {
+      const process = await this.detail(pmId);
+      if (action === 'stop' && process.isCaptain) {
+        throw new Error('PM2 Captain cannot stop itself');
+      }
+
+      const previous = actionQueues.get(pmId) || Promise.resolve();
+      const operation = previous
+        .catch(() => undefined)
+        .then(async () => {
+          log.info({ pmId, action }, `PM2 ${action} requested`);
+          if (action === 'start') {
+            return pm2Client.startProcess(pmId);
+          }
+          if (action === 'stop') {
+            return pm2Client.stopProcess(pmId);
+          }
+          if (process.isCaptain) {
+            setTimeout(() => {
+              void pm2Client.restartProcess(pmId).catch(error => {
+                log.error({ error, pmId }, 'Captain self-restart failed');
+              });
+            }, 350);
+            return { accepted: true, reconnecting: true };
+          }
+          return pm2Client.restartProcess(pmId);
+        })
+        .finally(() => {
+          if (actionQueues.get(pmId) === operation) {
+            actionQueues.delete(pmId);
+          }
+        });
+      actionQueues.set(pmId, operation);
+      await operation;
+      return { accepted: true, reconnecting: process.isCaptain && action === 'restart' };
+    };
+  })();
+}
+
+export default define({
+  createProcessManager,
+});

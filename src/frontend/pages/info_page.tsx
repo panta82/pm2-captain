@@ -1,0 +1,126 @@
+import { useParams } from '@tanstack/react-router';
+
+import { trpc } from '@/lib/trpc';
+import {
+  compactPath,
+  formatBytes,
+  formatDuration,
+} from '@/lib/utils';
+
+function Metric({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-line bg-panel p-4">
+      <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-muted">
+        {label}
+      </p>
+      <p className={`mt-2 font-mono text-2xl font-semibold ${accent || 'text-white'}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DetailPanel({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<[string, string | number | null, string?]>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-line bg-topbar">
+      <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold tracking-[0.12em] text-muted">
+        {title}
+      </h2>
+      <dl className="grid gap-y-4 px-5 py-4 font-mono text-[13px] sm:grid-cols-[180px_1fr]">
+        {rows.map(([label, value, color]) => (
+          <div className="contents" key={label}>
+            <dt className="text-cyan">{label}</dt>
+            <dd className={color || 'break-all text-white'}>
+              {value === null || value === '' ? '—' : value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+export function InfoPage() {
+  const { pmId } = useParams({ from: '/processes/$pmId' });
+  const detail = trpc.processes.detail.useQuery(
+    { pmId: Number(pmId) },
+    { refetchInterval: 2_000 }
+  );
+  if (!detail.data) {
+    return null;
+  }
+  const process = detail.data;
+
+  return (
+    <div className="flex-1 overflow-auto p-4 sm:p-7">
+      <div className="mx-auto max-w-[1280px] space-y-4">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <Metric
+            label="CPU"
+            value={process.cpu === null ? '—' : `${process.cpu.toFixed(1)}%`}
+            accent="text-cyan"
+          />
+          <Metric label="MEM" value={formatBytes(process.memory)} />
+          <Metric label="UPTIME" value={formatDuration(process.uptime)} accent="text-online" />
+          <Metric label="RESTARTS" value={String(process.restarts)} accent="text-warning" />
+        </div>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <DetailPanel
+            title="PROCESS"
+            rows={[
+              ['status', process.status, process.status === 'online' ? 'text-online' : 'text-danger'],
+              ['namespace', process.namespace, 'text-muted'],
+              ['version', process.version],
+              ['pid', process.pid],
+              [
+                'created',
+                process.createdAt ? new Date(process.createdAt).toLocaleString() : null,
+              ],
+              ['restarts', `${process.restarts} · ${process.unstableRestarts} unstable`],
+              ['watch', process.watching ? '✓' : '×', process.watching ? 'text-online' : 'text-danger'],
+            ]}
+          />
+          <DetailPanel
+            title="EXECUTION"
+            rows={[
+              ['script', compactPath(process.script)],
+              ['args', process.args.join(' ')],
+              ['cwd', compactPath(process.cwd)],
+              ['mode', process.mode],
+              ['interpreter', compactPath(process.interpreter), 'text-muted'],
+              ['node', process.nodeVersion],
+              ['instances', process.instances],
+              ['exit code', process.exitCode],
+              ['cron restart', process.cronRestart],
+            ]}
+          />
+        </div>
+        <DetailPanel
+          title="LOG FILES"
+          rows={[
+            ['stdout', compactPath(process.outLogPath)],
+            ['stderr', compactPath(process.errLogPath)],
+          ]}
+        />
+        <div className="rounded-xl border border-dashed border-cyan/25 px-4 py-3 font-mono text-xs text-muted">
+          ◆ Environment values are never shown. Use{' '}
+          <span className="text-cyan">pm2 env {process.pmId}</span> locally.
+        </div>
+      </div>
+    </div>
+  );
+}
