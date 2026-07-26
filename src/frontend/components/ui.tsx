@@ -37,7 +37,10 @@ export function ToggleGroup({ className, ...props }: HTMLAttributes<HTMLDivEleme
   return (
     <div
       role="group"
-      className={cn('inline-flex gap-1 rounded-[10px] border border-line bg-topbar p-1', className)}
+      className={cn(
+        'inline-flex items-stretch overflow-hidden rounded-lg border border-line bg-panel [&>button]:rounded-none [&>button]:border-0 [&>button]:shadow-none [&>button]:focus-visible:outline-offset-[-2px] [&>button]:active:translate-y-0 [&>button]:aria-pressed:translate-y-0 [&>button+button]:border-l [&>button+button]:border-line [&>button:first-child]:rounded-tl-[7px] [&>button:first-child]:rounded-bl-[7px] [&>button:last-child]:rounded-tr-[7px] [&>button:last-child]:rounded-br-[7px]',
+        className
+      )}
       {...props}
       data-component="ToggleGroup"
     />

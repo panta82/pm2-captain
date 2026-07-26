@@ -208,7 +208,7 @@ export function LogsPage() {
                 key={option}
                 variant="toggle"
                 aria-pressed={view === option}
-                className="h-8 rounded-md px-3 font-mono text-xs"
+                className="h-8 px-3 font-mono text-xs"
                 onClick={() => setView(option)}
               >
                 {option === 'combined' ? 'All' : capitalize(option)}
@@ -217,39 +217,41 @@ export function LogsPage() {
           </ToggleGroup>
         </div>
 
-        <div className="flex min-w-0 items-center justify-center gap-2">
-          <div className="relative min-w-0 w-full max-w-md sm:w-[min(28rem,40vw)]">
-            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
-            <input
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-              placeholder="search loaded logs…"
-              className="h-9 w-full rounded-lg border border-line bg-panel pl-9 pr-20 font-mono text-xs text-white outline-none placeholder:text-muted/70 focus:border-cyan/60"
-            />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted">
-              {search ? `${searchResult.entries.length}/${entries.length}` : entries.length}
-            </span>
+        <div className="flex min-w-0 items-center justify-center">
+          <div className="flex h-9 min-w-0 w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-panel has-[input:focus]:border-cyan/60 sm:w-[min(28rem,40vw)]">
+            <div className="relative min-h-0 min-w-0 flex-1 self-stretch">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+              <input
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                placeholder="Filter loaded logs…"
+                className="block h-full w-full border-0 bg-transparent pl-9 pr-14 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70"
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted">
+                {search ? `${searchResult.entries.length}/${entries.length}` : entries.length}
+              </span>
+            </div>
+            <Button
+              variant="toggle"
+              aria-label="Case sensitive"
+              aria-pressed={caseSensitive}
+              className="h-full w-9 shrink-0 rounded-none border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
+              title="Case sensitive"
+              onClick={() => setCaseSensitive(value => !value)}
+            >
+              <CaseSensitive className="size-4" />
+            </Button>
+            <Button
+              variant="toggle"
+              aria-label="Regular expression"
+              aria-pressed={regex}
+              className="h-full w-9 shrink-0 rounded-none rounded-tr-[7px] rounded-br-[7px] border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
+              title="Regular expression"
+              onClick={() => setRegex(value => !value)}
+            >
+              <Regex className="size-4" />
+            </Button>
           </div>
-          <Button
-            variant="toggle"
-            aria-label="Case sensitive"
-            aria-pressed={caseSensitive}
-            className="size-9 shrink-0 p-0"
-            title="Case sensitive"
-            onClick={() => setCaseSensitive(value => !value)}
-          >
-            <CaseSensitive className="size-4" />
-          </Button>
-          <Button
-            variant="toggle"
-            aria-label="Regular expression"
-            aria-pressed={regex}
-            className="size-9 shrink-0 p-0"
-            title="Regular expression"
-            onClick={() => setRegex(value => !value)}
-          >
-            <Regex className="size-4" />
-          </Button>
         </div>
 
         <div className="flex items-center justify-end gap-2">
