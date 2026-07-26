@@ -23,4 +23,4 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-node dist/backend/app.js --no-open --port 3214 --pm2-home "$e2e_home"
+PM2_CAPTAIN_E2E_ENV=captain node dist/backend/app.js --no-open --port 3214 --pm2-home "$e2e_home"

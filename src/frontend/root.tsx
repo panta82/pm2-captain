@@ -6,6 +6,7 @@ import {
   createRouter,
   useRouterState,
 } from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 
 import { trpc } from '@/lib/trpc';
@@ -26,6 +27,11 @@ function RootLayout() {
   const processDetailOpen = useRouterState({
     select: state => state.location.pathname.startsWith('/processes/'),
   });
+
+  useEffect(() => {
+    document.title = list.data?.hostname ? `${list.data.hostname} — PM2 Captain` : 'PM2 Captain';
+  }, [list.data?.hostname]);
+
   return (
     <div
       data-component="RootLayout"

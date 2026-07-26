@@ -92,7 +92,12 @@ export function createCaptainLauncher({ settings, log }: IContainer) {
           signal: AbortSignal.timeout(1_000),
         });
         const health = await response.json();
-        if (health?.name === 'pm2-captain') {
+        if (
+          typeof health === 'object' &&
+          health !== null &&
+          'name' in health &&
+          health.name === 'pm2-captain'
+        ) {
           await openBrowser();
           return true;
         }

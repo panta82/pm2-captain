@@ -10,6 +10,14 @@
   --color-panel-hover: #10344e;
   --color-line: #153b55;
   --color-primary: #1677ff;
+  --color-primary-hover: #3188ff;
+  --color-primary-edge: #0c447c;
+  --color-key: #1c3048;
+  --color-key-hover: #24384f;
+  --color-key-edge: #0e1c2b;
+  --color-key-pressed: #16283f;
+  --color-key-pressed-ink: var(--color-cyan);
+  --color-control-muted: hsl(211 26% 70%);
   --color-cyan: #39bfff;
   --color-online: #35d07f;
   --color-muted: #7090aa;

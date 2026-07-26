@@ -1,13 +1,8 @@
 import { observable } from '@trpc/server/observable';
 import { randomUUID } from 'node:crypto';
 
-import {
-  ILogChannel,
-  ILogEntry,
-  ILogPage,
-  ILogStreamEvent,
-  ILogView,
-} from '../../shared/contracts';
+import { ILogChannel, ILogEntry, ILogPage, ILogStreamEvent, ILogView } from '@shared/contracts';
+
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IFileCursor } from '../lib/log_file_reader';

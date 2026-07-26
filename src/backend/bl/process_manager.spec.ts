@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createProcessManager } from './process_manager';
 
@@ -50,12 +50,18 @@ function setup(item = description()) {
 }
 
 describe('processManager', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('normalizes only the public status fields', async () => {
     const { manager } = setup(
       description({ SECRET_VALUE: 'must-not-leak', env: { PASSWORD: 'nope' } })
     );
     const result = await manager.list();
 
+    expect(result.hostname).toBeTruthy();
+    expect(result.hostLabel.endsWith(`@${result.hostname}`)).toBe(true);
     expect(result.processes[0]).toMatchObject({
       pmId: 4,
       name: 'fixture',
@@ -69,10 +75,12 @@ describe('processManager', () => {
   });
 
   it('returns environment values only when explicitly requested', async () => {
+    vi.stubEnv('PM2_CAPTAIN_UNIT_LOCAL', 'captain-value');
     const { manager } = setup(
       description({
         SECRET_VALUE: 'shown-on-env-page',
         NUMERIC_VALUE: 42,
+        PM2_CAPTAIN_UNIT_LOCAL: 'process-value',
         env: { NESTED_SECRET: 'not-a-process-variable' },
       })
     );
@@ -81,14 +89,25 @@ describe('processManager', () => {
     const detailWithEnvironment = await manager.detail(4, true);
 
     expect(JSON.stringify(detail)).not.toContain('shown-on-env-page');
-    expect(detailWithEnvironment.environment).toContainEqual({
-      name: 'SECRET_VALUE',
-      value: 'shown-on-env-page',
-    });
-    expect(detailWithEnvironment.environment).toContainEqual({
-      name: 'NUMERIC_VALUE',
-      value: '42',
-    });
+    expect(detailWithEnvironment.environment).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'SECRET_VALUE',
+          value: 'shown-on-env-page',
+          isDivergent: false,
+        }),
+        expect.objectContaining({
+          name: 'NUMERIC_VALUE',
+          value: '42',
+          isDivergent: false,
+        }),
+        expect.objectContaining({
+          name: 'PM2_CAPTAIN_UNIT_LOCAL',
+          value: 'process-value',
+          isDivergent: true,
+        }),
+      ])
+    );
     expect(JSON.stringify(detailWithEnvironment.environment)).not.toContain('NESTED_SECRET');
     expect(detailWithEnvironment.environment?.map(item => item.name)).not.toContain('pm_id');
   });

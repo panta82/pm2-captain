@@ -40,9 +40,11 @@ export interface IProcessDetail extends IProcessSummary {
 export interface IEnvironmentVariable {
   name: string;
   value: string;
+  isDivergent: boolean;
 }
 
 export interface IProcessListResult {
+  hostname: string;
   hostLabel: string;
   processes: IProcessSummary[];
 }

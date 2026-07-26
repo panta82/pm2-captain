@@ -18,7 +18,8 @@
     "build": "bash support/build.sh",
     "build:frontend": "vite build",
     "build:backend": "bash support/build-backend.sh",
-    "typecheck": "tsc --noEmit && tsc --noEmit --project src/frontend/tsconfig.json",
+    "generate:icons": "bash support/generate-icons.sh",
+    "typecheck": "tsc --noEmit --project src/backend/tsconfig.json && tsc --noEmit --project src/frontend/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -73,7 +74,7 @@
     "pino-pretty": "latest",
     "prettier": "latest",
     "tsx": "latest",
-    "typescript": "latest",
+    "typescript": "5.9.3",
     "vite": "latest",
     "vitest": "latest"
   }

@@ -179,7 +179,7 @@ export function ProcessLayout() {
                   activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
                     className:
-                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                      'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
                   className="border-b px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
@@ -192,7 +192,7 @@ export function ProcessLayout() {
                   activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
                     className:
-                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                      'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
                   className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
@@ -205,7 +205,7 @@ export function ProcessLayout() {
                   activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
                     className:
-                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                      'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
                   className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
                 >

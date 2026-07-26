@@ -1,0 +1,22 @@
+{
+  "name": "PM2 Captain",
+  "short_name": "Captain",
+  "description": "A local web control room for PM2 processes and logs",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071A2B",
+  "theme_color": "#071A2B",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

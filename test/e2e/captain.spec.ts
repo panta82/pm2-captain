@@ -26,16 +26,23 @@ test('navigates status, info, environment, and streaming logs', async ({ page })
 
   await page.getByRole('link', { name: 'Env' }).click();
   await expect(page).toHaveURL(/\/processes\/0\/env$/);
-  await expect(page.getByText('PM2_CAPTAIN_E2E_ENV', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^ENVIRONMENT/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /DIVERGENT/ })).toHaveCount(0);
+  const divergentVariable = page.getByText('PM2_CAPTAIN_E2E_ENV', { exact: true });
+  await expect(divergentVariable).toBeVisible();
+  await expect(divergentVariable).toHaveClass(/text-warning/);
+  await expect(divergentVariable).toHaveAttribute('title', 'Differs from local environment');
   await expect(page.getByText('visible', { exact: true })).toBeVisible();
 
   await page.getByRole('link', { name: 'Logs' }).click();
   await expect(page.getByText('fixture output').first()).toBeVisible();
   await page.getByRole('button', { name: 'Pause' }).click();
-  await expect(page.getByRole('button', { name: /Resume [1-9]/ })).toBeVisible({
+  const resumeButton = page.getByRole('button', { name: 'Resume', exact: true });
+  await expect(resumeButton).toBeVisible();
+  await expect(resumeButton.locator('..').getByText(/^[1-9]\d*$/)).toBeVisible({
     timeout: 5_000,
   });
-  await page.getByRole('button', { name: /Resume/ }).click();
+  await resumeButton.click();
 
   await page.getByPlaceholder('search loaded logs…').fill('fixture error');
   await expect(page.getByText('fixture error').first()).toBeVisible();

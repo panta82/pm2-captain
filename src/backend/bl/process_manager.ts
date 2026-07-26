@@ -126,7 +126,16 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
                   value !== undefined &&
                   typeof value !== 'object'
               )
-              .map(([name, value]) => ({ name, value: String(value) }))
+              .map(([name, value]) => {
+                const stringValue = String(value);
+                return {
+                  name,
+                  value: stringValue,
+                  isDivergent:
+                    global.process.env[name] !== undefined &&
+                    global.process.env[name] !== stringValue,
+                };
+              })
               .sort((left, right) => left.name.localeCompare(right.name)),
           }
         : {}),
@@ -136,8 +145,10 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
   return new (class ProcessManager {
     list = async (): Promise<IProcessListResult> => {
       const processes = await pm2Client.list();
+      const hostname = libOs.hostname();
       return {
-        hostLabel: `${libOs.userInfo().username}@${libOs.hostname()}`,
+        hostname,
+        hostLabel: `${libOs.userInfo().username}@${hostname}`,
         processes: processes
           .map(description => normalize(description))
           .map(
