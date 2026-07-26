@@ -156,8 +156,10 @@ export interface IServiceInfoBase extends IServiceDefinitionBase {
   flags: string[];
 }
 
-export interface IServiceInfo<TIdentifier extends IServiceIdentifier, TSettings>
-  extends IServiceInfoBase {
+export interface IServiceInfo<
+  TIdentifier extends IServiceIdentifier,
+  TSettings,
+> extends IServiceInfoBase {
   name: IServiceDefinitions[TIdentifier]['name'];
   identifier: TIdentifier;
   factory: (

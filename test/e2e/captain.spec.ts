@@ -3,17 +3,13 @@ import { expect, test } from '@playwright/test';
 const launchPath = '/launch?token=pm2-captain-e2e-token';
 
 test('requires a launch session for APIs', async ({ request }) => {
-  const response = await request.get(
-    '/api/trpc/processes.list?batch=1&input=%7B%7D'
-  );
+  const response = await request.get('/api/trpc/processes.list?batch=1&input=%7B%7D');
   expect(response.status()).toBe(401);
 });
 
 test('navigates status, info, and streaming logs', async ({ page }) => {
   await page.goto(launchPath);
-  await expect(
-    page.getByText('captain-fixture', { exact: true }).first()
-  ).toBeVisible();
+  await expect(page.getByText('captain-fixture', { exact: true }).first()).toBeVisible();
 
   await page.getByText('captain-fixture', { exact: true }).first().click();
   await expect(page).toHaveURL(/\/processes\/0\/info$/);

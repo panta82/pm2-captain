@@ -13,7 +13,10 @@ export function HostStatus({
   const offline = (data?.processes.length || 0) - online;
 
   return (
-    <div className="flex items-center gap-4 font-mono text-xs text-muted">
+    <div
+      data-component="HostStatus"
+      className="flex items-center gap-4 font-mono text-xs text-muted"
+    >
       {showHost && data?.hostLabel ? <span className="truncate">{data.hostLabel}</span> : null}
       <span className="flex items-center gap-2">
         <i className="size-2 rounded-full bg-online shadow-[0_0_10px_#35D07F]" />
@@ -40,6 +43,7 @@ export function AppHeader({
 }) {
   return (
     <header
+      data-component="AppHeader"
       className={
         sidebar
           ? 'flex h-16 shrink-0 items-center justify-between border-b border-line bg-panel/45 px-4 sm:px-5'

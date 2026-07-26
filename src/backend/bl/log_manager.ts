@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
-
 import { observable } from '@trpc/server/observable';
+import { randomUUID } from 'node:crypto';
 
 import {
   ILogChannel,
@@ -23,13 +22,7 @@ interface ILogCursor {
 }
 
 function encodeCursor(cursor: ILogCursor): string | null {
-  if (
-    !cursor.out &&
-    !cursor.err &&
-    !cursor.shared &&
-    !cursor.outDone &&
-    !cursor.errDone
-  ) {
+  if (!cursor.out && !cursor.err && !cursor.shared && !cursor.outDone && !cursor.errDone) {
     return null;
   }
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
@@ -92,9 +85,7 @@ function parseLine(
     }
   }
   if (timestamp === null) {
-    const match = line.match(
-      /^(?:\[[^\]]+\]\s*)?(\d{4}-\d{2}-\d{2}[T ][0-9:.+-]+Z?)/
-    );
+    const match = line.match(/^(?:\[[^\]]+\]\s*)?(\d{4}-\d{2}-\d{2}[T ][0-9:.+-]+Z?)/);
     if (match) {
       const parsedTimestamp = new Date(match[1]).getTime();
       timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
@@ -125,8 +116,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
       const detail = await processManager.detail(pmId);
       const limit = Math.min(1_000, Math.max(1, requestedLimit));
       const cursor = decodeCursor(cursorValue);
-      const sharedFile =
-        Boolean(detail.outLogPath) && detail.outLogPath === detail.errLogPath;
+      const sharedFile = Boolean(detail.outLogPath) && detail.outLogPath === detail.errLogPath;
 
       if (sharedFile) {
         const page = await logFileReader.readPreviousLines(
@@ -158,7 +148,11 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
           };
         }
         const path = channel === 'out' ? detail.outLogPath : detail.errLogPath;
-        const page = await logFileReader.readPreviousLines(path, cursor[channel] || null, channelLimit);
+        const page = await logFileReader.readPreviousLines(
+          path,
+          cursor[channel] || null,
+          channelLimit
+        );
         return {
           ...page,
           entries: page.lines.map((line, index) =>
@@ -233,8 +227,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
                 processName: event.packet.process.name,
                 channel: event.type,
                 text: line,
-                timestamp:
-                  typeof event.packet.at === 'number' ? event.packet.at : Date.now(),
+                timestamp: typeof event.packet.at === 'number' ? event.packet.at : Date.now(),
                 sequence: liveSequence,
               },
             });

@@ -1,20 +1,15 @@
-import {
-  Link,
-  Outlet,
-  useNavigate,
-  useParams,
-  useRouterState,
-} from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
+import { setProcessTab } from '@/lib/process_tab';
+import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 
 import { AppHeader } from '@/components/app_header';
 import { ProcessActions } from '@/components/process_actions';
 import { ProcessNav } from '@/components/process_nav';
 import { Button, Skeleton } from '@/components/ui';
-import { setProcessTab } from '@/lib/process_tab';
-import { trpc } from '@/lib/trpc';
-import { cn } from '@/lib/utils';
 
 export function ProcessLayout() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
@@ -27,8 +22,7 @@ export function ProcessLayout() {
     { pmId: numericId },
     {
       refetchInterval: query => (query.state.error ? false : 2_000),
-      retry: (failureCount, error) =>
-        error.data?.code !== 'NOT_FOUND' && failureCount < 2,
+      retry: (failureCount, error) => error.data?.code !== 'NOT_FOUND' && failureCount < 2,
     }
   );
 
@@ -46,18 +40,20 @@ export function ProcessLayout() {
     }
   }, [detail.error, navigate]);
 
-  const listProcess = list.data?.processes.find(
-    process => process.pmId === numericId
-  );
+  const listProcess = list.data?.processes.find(process => process.pmId === numericId);
   const process = detail.data ?? listProcess;
 
   if (list.isLoading && !list.data) {
-    return <Skeleton className="m-6 h-72" />;
+    return (
+      <div data-component="ProcessLayout" className="m-6 h-72">
+        <Skeleton className="h-full" />
+      </div>
+    );
   }
 
   if (!list.data) {
     return (
-      <div className="grid flex-1 place-items-center text-danger">
+      <div data-component="ProcessLayout" className="grid flex-1 place-items-center text-danger">
         {list.error?.message || 'Unable to load processes'}
       </div>
     );
@@ -65,21 +61,16 @@ export function ProcessLayout() {
 
   if (!process && !detail.isLoading) {
     return (
-      <div className="grid flex-1 place-items-center text-danger">
+      <div data-component="ProcessLayout" className="grid flex-1 place-items-center text-danger">
         {detail.error?.message || 'Process not found'}
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
       <aside className="hidden w-[244px] shrink-0 border-r border-line bg-topbar lg:block">
-        <AppHeader
-          data={list.data}
-          loading={false}
-          failed={false}
-          sidebar
-        />
+        <AppHeader data={list.data} loading={false} failed={false} sidebar />
         <ProcessNav
           processes={list.data.processes}
           selectedId={numericId}
@@ -89,9 +80,7 @@ export function ProcessLayout() {
           selectedItemClassName="border border-primary/50 bg-panel-hover text-white"
           idleItemClassName="border border-transparent text-white/90 hover:bg-panel"
           leading={(_process, isSelected) =>
-            isSelected ? (
-              <i className="absolute -left-[9px] h-7 w-1 rounded-r bg-primary" />
-            ) : null
+            isSelected ? <i className="absolute -left-[9px] h-7 w-1 rounded-r bg-primary" /> : null
           }
         />
       </aside>
@@ -105,7 +94,11 @@ export function ProcessLayout() {
           <div className="relative h-full w-[min(82vw,320px)] overflow-y-auto border-r border-line bg-topbar p-3">
             <div className="mb-3 flex items-center justify-between px-2">
               <span className="text-sm font-semibold">Processes</span>
-              <Button variant="ghost" className="size-9 p-0" onClick={() => setMobileMenuOpen(false)}>
+              <Button
+                variant="ghost"
+                className="size-9 p-0"
+                onClick={() => setMobileMenuOpen(false)}
+              >
                 <X className="size-4" />
               </Button>
             </div>
@@ -123,11 +116,7 @@ export function ProcessLayout() {
       ) : null}
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="lg:hidden">
-          <AppHeader
-            data={list.data}
-            loading={false}
-            failed={false}
-          />
+          <AppHeader data={list.data} loading={false} failed={false} />
         </div>
         <section className="shrink-0 border-b border-line bg-panel/45 px-4 sm:h-16 sm:px-7">
           <div className="grid h-full grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">

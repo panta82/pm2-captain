@@ -8,9 +8,11 @@ import {
 } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
 
+import { trpc } from '@/lib/trpc';
+
 import { AppHeader } from '@/components/app_header';
 import { RestartOverlay } from '@/components/restart_overlay';
-import { trpc } from '@/lib/trpc';
+
 import { ErrorPage } from '@/pages/error_page';
 import { InfoPage } from '@/pages/info_page';
 import { LogsPage } from '@/pages/logs_page';
@@ -24,13 +26,12 @@ function RootLayout() {
     select: state => state.location.pathname.startsWith('/processes/'),
   });
   return (
-    <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-navy text-white">
+    <div
+      data-component="RootLayout"
+      className="flex h-svh min-h-0 flex-col overflow-hidden bg-navy text-white"
+    >
       {!processDetailOpen ? (
-        <AppHeader
-          data={list.data}
-          loading={list.isPending && !list.data}
-          failed={list.isError}
-        />
+        <AppHeader data={list.data} loading={list.isPending && !list.data} failed={list.isError} />
       ) : null}
       <Outlet />
       <RestartOverlay />

@@ -8,14 +8,15 @@ import {
   useState,
 } from 'react';
 
-import type { IProcessSummary } from '@shared/contracts';
-
 import { processDetailTo } from '@/lib/process_tab';
 import { cn } from '@/lib/utils';
+
+import type { IProcessSummary } from '@shared/contracts';
 
 function NavKeysHint({ className }: { className?: string }) {
   return (
     <svg
+      data-component="NavKeysHint"
       viewBox="0 0 12 16"
       width={12}
       height={16}
@@ -24,16 +25,8 @@ function NavKeysHint({ className }: { className?: string }) {
       aria-hidden
       className={className}
     >
-      <path
-        d="M6 1.5 10.5 7H1.5L6 1.5Z"
-        fill="currentColor"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6 14.5 1.5 9h9L6 14.5Z"
-        fill="currentColor"
-        strokeLinejoin="round"
-      />
+      <path d="M6 1.5 10.5 7H1.5L6 1.5Z" fill="currentColor" strokeLinejoin="round" />
+      <path d="M6 14.5 1.5 9h9L6 14.5Z" fill="currentColor" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -128,6 +121,7 @@ export function ProcessNav({
 
   return (
     <nav
+      data-component="ProcessNav"
       ref={navRef}
       aria-label="Processes"
       tabIndex={0}
@@ -144,10 +138,7 @@ export function ProcessNav({
             to={processDetailTo()}
             params={{ pmId: String(process.pmId) }}
             onClick={onItemClick}
-            className={cn(
-              itemClassName,
-              isSelected ? selectedItemClassName : idleItemClassName
-            )}
+            className={cn(itemClassName, isSelected ? selectedItemClassName : idleItemClassName)}
           >
             {leading?.(process, isSelected)}
             <i
@@ -158,17 +149,13 @@ export function ProcessNav({
                   : 'border border-muted'
               )}
             />
-            <span className="min-w-0 flex-1 truncate font-semibold">
-              {process.name}
-            </span>
+            <span className="min-w-0 flex-1 truncate font-semibold">{process.name}</span>
             {process.isCaptain ? (
               <span className="rounded border border-cyan/60 px-1 py-0.5 font-mono text-[9px] text-cyan">
                 YOU
               </span>
             ) : null}
-            {isSelected && isFocused ? (
-              <NavKeysHint className="shrink-0 text-cyan/40" />
-            ) : null}
+            {isSelected && isFocused ? <NavKeysHint className="shrink-0 text-cyan/40" /> : null}
           </Link>
         );
       })}

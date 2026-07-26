@@ -161,6 +161,13 @@ environment filtering is security-sensitive and requires focused tests.
 - Keep the UI dark-only and use the design tokens already defined in
   `src/frontend/styles.css`. Do not scatter replacement brand colors through
   components when a token exists.
+- Put `data-component="ComponentName"` on the root DOM element rendered by every
+  project-owned React component. The value must exactly match the source-level
+  component name, including capitalization, so it can be searched directly in
+  the codebase. Apply it to every DOM-rendering conditional branch. Components
+  that render no DOM of their own, such as providers, router adapters, fragments,
+  or components returning `null`, are exempt; do not add wrapper elements solely
+  to mark them. Never put secrets or dynamic user data in the attribute.
 
 ## TypeScript and code style
 
@@ -263,7 +270,7 @@ responsive behavior, or production-serving changes.
 - Keep commit messages short and outcome-focused when a commit is requested.
 - If presenting several conclusions, prefer a numbered list so follow-up can
   refer to them precisely.
-  
+
 ## Local overrides
 
 Read `AGENTS.local.md` as additional project-specific guidance when it exists.

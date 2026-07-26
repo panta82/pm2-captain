@@ -73,9 +73,7 @@ describe('processManager', () => {
     item.pid = process.pid;
     const { manager, pm2Client } = setup(item);
 
-    await expect(manager.action(4, 'stop')).rejects.toThrow(
-      'PM2 Captain cannot stop itself'
-    );
+    await expect(manager.action(4, 'stop')).rejects.toThrow('PM2 Captain cannot stop itself');
     expect(pm2Client.stopProcess).not.toHaveBeenCalled();
   });
 

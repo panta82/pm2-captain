@@ -3,8 +3,8 @@ import middie from '@fastify/middie';
 import fastifyStatic from '@fastify/static';
 import { FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import fastify, { LogController } from 'fastify';
-import libPath from 'node:path';
 import { Socket } from 'node:net';
+import libPath from 'node:path';
 
 import { ROOT_DIR } from '../backend_settings';
 import { IContainer } from '../container';
@@ -14,11 +14,7 @@ import { IAppRouter, createAppRouter } from './app_router';
 import { AUTH_COOKIE_NAME, makeCreateContext } from './trpc';
 
 export function isBackendRequestPath(path: string) {
-  return (
-    path === '/health' ||
-    path === '/launch' ||
-    path.startsWith('/api/')
-  );
+  return path === '/health' || path === '/launch' || path.startsWith('/api/');
 }
 
 export function createWebServer({ log, container }: IContainer) {

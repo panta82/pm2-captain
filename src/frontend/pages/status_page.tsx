@@ -1,19 +1,20 @@
+import { useNavigate } from '@tanstack/react-router';
 import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { useNavigate } from '@tanstack/react-router';
 import { Eye, RotateCw } from 'lucide-react';
 
-import type { IProcessSummary } from '@shared/contracts';
-
-import { ProcessActions } from '@/components/process_actions';
-import { Skeleton } from '@/components/ui';
 import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
+
+import { ProcessActions } from '@/components/process_actions';
+import { Skeleton } from '@/components/ui';
+
+import type { IProcessSummary } from '@shared/contracts';
 
 const column = createColumnHelper<IProcessSummary>();
 
@@ -52,9 +53,7 @@ export function StatusPage() {
     column.accessor('restarts', {
       header: () => <RotateCw className="inline-block size-3" />,
       cell: info => (
-        <span className={info.getValue() > 10 ? 'text-warning' : ''}>
-          {info.getValue()}
-        </span>
+        <span className={info.getValue() > 10 ? 'text-warning' : ''}>{info.getValue()}</span>
       ),
     }),
     column.accessor('cpu', {
@@ -103,7 +102,7 @@ export function StatusPage() {
 
   if (query.isLoading) {
     return (
-      <div className="space-y-px p-4">
+      <div data-component="StatusPage" className="space-y-px p-4">
         {Array.from({ length: 5 }).map((_, index) => (
           <Skeleton key={index} className="h-14 w-full" />
         ))}
@@ -113,7 +112,7 @@ export function StatusPage() {
 
   if (query.error) {
     return (
-      <div className="grid flex-1 place-items-center p-10 text-center">
+      <div data-component="StatusPage" className="grid flex-1 place-items-center p-10 text-center">
         <div>
           <p className="font-semibold text-danger">Unable to reach PM2</p>
           <p className="mt-2 max-w-lg text-sm text-muted">{query.error.message}</p>
@@ -123,7 +122,7 @@ export function StatusPage() {
   }
 
   return (
-    <main className="flex-1 overflow-auto">
+    <main data-component="StatusPage" className="flex-1 overflow-auto">
       <div className="hidden min-w-[1100px] lg:block">
         <table className="w-full border-collapse font-mono text-[13px]">
           <thead>
@@ -134,8 +133,7 @@ export function StatusPage() {
                     key={header.id}
                     className={cn(
                       'px-4 text-[10px] font-semibold text-muted first:pl-6',
-                      header.column.id === 'restarts' ||
-                        header.column.id === 'watching'
+                      header.column.id === 'restarts' || header.column.id === 'watching'
                         ? 'text-center'
                         : 'text-left'
                     )}
@@ -174,8 +172,7 @@ export function StatusPage() {
                     key={cell.id}
                     className={cn(
                       'px-4 first:pl-6',
-                      (cell.column.id === 'restarts' ||
-                        cell.column.id === 'watching') &&
+                      (cell.column.id === 'restarts' || cell.column.id === 'watching') &&
                         'text-center'
                     )}
                   >
@@ -190,10 +187,7 @@ export function StatusPage() {
 
       <div className="grid gap-3 p-3 lg:hidden">
         {query.data?.processes.map(process => (
-          <article
-            key={process.pmId}
-            className="rounded-xl border border-line bg-panel p-4"
-          >
+          <article key={process.pmId} className="rounded-xl border border-line bg-panel p-4">
             <button
               className="block w-full text-left"
               onClick={() =>
@@ -217,9 +211,15 @@ export function StatusPage() {
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-3 gap-3 font-mono text-xs text-muted">
-                <span>CPU <b className="block pt-1 text-cyan">{process.cpu?.toFixed(1) || '—'}%</b></span>
-                <span>MEM <b className="block pt-1 text-white">{formatBytes(process.memory)}</b></span>
-                <span>UP <b className="block pt-1 text-online">{formatDuration(process.uptime)}</b></span>
+                <span>
+                  CPU <b className="block pt-1 text-cyan">{process.cpu?.toFixed(1) || '—'}%</b>
+                </span>
+                <span>
+                  MEM <b className="block pt-1 text-white">{formatBytes(process.memory)}</b>
+                </span>
+                <span>
+                  UP <b className="block pt-1 text-online">{formatDuration(process.uptime)}</b>
+                </span>
               </div>
             </button>
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">

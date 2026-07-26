@@ -1,28 +1,15 @@
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { useParams } from '@tanstack/react-router';
-import {
-  CaseSensitive,
-  Pause,
-  Play,
-  Regex,
-  Search,
-  TextWrap,
-} from 'lucide-react';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { CaseSensitive, Pause, Play, Regex, Search, TextWrap } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { ILogEntry, ILogView } from '@shared/contracts';
-
-import { Button } from '@/components/ui';
 import { trpc } from '@/lib/trpc';
 import { cn, formatTimestamp } from '@/lib/utils';
+
+import { Button } from '@/components/ui';
+
+import type { ILogEntry, ILogView } from '@shared/contracts';
 
 const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
@@ -154,9 +141,7 @@ export function LogsPage() {
         cursor,
         limit: 500,
       });
-      setEntries(current =>
-        [...page.entries, ...current].slice(-MAX_LOADED_LINES)
-      );
+      setEntries(current => [...page.entries, ...current].slice(-MAX_LOADED_LINES));
       setCursor(page.cursor);
       setHasMore(page.hasMore);
       setSharedFile(page.sharedFile);
@@ -180,9 +165,7 @@ export function LogsPage() {
       return { entries, error: '' };
     }
     try {
-      const matcher = regex
-        ? new RegExp(search, caseSensitive ? '' : 'i')
-        : null;
+      const matcher = regex ? new RegExp(search, caseSensitive ? '' : 'i') : null;
       const needle = caseSensitive ? search : search.toLowerCase();
       return {
         entries: entries.filter(entry =>
@@ -215,7 +198,7 @@ export function LogsPage() {
   }, [pinToBottom, searchResult.entries.length, totalSize]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-topbar">
+    <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-topbar">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel/30 px-3 py-3 sm:px-7">
         <div className="flex rounded-lg border border-line bg-panel p-1">
           {(['combined', 'out', 'err'] as const).map(option => (
@@ -319,18 +302,13 @@ export function LogsPage() {
         }}
       >
         {initialPage.isLoading && !entries.length ? (
-          <div className="p-8 text-center font-mono text-xs text-muted">
-            Loading active logs…
-          </div>
+          <div className="p-8 text-center font-mono text-xs text-muted">Loading active logs…</div>
         ) : !searchResult.entries.length ? (
           <div className="p-8 text-center font-mono text-xs text-muted">
             {search ? 'No loaded lines match the search.' : 'No log lines in the active file yet.'}
           </div>
         ) : (
-          <div
-            className="relative w-full"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
-          >
+          <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
             {virtualizer.getVirtualItems().map(virtualRow => {
               const entry = searchResult.entries[virtualRow.index];
               return (
@@ -350,9 +328,7 @@ export function LogsPage() {
                       entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
                     )}
                   />
-                  <span className="select-none text-muted">
-                    {formatTimestamp(entry.timestamp)}
-                  </span>
+                  <span className="select-none text-muted">{formatTimestamp(entry.timestamp)}</span>
                   <span
                     className={cn(
                       'text-[#d8e8f5]',

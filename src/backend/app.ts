@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { loadBackendSettings } from './backend_settings';
 import { IContainer, createAppContainer } from './container';
 import { defaultLog } from './lib/logger';

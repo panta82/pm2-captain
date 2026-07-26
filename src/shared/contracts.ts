@@ -1,11 +1,5 @@
 export type IProcessStatus =
-  | 'online'
-  | 'stopping'
-  | 'stopped'
-  | 'launching'
-  | 'errored'
-  | 'one-launch-status'
-  | 'unknown';
+  'online' | 'stopping' | 'stopped' | 'launching' | 'errored' | 'one-launch-status' | 'unknown';
 
 export type IProcessAction = 'start' | 'stop' | 'restart';
 export type ILogView = 'combined' | 'out' | 'err';

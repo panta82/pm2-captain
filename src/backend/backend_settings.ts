@@ -1,6 +1,5 @@
 import libOs from 'node:os';
 import libPath from 'node:path';
-
 import { z } from 'zod';
 
 const BackendSettingsSchema = z.object({
@@ -44,13 +43,9 @@ Options:
   const ownSettings = BackendSettingsSchema.parse({
     nodeEnv: process.env.NODE_ENV || 'production',
     port: args.port ?? (process.env.PM2_CAPTAIN_PORT ? Number(process.env.PM2_CAPTAIN_PORT) : 3212),
-    pm2Home:
-      args.pm2Home ||
-      process.env.PM2_HOME ||
-      libPath.join(libOs.homedir(), '.pm2'),
+    pm2Home: args.pm2Home || process.env.PM2_HOME || libPath.join(libOs.homedir(), '.pm2'),
     debug: process.env.DEBUG === 'true',
-    serverDevMode:
-      process.env.SERVER_DEV_MODE === 'true' || process.env.NODE_ENV === 'development',
+    serverDevMode: process.env.SERVER_DEV_MODE === 'true' || process.env.NODE_ENV === 'development',
     skipBrowserOpen: !args.open || process.env.PM2_CAPTAIN_NO_OPEN === 'true',
   });
 

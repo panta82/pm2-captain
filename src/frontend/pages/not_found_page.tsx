@@ -4,6 +4,7 @@ import { ArrowLeft, House } from 'lucide-react';
 function NotFoundIcon() {
   return (
     <svg
+      data-component="NotFoundIcon"
       viewBox="0 0 64 56"
       width={84}
       height={74}
@@ -41,12 +42,13 @@ function NotFoundIcon() {
 
 export function NotFoundPage() {
   return (
-    <main className="grid min-h-0 flex-1 place-items-center px-5 py-12">
+    <main
+      data-component="NotFoundPage"
+      className="grid min-h-0 flex-1 place-items-center px-5 py-12"
+    >
       <section className="w-full max-w-md rounded-2xl border border-line bg-panel p-7 text-center shadow-2xl">
         <NotFoundIcon />
-        <h1 className="mt-3 text-2xl font-bold text-white">
-          Page not found
-        </h1>
+        <h1 className="mt-3 text-2xl font-bold text-white">Page not found</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
           Bad url? Click the button below to go back home.
         </p>

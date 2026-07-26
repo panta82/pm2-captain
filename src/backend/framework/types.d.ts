@@ -69,14 +69,7 @@ export type IReverseRecord<T extends Record<keyof T, keyof any>> = {
  * https://stackoverflow.com/a/68699273/2405595
  */
 export type IDeepPartial<T> = T extends
-  | string
-  | number
-  | bigint
-  | boolean
-  | null
-  | undefined
-  | symbol
-  | Date
+  string | number | bigint | boolean | null | undefined | symbol | Date
   ? T | undefined
   : // Arrays, Sets and Maps and their readonly counterparts have their items made
     // deeply partial, but their own instances are left untouched

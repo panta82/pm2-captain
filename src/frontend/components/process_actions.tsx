@@ -1,10 +1,11 @@
 import { LoaderCircle, Play, RotateCw, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
-import type { IProcessDetail, IProcessSummary } from '@shared/contracts';
-
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
+
+import type { IProcessDetail, IProcessSummary } from '@shared/contracts';
+
 import { Button } from './ui';
 
 export function ProcessActions({
@@ -46,7 +47,11 @@ export function ProcessActions({
   const stopPending = pendingAction === 'stop';
 
   return (
-    <div className="flex items-center gap-2" onClick={event => event.stopPropagation()}>
+    <div
+      data-component="ProcessActions"
+      className="flex items-center gap-2"
+      onClick={event => event.stopPropagation()}
+    >
       <Button
         variant="primary"
         className={primaryButtonClass}
@@ -72,9 +77,7 @@ export function ProcessActions({
               ? 'Captain cannot stop itself'
               : undefined
         }
-        onClick={() =>
-          action.mutate({ pmId: process.pmId, action: 'stop' })
-        }
+        onClick={() => action.mutate({ pmId: process.pmId, action: 'stop' })}
       >
         {stopPending ? (
           <LoaderCircle className={cn(iconClass, 'animate-spin')} />

@@ -1,29 +1,13 @@
 import { useParams } from '@tanstack/react-router';
 
 import { trpc } from '@/lib/trpc';
-import {
-  compactPath,
-  formatBytes,
-  formatDuration,
-} from '@/lib/utils';
+import { compactPath, formatBytes, formatDuration } from '@/lib/utils';
 
-function Metric({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
+function Metric({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-panel p-4">
-      <p className="font-mono text-[10px] font-semibold text-muted">
-        {label}
-      </p>
-      <p className={`mt-2 font-mono text-2xl font-semibold ${accent || 'text-white'}`}>
-        {value}
-      </p>
+    <div data-component="Metric" className="rounded-xl border border-line bg-panel p-4">
+      <p className="font-mono text-[10px] font-semibold text-muted">{label}</p>
+      <p className={`mt-2 font-mono text-2xl font-semibold ${accent || 'text-white'}`}>{value}</p>
     </div>
   );
 }
@@ -36,7 +20,10 @@ function DetailPanel({
   rows: Array<[string, string | number | null, string?]>;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-line bg-topbar">
+    <section
+      data-component="DetailPanel"
+      className="overflow-hidden rounded-xl border border-line bg-topbar"
+    >
       <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
         {title}
       </h2>
@@ -56,17 +43,14 @@ function DetailPanel({
 
 export function InfoPage() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
-  const detail = trpc.processes.detail.useQuery(
-    { pmId: Number(pmId) },
-    { refetchInterval: 2_000 }
-  );
+  const detail = trpc.processes.detail.useQuery({ pmId: Number(pmId) }, { refetchInterval: 2_000 });
   if (!detail.data) {
     return null;
   }
   const process = detail.data;
 
   return (
-    <div className="flex-1 overflow-auto p-4 sm:p-7">
+    <div data-component="InfoPage" className="flex-1 overflow-auto p-4 sm:p-7">
       <div className="mx-auto max-w-[1280px] space-y-4">
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <Metric
@@ -110,10 +94,7 @@ export function InfoPage() {
               ],
               ['pid', process.pid],
               ['uptime', formatDuration(process.uptime)],
-              [
-                'created',
-                process.createdAt ? new Date(process.createdAt).toLocaleString() : null,
-              ],
+              ['created', process.createdAt ? new Date(process.createdAt).toLocaleString() : null],
               ['restarts', process.restarts],
               ['unstable restarts', process.unstableRestarts],
               ['exit code', process.exitCode],

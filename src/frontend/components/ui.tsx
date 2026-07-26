@@ -19,11 +19,11 @@ export function Button({
           'border-line bg-panel text-white hover:border-cyan/60 hover:bg-panel-hover',
         variant === 'ghost' &&
           'border-transparent bg-transparent text-muted hover:bg-panel hover:text-white',
-        variant === 'danger' &&
-          'border-danger/50 bg-danger/10 text-danger hover:bg-danger/20',
+        variant === 'danger' && 'border-danger/50 bg-danger/10 text-danger hover:bg-danger/20',
         className
       )}
       {...props}
+      data-component="Button"
     >
       {children}
     </button>
@@ -31,5 +31,7 @@ export function Button({
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded bg-white/7', className)} />;
+  return (
+    <div data-component="Skeleton" className={cn('animate-pulse rounded bg-white/7', className)} />
+  );
 }

@@ -48,8 +48,9 @@ describe('logManager', () => {
 
     expect(newest.entries.map(entry => entry.text)).toContain('out-only');
     expect(older.entries.map(entry => entry.text)).toEqual(['err-older']);
-    expect(readPreviousLines.mock.calls.filter(([path]) => path === detail.outLogPath))
-      .toHaveLength(1);
+    expect(
+      readPreviousLines.mock.calls.filter(([path]) => path === detail.outLogPath)
+    ).toHaveLength(1);
     expect(older.hasMore).toBe(false);
   });
 
@@ -59,12 +60,10 @@ describe('logManager', () => {
       logFileReader: { readPreviousLines: vi.fn() },
       pm2Client: { onLog: vi.fn(), onDaemonStatus: vi.fn() },
     } as never);
-    const malformed = Buffer.from(
-      JSON.stringify({ out: { inode: 4, offset: -1 } })
-    ).toString('base64url');
-
-    await expect(manager.page(1, 'combined', malformed, 10)).rejects.toThrow(
-      'Invalid log cursor'
+    const malformed = Buffer.from(JSON.stringify({ out: { inode: 4, offset: -1 } })).toString(
+      'base64url'
     );
+
+    await expect(manager.page(1, 'combined', malformed, 10)).rejects.toThrow('Invalid log cursor');
   });
 });

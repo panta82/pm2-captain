@@ -1,11 +1,7 @@
-import {
-  httpBatchLink,
-  httpSubscriptionLink,
-  splitLink,
-} from '@trpc/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { httpBatchLink, httpSubscriptionLink, splitLink } from '@trpc/client';
 import { createTRPCReact } from '@trpc/react-query';
-import { useState, type PropsWithChildren } from 'react';
+import { type PropsWithChildren, useState } from 'react';
 
 import type { IAppRouter } from '../../backend/web/app_router';
 

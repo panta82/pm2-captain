@@ -1,8 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { IContainer } from '../container';
 import { ProcessNotFoundError } from '../bl/process_manager';
+import { IContainer } from '../container';
 import { protectedProcedure, router } from './trpc';
 
 const processActionSchema = z.enum(['start', 'stop', 'restart']);
@@ -29,9 +29,7 @@ export function createAppRouter(container: IContainer) {
       list: protectedProcedure.query(() => container.processManager.list()),
       detail: protectedProcedure
         .input(z.object({ pmId: z.number().int().nonnegative() }))
-        .query(({ input }) =>
-          withProcessErrors(() => container.processManager.detail(input.pmId))
-        ),
+        .query(({ input }) => withProcessErrors(() => container.processManager.detail(input.pmId))),
       action: protectedProcedure
         .input(
           z.object({
@@ -40,9 +38,7 @@ export function createAppRouter(container: IContainer) {
           })
         )
         .mutation(({ input }) =>
-          withProcessErrors(() =>
-            container.processManager.action(input.pmId, input.action)
-          )
+          withProcessErrors(() => container.processManager.action(input.pmId, input.action))
         ),
     }),
     logs: router({
@@ -57,12 +53,7 @@ export function createAppRouter(container: IContainer) {
         )
         .query(({ input }) =>
           withProcessErrors(() =>
-            container.logManager.page(
-              input.pmId,
-              input.view,
-              input.cursor,
-              input.limit
-            )
+            container.logManager.page(input.pmId, input.view, input.cursor, input.limit)
           )
         ),
       stream: protectedProcedure

@@ -8,9 +8,7 @@ export const AUTH_COOKIE_NAME = 'pm2_captain_session';
 
 export function makeCreateContext(container: IContainer) {
   return async ({ info, req, res }: CreateFastifyContextOptions) => {
-    const isAuthenticated = container.captainLauncher.authenticate(
-      req.cookies[AUTH_COOKIE_NAME]
-    );
+    const isAuthenticated = container.captainLauncher.authenticate(req.cookies[AUTH_COOKIE_NAME]);
     const origin = req.headers.origin;
     const isOriginAllowed = !origin || origin === container.settings.baseURL;
     return {

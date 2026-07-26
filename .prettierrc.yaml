@@ -3,8 +3,19 @@ singleQuote: true
 trailingComma: es5
 arrowParens: avoid
 
-plugins: ["@trivago/prettier-plugin-sort-imports"]
+plugins: ['@trivago/prettier-plugin-sort-imports']
 
-importOrder: [".css$", "<THIRD_PARTY_MODULES>", "^@/lib", "^@/views", "^@/public", "^@[.]", "^[./]"]
+# Order project imports from lower-level utilities toward UI consumers.
+importOrder:
+  [
+    '\.css$',
+    '<THIRD_PARTY_MODULES>',
+    '^@/lib/',
+    '^@/components/',
+    '^@shared/',
+    '^@/pages/',
+    '^@/',
+    '^[./]',
+  ]
 importOrderSeparation: true
 importOrderSortSpecifiers: true

@@ -1,8 +1,8 @@
+import { spawn } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import libNet from 'node:net';
 import libPath from 'node:path';
-import { spawn } from 'node:child_process';
 
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';

@@ -1,8 +1,4 @@
-import {
-  Link,
-  type ErrorComponentProps,
-  useRouter,
-} from '@tanstack/react-router';
+import { type ErrorComponentProps, Link, useRouter } from '@tanstack/react-router';
 import { House, RotateCw } from 'lucide-react';
 
 import { Button } from '@/components/ui';
@@ -10,6 +6,7 @@ import { Button } from '@/components/ui';
 function ErrorIcon() {
   return (
     <svg
+      data-component="ErrorIcon"
       viewBox="0 0 64 56"
       width={84}
       height={74}
@@ -55,12 +52,10 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
         : 'An unexpected error occurred.';
 
   return (
-    <main className="grid min-h-0 flex-1 place-items-center px-5 py-12">
+    <main data-component="ErrorPage" className="grid min-h-0 flex-1 place-items-center px-5 py-12">
       <section className="w-full max-w-md rounded-2xl border border-line bg-panel p-7 text-center shadow-2xl">
         <ErrorIcon />
-        <h1 className="mt-3 text-2xl font-bold text-white">
-          Something went wrong
-        </h1>
+        <h1 className="mt-3 text-2xl font-bold text-white">Something went wrong</h1>
         <p className="mt-3 text-sm leading-6 text-muted">{message}</p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <Button

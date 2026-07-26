@@ -45,13 +45,14 @@ export function RestartOverlay() {
     return null;
   }
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-topbar/90 backdrop-blur-sm">
+    <div
+      data-component="RestartOverlay"
+      className="fixed inset-0 z-[100] grid place-items-center bg-topbar/90 backdrop-blur-sm"
+    >
       <div className="rounded-xl border border-primary/50 bg-panel px-8 py-7 text-center shadow-2xl">
         <LoaderCircle className="mx-auto size-7 animate-spin text-cyan" />
         <p className="mt-4 font-semibold text-white">Captain is restarting…</p>
-        <p className="mt-1 font-mono text-xs text-muted">
-          Reconnecting automatically
-        </p>
+        <p className="mt-1 font-mono text-xs text-muted">Reconnecting automatically</p>
       </div>
     </div>
   );

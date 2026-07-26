@@ -1,5 +1,4 @@
 import libOs from 'node:os';
-
 import { ProcessDescription } from 'pm2';
 
 import {
@@ -43,14 +42,10 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       name: environment.name || description.name || 'unnamed',
       namespace: environment.namespace || 'default',
       status,
-      pid:
-        typeof description.pid === 'number' && description.pid > 0
-          ? description.pid
-          : null,
+      pid: typeof description.pid === 'number' && description.pid > 0 ? description.pid : null,
       mode: environment.exec_mode === 'cluster_mode' ? 'cluster' : 'fork',
       cpu: typeof description.monit?.cpu === 'number' ? description.monit.cpu : null,
-      memory:
-        typeof description.monit?.memory === 'number' ? description.monit.memory : null,
+      memory: typeof description.monit?.memory === 'number' ? description.monit.memory : null,
       uptime: status === 'online' && startedAt ? Math.max(0, Date.now() - startedAt) : null,
       restarts: Number(environment.restart_time || 0),
       unstableRestarts: Number(environment.unstable_restarts || 0),
@@ -64,13 +59,9 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
         typeof environment.exec_interpreter === 'string' ? environment.exec_interpreter : null,
       nodeVersion: typeof environment.node_version === 'string' ? environment.node_version : null,
       instances: typeof environment.instances === 'number' ? environment.instances : null,
-      createdAt:
-        typeof environment.created_at === 'number'
-          ? environment.created_at
-          : startedAt,
+      createdAt: typeof environment.created_at === 'number' ? environment.created_at : startedAt,
       exitCode: typeof environment.exit_code === 'number' ? environment.exit_code : null,
-      cronRestart:
-        typeof environment.cron_restart === 'string' ? environment.cron_restart : null,
+      cronRestart: typeof environment.cron_restart === 'string' ? environment.cron_restart : null,
       outLogPath:
         typeof environment.pm_out_log_path === 'string' ? environment.pm_out_log_path : null,
       errLogPath:
@@ -85,7 +76,22 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
         hostLabel: `${libOs.userInfo().username}@${libOs.hostname()}`,
         processes: processes
           .map(normalize)
-          .map(({ script, args, cwd, interpreter, nodeVersion, instances, createdAt, exitCode, cronRestart, outLogPath, errLogPath, ...summary }) => summary)
+          .map(
+            ({
+              script,
+              args,
+              cwd,
+              interpreter,
+              nodeVersion,
+              instances,
+              createdAt,
+              exitCode,
+              cronRestart,
+              outLogPath,
+              errLogPath,
+              ...summary
+            }) => summary
+          )
           .sort((left, right) => left.pmId - right.pmId),
       };
     };

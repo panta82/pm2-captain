@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createPm2Client } from './pm2_client';
+
 const mocked = vi.hoisted(() => {
   const listeners = new Map<string, Set<(...args: any[]) => void>>();
   const bus = {
@@ -22,10 +24,7 @@ const mocked = vi.hoisted(() => {
     bus,
     pm2: {
       connect: vi.fn((callback: (error: Error | null) => void) => callback(null)),
-      launchBus: vi.fn(
-        (callback: (error: Error | null, bus: any) => void) =>
-          callback(null, bus)
-      ),
+      launchBus: vi.fn((callback: (error: Error | null, bus: any) => void) => callback(null, bus)),
       disconnect: vi.fn(),
       list: vi.fn(),
       describe: vi.fn(),
@@ -37,8 +36,6 @@ const mocked = vi.hoisted(() => {
 });
 
 vi.mock('pm2', () => ({ default: mocked.pm2 }));
-
-import { createPm2Client } from './pm2_client';
 
 function createClient() {
   return createPm2Client({
@@ -55,9 +52,7 @@ describe('pm2Client', () => {
     vi.clearAllMocks();
     mocked.bus.removeAllListeners();
     mocked.pm2.connect.mockImplementation(callback => callback(null));
-    mocked.pm2.launchBus.mockImplementation(callback =>
-      callback(null, mocked.bus)
-    );
+    mocked.pm2.launchBus.mockImplementation(callback => callback(null, mocked.bus));
   });
 
   it('forwards exact PM2 stdout and stderr bus events', async () => {

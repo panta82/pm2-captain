@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-
 import pm2, { ProcessDescription } from 'pm2';
 
 import { IContainer } from '../container';
@@ -135,8 +134,7 @@ export function createPm2Client({ log }: IContainer) {
       }
     };
 
-    list = () =>
-      call<ProcessDescription[]>('list', callback => pm2.list(callback));
+    list = () => call<ProcessDescription[]>('list', callback => pm2.list(callback));
 
     describe = (pmId: number) =>
       call<ProcessDescription[]>('describe', callback => pm2.describe(pmId, callback));

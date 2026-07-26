@@ -1,4 +1,4 @@
-import { clsx, type ClassValue } from 'clsx';
+import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 export function cn(...inputs: ClassValue[]) {
@@ -27,11 +27,7 @@ export function formatDuration(milliseconds: number | null): string {
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  return [
-    days ? `${days}d` : '',
-    hours ? `${hours}h` : '',
-    `${minutes}m`,
-  ]
+  return [days ? `${days}d` : '', hours ? `${hours}h` : '', `${minutes}m`]
     .filter(Boolean)
     .join(' ');
 }
