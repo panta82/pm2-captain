@@ -27,6 +27,17 @@ import { cn, formatTimestamp } from '@/lib/utils';
 const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
 
+/**
+ * Set first letter in a string to uppercase. Doesn't touch other chars.
+ */
+export function capitalize<T extends string>(str: T): Capitalize<T> {
+  if (!str) {
+    return str as any;
+  }
+  str = String(str) as any;
+  return (str[0].toUpperCase() + str.slice(1)) as any;
+}
+
 export function LogsPage() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
   const numericId = Number(pmId);
@@ -216,7 +227,7 @@ export function LogsPage() {
               )}
               onClick={() => setView(option)}
             >
-              {option === 'combined' ? 'All' : option}
+              {option === 'combined' ? 'All' : capitalize(option)}
             </button>
           ))}
         </div>

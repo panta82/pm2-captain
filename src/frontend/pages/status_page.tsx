@@ -11,6 +11,7 @@ import type { IProcessSummary } from '@shared/contracts';
 
 import { ProcessActions } from '@/components/process_actions';
 import { Skeleton } from '@/components/ui';
+import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
@@ -155,14 +156,14 @@ export function StatusPage() {
                 className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 transition-colors hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
                 onClick={() =>
                   navigate({
-                    to: '/processes/$pmId/info',
+                    to: processDetailTo(),
                     params: { pmId: String(row.original.pmId) },
                   })
                 }
                 onKeyDown={event => {
                   if (event.key === 'Enter') {
                     navigate({
-                      to: '/processes/$pmId/info',
+                      to: processDetailTo(),
                       params: { pmId: String(row.original.pmId) },
                     });
                   }
@@ -197,7 +198,7 @@ export function StatusPage() {
               className="block w-full text-left"
               onClick={() =>
                 navigate({
-                  to: '/processes/$pmId/info',
+                  to: processDetailTo(),
                   params: { pmId: String(process.pmId) },
                 })
               }
@@ -231,7 +232,7 @@ export function StatusPage() {
                   aria-label={`Open ${process.name}`}
                   onClick={() =>
                     navigate({
-                      to: '/processes/$pmId/info',
+                      to: processDetailTo(),
                       params: { pmId: String(process.pmId) },
                     })
                   }

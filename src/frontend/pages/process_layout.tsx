@@ -1,11 +1,18 @@
-import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import {
+  Link,
+  Outlet,
+  useNavigate,
+  useParams,
+  useRouterState,
+} from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { AppHeader } from '@/components/app_header';
 import { ProcessActions } from '@/components/process_actions';
-import { ProcessSidebar } from '@/components/process_sidebar';
+import { ProcessNav } from '@/components/process_nav';
 import { Button, Skeleton } from '@/components/ui';
+import { setProcessTab } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +20,7 @@ export function ProcessLayout() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
   const numericId = Number(pmId);
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: state => state.location.pathname });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
   const detail = trpc.processes.detail.useQuery(
@@ -25,15 +33,37 @@ export function ProcessLayout() {
   );
 
   useEffect(() => {
+    if (pathname.endsWith('/logs')) {
+      setProcessTab('logs');
+    } else if (pathname.endsWith('/info')) {
+      setProcessTab('info');
+    }
+  }, [pathname]);
+
+  useEffect(() => {
     if (detail.error?.data?.code === 'NOT_FOUND') {
       void navigate({ to: '/', replace: true });
     }
   }, [detail.error, navigate]);
 
-  if (detail.isLoading || list.isLoading) {
+  const listProcess = list.data?.processes.find(
+    process => process.pmId === numericId
+  );
+  const process = detail.data ?? listProcess;
+
+  if (list.isLoading && !list.data) {
     return <Skeleton className="m-6 h-72" />;
   }
-  if (!detail.data || !list.data) {
+
+  if (!list.data) {
+    return (
+      <div className="grid flex-1 place-items-center text-danger">
+        {list.error?.message || 'Unable to load processes'}
+      </div>
+    );
+  }
+
+  if (!process && !detail.isLoading) {
     return (
       <div className="grid flex-1 place-items-center text-danger">
         {detail.error?.message || 'Process not found'}
@@ -43,7 +73,28 @@ export function ProcessLayout() {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <ProcessSidebar processes={list.data.processes} selectedId={numericId} />
+      <aside className="hidden w-[244px] shrink-0 border-r border-line bg-topbar lg:block">
+        <AppHeader
+          data={list.data}
+          loading={false}
+          failed={false}
+          sidebar
+        />
+        <ProcessNav
+          processes={list.data.processes}
+          selectedId={numericId}
+          autoFocus
+          className="py-3"
+          itemClassName="relative mx-2 flex h-12 items-center gap-3 rounded-lg px-3 text-sm transition-colors"
+          selectedItemClassName="border border-primary/50 bg-panel-hover text-white"
+          idleItemClassName="border border-transparent text-white/90 hover:bg-panel"
+          leading={(_process, isSelected) =>
+            isSelected ? (
+              <i className="absolute -left-[9px] h-7 w-1 rounded-r bg-primary" />
+            ) : null
+          }
+        />
+      </aside>
       {mobileMenuOpen ? (
         <div className="fixed inset-0 z-40 flex lg:hidden">
           <button
@@ -58,21 +109,15 @@ export function ProcessLayout() {
                 <X className="size-4" />
               </Button>
             </div>
-            {list.data.processes.map(process => (
-              <Link
-                key={process.pmId}
-                to="/processes/$pmId/info"
-                params={{ pmId: String(process.pmId) }}
-                onClick={() => setMobileMenuOpen(false)}
-                className={cn(
-                  'mb-1 flex h-11 items-center gap-3 rounded-lg px-3 text-sm',
-                  process.pmId === numericId ? 'bg-panel-hover text-white' : 'text-muted'
-                )}
-              >
-                <i className={cn('size-2 rounded-full', process.status === 'online' ? 'bg-online' : 'border border-muted')} />
-                <span className="truncate">{process.name}</span>
-              </Link>
-            ))}
+            <ProcessNav
+              processes={list.data.processes}
+              selectedId={numericId}
+              autoFocus
+              onItemClick={() => setMobileMenuOpen(false)}
+              itemClassName="mb-1 flex h-11 items-center gap-3 rounded-lg px-3 text-sm"
+              selectedItemClassName="bg-panel-hover text-white"
+              idleItemClassName="text-muted"
+            />
           </div>
         </div>
       ) : null}
@@ -94,28 +139,36 @@ export function ProcessLayout() {
               >
                 <Menu className="size-4" />
               </Button>
-              <div className="flex min-w-0 items-center gap-3">
-                <i
-                  className={cn(
-                    'size-2 shrink-0 rounded-full',
-                    detail.data.status === 'online'
-                      ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                      : 'border border-muted'
-                  )}
-                />
-                <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
-                  {detail.data.name}
-                </h1>
-              </div>
+              {process ? (
+                <div className="flex min-w-0 items-center gap-3">
+                  <i
+                    className={cn(
+                      'size-2 shrink-0 rounded-full',
+                      process.status === 'online'
+                        ? 'bg-online shadow-[0_0_9px_#35D07F]'
+                        : 'border border-muted'
+                    )}
+                  />
+                  <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
+                    {process.name}
+                  </h1>
+                </div>
+              ) : (
+                <Skeleton className="h-7 w-48" />
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 self-center py-3 sm:col-start-3 sm:py-0">
-              <div className="sm:hidden">
-                <ProcessActions process={detail.data} compact />
-              </div>
-              <div className="hidden sm:block">
-                <ProcessActions process={detail.data} />
-              </div>
+              {process ? (
+                <>
+                  <div className="sm:hidden">
+                    <ProcessActions process={process} compact />
+                  </div>
+                  <div className="hidden sm:block">
+                    <ProcessActions process={process} />
+                  </div>
+                </>
+              ) : null}
               <Button
                 variant="ghost"
                 className="size-10 p-0"
@@ -131,6 +184,7 @@ export function ProcessLayout() {
                 <Link
                   to="/processes/$pmId/info"
                   params={{ pmId }}
+                  onClick={() => setProcessTab('info')}
                   activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
                     className:
@@ -143,6 +197,7 @@ export function ProcessLayout() {
                 <Link
                   to="/processes/$pmId/logs"
                   params={{ pmId }}
+                  onClick={() => setProcessTab('logs')}
                   activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
                     className:
