@@ -35,7 +35,7 @@ function RootLayout() {
       <RestartOverlay />
       <Toaster
         theme="dark"
-        position="top-right"
+        position="bottom-left"
         toastOptions={{
           style: {
             background: '#0b263b',

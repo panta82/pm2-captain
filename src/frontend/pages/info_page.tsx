@@ -80,23 +80,11 @@ export function InfoPage() {
         </div>
         <div className="grid gap-4 xl:grid-cols-2">
           <DetailPanel
-            title="PROCESS"
+            title="CONFIGURATION"
             rows={[
-              ['status', process.status, process.status === 'online' ? 'text-online' : 'text-danger'],
+              ['id', process.pmId],
               ['namespace', process.namespace, 'text-muted'],
               ['version', process.version],
-              ['pid', process.pid],
-              [
-                'created',
-                process.createdAt ? new Date(process.createdAt).toLocaleString() : null,
-              ],
-              ['restarts', `${process.restarts} · ${process.unstableRestarts} unstable`],
-              ['watch', process.watching ? '✓' : '×', process.watching ? 'text-online' : 'text-danger'],
-            ]}
-          />
-          <DetailPanel
-            title="EXECUTION"
-            rows={[
               ['script', compactPath(process.script)],
               ['args', process.args.join(' ')],
               ['cwd', compactPath(process.cwd)],
@@ -104,8 +92,31 @@ export function InfoPage() {
               ['interpreter', compactPath(process.interpreter), 'text-muted'],
               ['node', process.nodeVersion],
               ['instances', process.instances],
-              ['exit code', process.exitCode],
+              [
+                'watch',
+                process.watching ? '✓' : '×',
+                process.watching ? 'text-online' : 'text-danger',
+              ],
               ['cron restart', process.cronRestart],
+            ]}
+          />
+          <DetailPanel
+            title="EXECUTION"
+            rows={[
+              [
+                'status',
+                process.status,
+                process.status === 'online' ? 'text-online' : 'text-danger',
+              ],
+              ['pid', process.pid],
+              ['uptime', formatDuration(process.uptime)],
+              [
+                'created',
+                process.createdAt ? new Date(process.createdAt).toLocaleString() : null,
+              ],
+              ['restarts', process.restarts],
+              ['unstable restarts', process.unstableRestarts],
+              ['exit code', process.exitCode],
             ]}
           />
         </div>

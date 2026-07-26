@@ -3,6 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import {
   ArrowUp,
   CaseSensitive,
+  LoaderCircle,
   Pause,
   Play,
   Regex,
@@ -286,11 +287,14 @@ export function LogsPage() {
         <div className="flex justify-center">
           <Button
             className="h-8 rounded-full px-4 font-mono text-xs"
-            loading={loadingOlder}
-            disabled={!hasMore}
+            disabled={!hasMore || loadingOlder}
             onClick={loadOlder}
           >
-            <ArrowUp className="size-3.5" />
+            {loadingOlder ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <ArrowUp className="size-3.5" />
+            )}
             {hasMore ? 'Older' : 'Start of active log'}
           </Button>
         </div>

@@ -1,9 +1,10 @@
-import { Play, RotateCw, Square } from 'lucide-react';
+import { LoaderCircle, Play, RotateCw, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
 import type { IProcessDetail, IProcessSummary } from '@shared/contracts';
 
 import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { Button } from './ui';
 
 export function ProcessActions({
@@ -34,47 +35,52 @@ export function ProcessActions({
     onError: error => toast.error(error.message),
   });
   const stopped = process.status !== 'online';
-  const buttonClass = compact ? 'h-8 px-2.5 text-xs' : '';
+  const iconClass = compact ? 'size-3.5' : 'size-4';
+  const buttonClass = compact ? 'h-8 gap-1.5 px-2.5 text-xs' : '';
+  const primaryButtonClass = compact
+    ? 'h-8 min-w-[5.75rem] justify-start gap-1.5 px-2.5 text-xs'
+    : 'min-w-[6.75rem] justify-start';
   const pendingAction = action.isPending ? action.variables?.action : undefined;
-
-  if (stopped) {
-    return (
-      <Button
-        variant="primary"
-        className={buttonClass}
-        loading={pendingAction === 'start'}
-        onClick={event => {
-          event.stopPropagation();
-          action.mutate({ pmId: process.pmId, action: 'start' });
-        }}
-      >
-        {pendingAction !== 'start' ? <Play className="size-3.5" /> : null}
-        Start
-      </Button>
-    );
-  }
+  const primaryAction = stopped ? 'start' : 'restart';
+  const primaryPending = pendingAction === primaryAction;
+  const stopPending = pendingAction === 'stop';
 
   return (
     <div className="flex items-center gap-2" onClick={event => event.stopPropagation()}>
       <Button
         variant="primary"
-        className={buttonClass}
-        loading={pendingAction === 'restart'}
-        onClick={() => action.mutate({ pmId: process.pmId, action: 'restart' })}
+        className={primaryButtonClass}
+        disabled={action.isPending}
+        onClick={() => action.mutate({ pmId: process.pmId, action: primaryAction })}
       >
-        {pendingAction !== 'restart' ? <RotateCw className="size-3.5" /> : null}
-        Restart
+        {primaryPending ? (
+          <LoaderCircle className={cn(iconClass, 'animate-spin')} />
+        ) : stopped ? (
+          <Play className={iconClass} />
+        ) : (
+          <RotateCw className={iconClass} />
+        )}
+        {stopped ? 'Start' : 'Restart'}
       </Button>
       <Button
         className={buttonClass}
-        disabled={process.isCaptain || action.isPending}
-        loading={pendingAction === 'stop'}
-        title={process.isCaptain ? 'Captain cannot stop itself' : undefined}
+        disabled={stopped || process.isCaptain || action.isPending}
+        title={
+          stopped
+            ? 'Process is already stopped'
+            : process.isCaptain
+              ? 'Captain cannot stop itself'
+              : undefined
+        }
         onClick={() =>
           action.mutate({ pmId: process.pmId, action: 'stop' })
         }
       >
-        {pendingAction !== 'stop' ? <Square className="size-3" /> : null}
+        {stopPending ? (
+          <LoaderCircle className={cn(iconClass, 'animate-spin')} />
+        ) : (
+          <Square className={iconClass} />
+        )}
         Stop
       </Button>
     </div>

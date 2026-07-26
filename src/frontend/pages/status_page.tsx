@@ -49,7 +49,7 @@ export function StatusPage() {
     }),
     column.accessor('mode', { header: 'MODE' }),
     column.accessor('restarts', {
-      header: () => <RotateCw className="mx-auto size-3" />,
+      header: () => <RotateCw className="inline-block size-3" />,
       cell: info => (
         <span className={info.getValue() > 10 ? 'text-warning' : ''}>
           {info.getValue()}
@@ -131,7 +131,13 @@ export function StatusPage() {
                 {group.headers.map(header => (
                   <th
                     key={header.id}
-                    className="px-4 text-left text-[10px] font-semibold text-muted first:pl-6"
+                    className={cn(
+                      'px-4 text-[10px] font-semibold text-muted first:pl-6',
+                      header.column.id === 'restarts' ||
+                        header.column.id === 'watching'
+                        ? 'text-center'
+                        : 'text-left'
+                    )}
                   >
                     {header.isPlaceholder
                       ? null
@@ -163,7 +169,15 @@ export function StatusPage() {
                 }}
               >
                 {row.getVisibleCells().map(cell => (
-                  <td key={cell.id} className="px-4 first:pl-6">
+                  <td
+                    key={cell.id}
+                    className={cn(
+                      'px-4 first:pl-6',
+                      (cell.column.id === 'restarts' ||
+                        cell.column.id === 'watching') &&
+                        'text-center'
+                    )}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

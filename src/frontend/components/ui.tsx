@@ -1,4 +1,3 @@
-import { LoaderCircle } from 'lucide-react';
 import type { ButtonHTMLAttributes } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -6,12 +5,10 @@ import { cn } from '@/lib/utils';
 export function Button({
   className,
   variant = 'secondary',
-  loading,
   children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-  loading?: boolean;
 }) {
   return (
     <button
@@ -26,10 +23,8 @@ export function Button({
           'border-danger/50 bg-danger/10 text-danger hover:bg-danger/20',
         className
       )}
-      disabled={loading || props.disabled}
       {...props}
     >
-      {loading ? <LoaderCircle className="size-4 animate-spin" /> : null}
       {children}
     </button>
   );

@@ -49,7 +49,7 @@ export function AppHeader({
       <div className="flex min-w-0 items-center gap-3">
         <div className="relative grid size-8 place-items-center">
           <img
-            src="/pm2-captain-logo.png"
+            src="/pm2-captain-logo-on-dark.png"
             alt=""
             className="size-8 object-contain"
             onError={event => {

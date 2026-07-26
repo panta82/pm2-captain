@@ -17,7 +17,8 @@ test('navigates status, info, and streaming logs', async ({ page }) => {
 
   await page.getByText('captain-fixture', { exact: true }).first().click();
   await expect(page).toHaveURL(/\/processes\/0\/info$/);
-  await expect(page.getByRole('heading', { name: 'PROCESS' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'CONFIGURATION' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'EXECUTION' })).toBeVisible();
   const processHeading = page.getByRole('heading', {
     name: 'captain-fixture',
     exact: true,
@@ -47,18 +48,24 @@ test('navigates status, info, and streaming logs', async ({ page }) => {
 test('restarts, stops, and starts a fixture', async ({ page }) => {
   await page.goto(launchPath);
   const row = page.getByRole('row', { name: /captain-fixture/ });
-  await row.getByRole('button', { name: 'Restart' }).click();
+  const restartButton = row.getByRole('button', { name: 'Restart' });
+  const runningPrimaryWidth = (await restartButton.boundingBox())?.width;
+  await restartButton.click();
   await expect(page.getByText('App "captain-fixture" was restarted')).toBeVisible();
 
   await row.getByRole('button', { name: 'Stop' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Start' })).toBeVisible({
+  const startButton = row.getByRole('button', { name: 'Start' });
+  await expect(startButton).toBeVisible({
     timeout: 10_000,
   });
-  await page.getByRole('button', { name: 'Start' }).click();
-  await expect(page.getByRole('button', { name: 'Restart' })).toBeVisible({
+  await expect(row.getByRole('button', { name: 'Stop' })).toBeDisabled();
+  expect((await startButton.boundingBox())?.width).toBe(runningPrimaryWidth);
+  await startButton.click();
+  await expect(row.getByRole('button', { name: 'Restart' })).toBeVisible({
     timeout: 10_000,
   });
+  await expect(row.getByRole('button', { name: 'Stop' })).toBeEnabled();
 });
 
 test('keeps process actions on compact mobile cards', async ({ page }) => {

@@ -94,23 +94,18 @@ export function ProcessLayout() {
               >
                 <Menu className="size-4" />
               </Button>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <i
+                  className={cn(
+                    'size-2 shrink-0 rounded-full',
+                    detail.data.status === 'online'
+                      ? 'bg-online shadow-[0_0_9px_#35D07F]'
+                      : 'border border-muted'
+                  )}
+                />
                 <h1 className="truncate text-xl font-bold text-white sm:text-2xl">
                   {detail.data.name}
                 </h1>
-                <span className="font-mono text-xs text-muted">
-                  id {detail.data.pmId}
-                </span>
-                <span
-                  className={cn(
-                    'rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase',
-                    detail.data.status === 'online'
-                      ? 'border-online/50 bg-online/10 text-online'
-                      : 'border-muted/40 text-muted'
-                  )}
-                >
-                  {detail.data.status}
-                </span>
               </div>
             </div>
 
@@ -136,22 +131,24 @@ export function ProcessLayout() {
                 <Link
                   to="/processes/$pmId/info"
                   params={{ pmId }}
-                  activeProps={{ className: 'text-cyan' }}
+                  activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
-                    className: 'bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                    className:
+                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
                   }}
-                  className="px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="border-b px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Info
                 </Link>
                 <Link
                   to="/processes/$pmId/logs"
                   params={{ pmId }}
-                  activeProps={{ className: 'text-cyan' }}
+                  activeProps={{ className: 'border-b-transparent text-cyan' }}
                   inactiveProps={{
-                    className: 'bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
+                    className:
+                      'border-b-line bg-panel/55 text-muted hover:bg-panel/40 hover:text-white',
                   }}
-                  className="border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
                   Logs
                 </Link>
