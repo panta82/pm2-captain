@@ -149,12 +149,17 @@ export function ProcessNav({
                   : 'border border-muted'
               )}
             />
-            <span className="min-w-0 flex-1 truncate font-semibold">{process.name}</span>
-            {process.isCaptain ? (
-              <span className="rounded border border-cyan/60 px-1 py-0.5 font-mono text-[9px] text-cyan">
-                YOU
-              </span>
-            ) : null}
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="truncate font-semibold">{process.name}</span>
+              {process.isCaptain || process.pmId === processes[0]?.pmId ? (
+                <img
+                  src="/pm2-captain-logo-on-dark.png"
+                  alt="Captain"
+                  title="This is Captain"
+                  className="size-3.5 shrink-0 object-contain"
+                />
+              ) : null}
+            </span>
             {isSelected && isFocused ? <NavKeysHint className="shrink-0 text-cyan/40" /> : null}
           </Link>
         );

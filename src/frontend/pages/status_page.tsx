@@ -51,7 +51,7 @@ export function StatusPage() {
     column.accessor('name', {
       header: 'NAME',
       cell: info => (
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <i
             className={cn(
               'size-2 shrink-0 rounded-full',
@@ -60,11 +60,14 @@ export function StatusPage() {
                 : 'border border-muted'
             )}
           />
-          <span className="font-sans font-semibold text-white">{info.getValue()}</span>
-          {info.row.original.isCaptain ? (
-            <span className="rounded border border-cyan/60 px-1.5 py-0.5 font-mono text-[9px] text-cyan">
-              YOU
-            </span>
+          <span className="truncate font-sans font-semibold text-white">{info.getValue()}</span>
+          {info.row.original.isCaptain || info.row.index === 0 ? (
+            <img
+              src="/pm2-captain-logo-on-dark.png"
+              alt="Captain"
+              title="This is Captain"
+              className="size-3.5 shrink-0 object-contain"
+            />
           ) : null}
         </div>
       ),

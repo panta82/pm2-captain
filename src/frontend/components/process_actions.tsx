@@ -49,7 +49,7 @@ export function ProcessActions({
   return (
     <div
       data-component="ProcessActions"
-      className="flex items-center gap-2"
+      className="flex items-center gap-2 font-sans"
       onClick={event => event.stopPropagation()}
     >
       <Button
