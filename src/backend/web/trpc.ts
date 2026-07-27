@@ -1,16 +1,42 @@
 import { TRPCError, initTRPC } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
+import type { IncomingHttpHeaders } from 'node:http';
 
 import { IContainer } from '../container';
 import { defaultLog } from '../lib/logger';
 
 export const AUTH_COOKIE_NAME = 'pm2_captain_session';
 
+function firstHeaderValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value?.split(',', 1)[0]?.trim();
+}
+
+export function isRequestOriginAllowed(
+  headers: IncomingHttpHeaders,
+  baseURL: string,
+  isAuthDisabled: boolean
+) {
+  const origin = headers.origin;
+  if (!origin) {
+    return true;
+  }
+  if (!isAuthDisabled) {
+    return origin === baseURL;
+  }
+
+  const host = firstHeaderValue(headers['x-forwarded-host']) || headers.host;
+  const protocol = firstHeaderValue(headers['x-forwarded-proto']) || 'http';
+  return Boolean(host && origin === `${protocol}://${host}`);
+}
+
 export function makeCreateContext(container: IContainer) {
   return async ({ info, req, res }: CreateFastifyContextOptions) => {
     const isAuthenticated = container.captainLauncher.authenticate(req.cookies[AUTH_COOKIE_NAME]);
-    const origin = req.headers.origin;
-    const isOriginAllowed = !origin || origin === container.settings.baseURL;
+    const isOriginAllowed = isRequestOriginAllowed(
+      req.headers,
+      container.settings.baseURL,
+      container.settings.noAuth
+    );
     return {
       info,
       req,

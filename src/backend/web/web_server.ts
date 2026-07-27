@@ -6,7 +6,7 @@ import fastify, { LogController } from 'fastify';
 import { Socket } from 'node:net';
 import libPath from 'node:path';
 
-import { ROOT_DIR } from '../backend_settings';
+import { PACKAGE_VERSION, ROOT_DIR } from '../backend_settings';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { createLoggerOptions } from '../lib/logger';
@@ -31,11 +31,14 @@ export function createWebServer({ log, container }: IContainer) {
 
   app.get('/health', async () => ({
     name: 'pm2-captain',
-    version: '1.0.0',
+    version: PACKAGE_VERSION,
     pid: process.pid,
   }));
 
   app.get('/launch', async (request, reply) => {
+    if (container.settings.noAuth) {
+      return reply.redirect('/');
+    }
     const token = (request.query as { token?: string }).token;
     if (!container.captainLauncher.authenticate(token)) {
       return reply.status(401).type('text/plain').send('Invalid PM2 Captain launch token.');

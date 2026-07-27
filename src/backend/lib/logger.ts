@@ -5,7 +5,7 @@ import { IServiceInfoBase, define } from '../framework/dependency_injection';
 
 export function createLoggerOptions(debug = false): LoggerOptions {
   return {
-    level: debug ? 'debug' : 'info',
+    level: debug ? 'debug' : 'error',
 
     transport: debug
       ? {

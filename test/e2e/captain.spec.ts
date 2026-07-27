@@ -44,10 +44,10 @@ test('navigates status, info, environment, and streaming logs', async ({ page })
   });
   await resumeButton.click();
 
-  await page.getByPlaceholder('search loaded logs…').fill('fixture error');
+  await page.getByPlaceholder('Filter loaded logs…').fill('fixture error');
   await expect(page.getByText('fixture error').first()).toBeVisible();
   await page.getByRole('button', { name: 'Regular expression' }).click();
-  await page.getByPlaceholder('search loaded logs…').fill('fixture error \\d+');
+  await page.getByPlaceholder('Filter loaded logs…').fill('fixture error \\d+');
   await expect(page.getByText('fixture error').first()).toBeVisible();
   await page.getByRole('button', { name: 'Err', exact: true }).click();
   await expect(page.getByText('fixture error').first()).toBeVisible();
