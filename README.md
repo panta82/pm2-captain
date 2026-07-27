@@ -44,8 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/panta82/pm2-captain/refs/heads/mast
     --dir /opt/pm2-captain \
     --name pm2-captain \
     --port 3212 \
-    --auth proxy \
-    --version 1
+    --auth proxy
 ```
 
 #### Manual setup

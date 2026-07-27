@@ -23,7 +23,6 @@ Options:
   --name <name>             PM2 application name (default: pm2-captain)
   --port <number>           Captain HTTP port (default: 3212)
   --auth <proxy|captain>    Authentication owner (default: proxy)
-  --version <spec>          npm version to install (default: 1)
   --yes                     Accept defaults without prompting
   --force                   Replace generated files in an existing installation
   -h, --help                Show this help
@@ -46,10 +45,6 @@ while (($#)); do
       ;;
     --auth)
       auth_mode="${2:-}"
-      shift 2
-      ;;
-    --version)
-      captain_version="${2:-}"
       shift 2
       ;;
     --yes)
@@ -108,8 +103,6 @@ if [[ "$should_accept_defaults" == false ]]; then
   port="${answer:-$port}"
   read -r -u 3 -p "Authentication owner, proxy or captain [$auth_mode]: " answer
   auth_mode="${answer:-$auth_mode}"
-  read -r -u 3 -p "npm version [$captain_version]: " answer
-  captain_version="${answer:-$captain_version}"
 fi
 
 case "$install_dir" in
@@ -133,11 +126,6 @@ if [[ "$auth_mode" != proxy && "$auth_mode" != captain ]]; then
   echo "Authentication owner must be 'proxy' or 'captain'." >&2
   exit 2
 fi
-if [[ -z "$captain_version" || "$captain_version" == -* ]]; then
-  echo "npm version must not be empty or start with a hyphen." >&2
-  exit 2
-fi
-
 mkdir -p "$install_dir"
 install_dir="$(cd "$install_dir" && pwd -P)"
 
