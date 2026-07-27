@@ -1,10 +1,10 @@
 import { useNavigate } from '@tanstack/react-router';
 import {
+  type SortingState,
   createColumnHelper,
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
-  type SortingState,
   useReactTable,
 } from '@tanstack/react-table';
 import { ChevronDown, ChevronUp, Eye, RotateCw } from 'lucide-react';
@@ -61,7 +61,7 @@ export function StatusPage() {
             )}
           />
           <span className="truncate font-sans font-semibold text-white">{info.getValue()}</span>
-          {info.row.original.isCaptain || info.row.index === 0 ? (
+          {info.row.original.isCaptain ? (
             <img
               src="/pm2-captain-logo-on-dark.png"
               alt="Captain"
@@ -198,10 +198,7 @@ export function StatusPage() {
                           )}
                           onClick={header.column.getToggleSortingHandler()}
                         >
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
+                          {flexRender(header.column.columnDef.header, header.getContext())}
                           {sorted === 'asc' ? (
                             <ChevronUp className="size-3 shrink-0" />
                           ) : sorted === 'desc' ? (
@@ -211,10 +208,7 @@ export function StatusPage() {
                           )}
                         </button>
                       ) : (
-                        flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )
+                        flexRender(header.column.columnDef.header, header.getContext())
                       )}
                     </th>
                   );
