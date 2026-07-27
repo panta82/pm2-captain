@@ -64,3 +64,35 @@ button:disabled {
   background: rgb(22 119 255 / 45%);
   color: white;
 }
+
+@keyframes typing-dot {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.45;
+  }
+  15% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.45;
+  }
+}
+
+.typing-dots ellipse {
+  transform-origin: center;
+  animation: typing-dot 1s infinite;
+}
+
+.typing-dots ellipse:nth-child(2) {
+  animation-delay: 0.33s;
+}
+
+.typing-dots ellipse:nth-child(3) {
+  animation-delay: 0.66s;
+}

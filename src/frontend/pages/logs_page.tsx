@@ -1,23 +1,52 @@
 import { useParams } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CaseSensitive, Pause, Play, Regex, Search, TextWrap } from 'lucide-react';
+import {
+  CaseSensitive,
+  Download,
+  Loader2,
+  Pause,
+  Play,
+  Regex,
+  Search,
+  TextWrap,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useDebouncedSearch } from '@/lib/debounce';
 import { trpc } from '@/lib/trpc';
 import { cn, formatTimestamp } from '@/lib/utils';
 
+import { Highlighted, buildHighlightRegex } from '@/components/highlighted';
 import { Button, ToggleGroup } from '@/components/ui';
 
 import type { ILogEntry, ILogView } from '@shared/contracts';
 
 const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
+const SEARCH_DEBOUNCE_MS = 300; // quiet period before applying filter
+
+function TypingDots({ className }: { className?: string }) {
+  return (
+    <svg
+      data-component="TypingDots"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className={cn('typing-dots fill-current', className)}
+      aria-hidden
+    >
+      <ellipse cx="4" cy="12" rx="2.5" ry="2.5" />
+      <ellipse cx="12" cy="12" rx="2.5" ry="2.5" />
+      <ellipse cx="20" cy="12" rx="2.5" ry="2.5" />
+    </svg>
+  );
+}
 
 /**
  * Set first letter in a string to uppercase. Doesn't touch other chars.
  */
-export function capitalize<T extends string>(str: T): Capitalize<T> {
+function capitalize<T extends string>(str: T): Capitalize<T> {
   if (!str) {
     return str as any;
   }
@@ -37,7 +66,12 @@ export function LogsPage() {
   const [bufferedCount, setBufferedCount] = useState(0);
   const [dropped, setDropped] = useState(0);
   const [wrap, setWrap] = useState(true);
-  const [search, setSearch] = useState('');
+  const {
+    draft: searchDraft,
+    value: search,
+    phase: searchPhase,
+    setDraft: setSearchDraft,
+  } = useDebouncedSearch(SEARCH_DEBOUNCE_MS);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -163,40 +197,69 @@ export function LogsPage() {
 
   const searchResult = useMemo(() => {
     if (!search) {
-      return { entries, error: '' };
+      return { entries, error: '', highlight: null as RegExp | null };
     }
     try {
-      const matcher = regex ? new RegExp(search, caseSensitive ? '' : 'i') : null;
-      const needle = caseSensitive ? search : search.toLowerCase();
+      const highlight = buildHighlightRegex(search, { caseSensitive, regex });
       return {
-        entries: entries.filter(entry =>
-          matcher
-            ? matcher.test(entry.text)
-            : (caseSensitive ? entry.text : entry.text.toLowerCase()).includes(needle)
-        ),
+        entries: entries.filter(entry => {
+          highlight.lastIndex = 0;
+          return highlight.test(entry.text);
+        }),
         error: '',
+        highlight,
       };
     } catch (error) {
       return {
         entries,
         error: error instanceof Error ? error.message : 'Invalid expression',
+        highlight: null as RegExp | null,
       };
     }
   }, [caseSensitive, entries, regex, search]);
 
+  const filteredEntries = searchResult.entries;
+
+  const downloadFilteredLogs = useCallback(() => {
+    if (!filteredEntries.length) {
+      toast.message('No log lines to download');
+      return;
+    }
+    const body = filteredEntries
+      .map(entry => {
+        const timestamp = entry.timestamp ? new Date(entry.timestamp).toISOString() : '';
+        const channel = entry.channel === 'err' ? 'ERR' : 'OUT';
+        return `${timestamp} [${channel}] ${entry.text}`;
+      })
+      .join('\n');
+    const blob = new Blob([body.endsWith('\n') ? body : `${body}\n`], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    anchor.href = url;
+    anchor.download = `pm2-${numericId}-${view}${search ? '-filtered' : ''}-${stamp}.log`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [filteredEntries, numericId, search, view]);
+
+  // Variable-height wrap rows fight virtualization (estimate/measure thrash → overlap).
+  // Nowrap rows are fixed height, so virtualize only then.
   const virtualizer = useVirtualizer({
-    count: searchResult.entries.length,
+    count: filteredEntries.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => (wrap ? 28 : 24),
+    estimateSize: () => 24,
     overscan: 20,
-    useFlushSync: false,
+    enabled: !wrap,
+    getItemKey: index => filteredEntries[index]?.id ?? index,
   });
   const totalSize = virtualizer.getTotalSize();
 
   // Keep pinned to bottom after React/virtualizer layout when following.
   useLayoutEffect(() => {
     pinToBottom();
-  }, [pinToBottom, searchResult.entries.length, totalSize]);
+  }, [pinToBottom, filteredEntries.length, totalSize, wrap, search]);
 
   return (
     <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-topbar">
@@ -222,14 +285,45 @@ export function LogsPage() {
             <div className="relative min-h-0 min-w-0 flex-1 self-stretch">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
               <input
-                value={search}
-                onChange={event => setSearch(event.target.value)}
+                value={searchDraft}
+                onChange={event => setSearchDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Escape' && searchDraft) {
+                    event.preventDefault();
+                    setSearchDraft('');
+                  }
+                }}
                 placeholder="Filter loaded logs…"
-                className="block h-full w-full border-0 bg-transparent pl-9 pr-14 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70"
+                className={cn(
+                  'block h-full w-full border-0 bg-transparent py-0 pl-9 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70',
+                  searchDraft || searchPhase !== 'idle' ? 'pr-9' : 'pr-3'
+                )}
               />
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted">
-                {search ? `${searchResult.entries.length}/${entries.length}` : entries.length}
-              </span>
+              {searchPhase === 'debouncing' ? (
+                <span
+                  className="pointer-events-none absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center text-white"
+                  aria-hidden
+                >
+                  <TypingDots className="size-3.5" />
+                </span>
+              ) : searchPhase === 'resolving' ? (
+                <span
+                  className="pointer-events-none absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center text-white"
+                  aria-label="Filtering"
+                >
+                  <Loader2 className="size-3.5 animate-spin" />
+                </span>
+              ) : searchDraft ? (
+                <button
+                  type="button"
+                  aria-label="Clear filter"
+                  title="Clear filter"
+                  className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-white transition-colors hover:bg-white/10"
+                  onClick={() => setSearchDraft('')}
+                >
+                  <X className="size-3.5" strokeWidth={2.5} />
+                </button>
+              ) : null}
             </div>
             <Button
               variant="toggle"
@@ -306,38 +400,54 @@ export function LogsPage() {
         </div>
       ) : null}
 
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto border-t border-line bg-[#041522]"
-        onScroll={event => {
-          const element = event.currentTarget;
-          isFollowingRef.current =
-            element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-          if (element.scrollTop < 32) {
-            void loadOlder();
-          }
-        }}
-      >
-        {initialPage.isLoading && !entries.length ? (
-          <div className="p-8 text-center font-mono text-xs text-muted">Loading active logs…</div>
-        ) : !searchResult.entries.length ? (
-          <div className="p-8 text-center font-mono text-xs text-muted">
-            {search ? 'No loaded lines match the search.' : 'No log lines in the active file yet.'}
-          </div>
-        ) : (
-          <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-            {virtualizer.getVirtualItems().map(virtualRow => {
-              const entry = searchResult.entries[virtualRow.index];
-              return (
+      <div className="relative min-h-0 flex-1 border-t border-line bg-[#041522]">
+        <div className="absolute top-2 right-2 z-10 flex h-8 items-stretch overflow-hidden rounded-lg border border-line/80 bg-topbar/90 shadow-lg backdrop-blur-sm">
+          <span
+            className="inline-flex min-w-8 items-center justify-center px-2.5 font-mono text-[11px] text-muted"
+            title={search ? 'Filtered / loaded lines' : 'Loaded lines'}
+          >
+            {search ? `${searchResult.entries.length}/${entries.length}` : entries.length}
+          </span>
+          <Button
+            variant="toggle"
+            aria-label="Download filtered logs"
+            className="size-8 shrink-0 rounded-none border-0 border-l border-line/80 p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0"
+            title="Download filtered logs"
+            disabled={!filteredEntries.length}
+            onClick={downloadFilteredLogs}
+          >
+            <Download className="size-3.5" />
+          </Button>
+        </div>
+        <div
+          ref={scrollRef}
+          className="h-full min-h-0 overflow-auto"
+          onScroll={event => {
+            const element = event.currentTarget;
+            isFollowingRef.current =
+              element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+            if (element.scrollTop < 32) {
+              void loadOlder();
+            }
+          }}
+        >
+          {initialPage.isLoading && !entries.length ? (
+            <div className="p-8 text-center font-mono text-xs text-muted">Loading active logs…</div>
+          ) : !filteredEntries.length ? (
+            <div className="p-8 text-center font-mono text-xs text-muted">
+              {search
+                ? 'No loaded lines match the search.'
+                : 'No log lines in the active file yet.'}
+            </div>
+          ) : wrap ? (
+            <div className="w-full">
+              {filteredEntries.map(entry => (
                 <div
                   key={entry.id}
-                  ref={virtualizer.measureElement}
-                  data-index={virtualRow.index}
                   className={cn(
-                    'absolute left-0 top-0 grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
+                    'grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
                     entry.channel === 'err' && 'bg-danger/5'
                   )}
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
                   <i
                     className={cn(
@@ -348,18 +458,55 @@ export function LogsPage() {
                   <span className="select-none text-muted">{formatTimestamp(entry.timestamp)}</span>
                   <span
                     className={cn(
-                      'text-[#d8e8f5]',
-                      entry.channel === 'err' && 'text-[#ff8c9e]',
-                      wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'
+                      'whitespace-pre-wrap break-words text-[#d8e8f5]',
+                      entry.channel === 'err' && 'text-[#ff8c9e]'
                     )}
                   >
-                    {entry.text}
+                    <Highlighted text={entry.text} regex={searchResult.highlight} />
                   </span>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div className="relative w-full" style={{ height: `${totalSize}px` }}>
+              {virtualizer.getVirtualItems().map(virtualRow => {
+                const entry = filteredEntries[virtualRow.index];
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    className={cn(
+                      'absolute top-0 left-0 grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
+                      entry.channel === 'err' && 'bg-danger/5'
+                    )}
+                    style={{
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <i
+                      className={cn(
+                        'h-full min-h-5 rounded-full',
+                        entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
+                      )}
+                    />
+                    <span className="select-none text-muted">
+                      {formatTimestamp(entry.timestamp)}
+                    </span>
+                    <span
+                      className={cn(
+                        'whitespace-pre text-[#d8e8f5]',
+                        entry.channel === 'err' && 'text-[#ff8c9e]'
+                      )}
+                    >
+                      <Highlighted text={entry.text} regex={searchResult.highlight} />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
