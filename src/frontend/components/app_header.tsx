@@ -54,7 +54,7 @@ export function AppHeader({
       <div className="flex min-w-0 items-center gap-3">
         <Link
           to="/"
-          className="flex min-w-0 items-center gap-3 rounded-md transition-[filter,opacity] hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+          className="flex min-w-0 items-center gap-3 rounded-md hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
         >
           <div className="relative grid size-8 place-items-center">
             <img

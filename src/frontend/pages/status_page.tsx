@@ -190,7 +190,7 @@ export function StatusPage() {
                         <button
                           type="button"
                           className={cn(
-                            'inline-flex items-center gap-1 transition-colors hover:text-white',
+                            'inline-flex items-center gap-1 hover:text-white',
                             isCentered && 'justify-center'
                           )}
                           onClick={header.column.getToggleSortingHandler()}
@@ -224,7 +224,7 @@ export function StatusPage() {
               <tr
                 key={row.id}
                 tabIndex={0}
-                className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 transition-colors hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
+                className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
                 onClick={() =>
                   navigate({
                     to: processDetailTo(),

@@ -79,6 +79,8 @@ export function LogsPage() {
   const pausedRef = useRef(paused);
   const bufferRef = useRef<ILogEntry[]>([]);
   const isFollowingRef = useRef(true);
+  const pendingJumpIdRef = useRef<string | null>(null);
+  const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const pinToBottom = useCallback(() => {
@@ -219,6 +221,19 @@ export function LogsPage() {
   }, [caseSensitive, entries, regex, search]);
 
   const filteredEntries = searchResult.entries;
+  const canJumpToContext = Boolean(search);
+
+  const revealLogEntry = useCallback(
+    (entryId: string) => {
+      isFollowingRef.current = false;
+      pendingJumpIdRef.current = entryId;
+      setFocusedEntryId(entryId);
+      if (searchDraft || search) {
+        setSearchDraft('');
+      }
+    },
+    [search, searchDraft, setSearchDraft]
+  );
 
   const downloadFilteredLogs = useCallback(() => {
     if (!filteredEntries.length) {
@@ -260,6 +275,53 @@ export function LogsPage() {
   useLayoutEffect(() => {
     pinToBottom();
   }, [pinToBottom, filteredEntries.length, totalSize, wrap, search]);
+
+  // After clearing a filter, scroll the chosen line into full-context view.
+  useLayoutEffect(() => {
+    const entryId = pendingJumpIdRef.current;
+    if (!entryId || search) {
+      return;
+    }
+    const index = entries.findIndex(entry => entry.id === entryId);
+    if (index < 0) {
+      pendingJumpIdRef.current = null;
+      return;
+    }
+    pendingJumpIdRef.current = null;
+    isFollowingRef.current = false;
+
+    if (wrap) {
+      const node = scrollRef.current?.querySelector(`[data-entry-id="${CSS.escape(entryId)}"]`);
+      node?.scrollIntoView({ block: 'center' });
+      return;
+    }
+    virtualizer.scrollToIndex(index, { align: 'center' });
+  }, [entries, search, virtualizer, wrap]);
+
+  useEffect(() => {
+    if (!focusedEntryId) {
+      return;
+    }
+    const timer = window.setTimeout(() => setFocusedEntryId(null), 2_500);
+    return () => window.clearTimeout(timer);
+  }, [focusedEntryId]);
+
+  const renderTimestamp = (entry: ILogEntry) => {
+    const label = formatTimestamp(entry.timestamp);
+    if (!canJumpToContext) {
+      return <span className="select-none text-muted">{label}</span>;
+    }
+    return (
+      <button
+        type="button"
+        className="select-none text-left text-muted underline-offset-2 hover:text-cyan hover:underline"
+        title="Clear filter and show surrounding log context"
+        onClick={() => revealLogEntry(entry.id)}
+      >
+        {label}
+      </button>
+    );
+  };
 
   return (
     <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-topbar">
@@ -318,7 +380,7 @@ export function LogsPage() {
                   type="button"
                   aria-label="Clear filter"
                   title="Clear filter"
-                  className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-white transition-colors hover:bg-white/10"
+                  className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-white hover:bg-white/10"
                   onClick={() => setSearchDraft('')}
                 >
                   <X className="size-3.5" strokeWidth={2.5} />
@@ -444,9 +506,11 @@ export function LogsPage() {
               {filteredEntries.map(entry => (
                 <div
                   key={entry.id}
+                  data-entry-id={entry.id}
                   className={cn(
                     'grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
-                    entry.channel === 'err' && 'bg-danger/5'
+                    entry.channel === 'err' && 'bg-danger/5',
+                    focusedEntryId === entry.id && 'bg-cyan/10 ring-1 ring-inset ring-cyan/40'
                   )}
                 >
                   <i
@@ -455,7 +519,7 @@ export function LogsPage() {
                       entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
                     )}
                   />
-                  <span className="select-none text-muted">{formatTimestamp(entry.timestamp)}</span>
+                  {renderTimestamp(entry)}
                   <span
                     className={cn(
                       'whitespace-pre-wrap break-words text-[#d8e8f5]',
@@ -475,9 +539,11 @@ export function LogsPage() {
                   <div
                     key={virtualRow.key}
                     data-index={virtualRow.index}
+                    data-entry-id={entry.id}
                     className={cn(
                       'absolute top-0 left-0 grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
-                      entry.channel === 'err' && 'bg-danger/5'
+                      entry.channel === 'err' && 'bg-danger/5',
+                      focusedEntryId === entry.id && 'bg-cyan/10 ring-1 ring-inset ring-cyan/40'
                     )}
                     style={{
                       height: `${virtualRow.size}px`,
@@ -490,9 +556,7 @@ export function LogsPage() {
                         entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
                       )}
                     />
-                    <span className="select-none text-muted">
-                      {formatTimestamp(entry.timestamp)}
-                    </span>
+                    {renderTimestamp(entry)}
                     <span
                       className={cn(
                         'whitespace-pre text-[#d8e8f5]',

@@ -54,7 +54,7 @@ export function NotFoundPage() {
         </p>
         <Link
           to="/"
-          className="mt-6 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-[#3188ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+          className="mt-6 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-4 text-sm font-semibold text-white hover:bg-[#3188ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
         >
           <House className="size-4" />
           Go home

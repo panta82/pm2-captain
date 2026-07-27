@@ -71,7 +71,7 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
           <Link
             to="/"
             onClick={() => reset()}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-semibold text-white transition-colors hover:border-cyan/60 hover:bg-panel-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line bg-panel px-4 text-sm font-semibold text-white hover:border-cyan/60 hover:bg-panel-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
           >
             <House className="size-4" />
             Go home

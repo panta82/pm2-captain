@@ -78,7 +78,7 @@ export function ProcessLayout() {
           selectedId={numericId}
           autoFocus
           className="py-3"
-          itemClassName="relative mx-2 flex h-12 items-center gap-3 rounded-lg px-3 text-sm transition-colors"
+          itemClassName="relative mx-2 flex h-12 items-center gap-3 rounded-lg px-3 text-sm"
           selectedItemClassName="border border-primary/50 bg-panel-hover text-white"
           idleItemClassName="border border-transparent text-white/90 hover:bg-panel"
           leading={(_process, isSelected) =>
@@ -181,7 +181,7 @@ export function ProcessLayout() {
                     className:
                       'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
-                  className="border-b px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="border-b px-5 py-2.5 text-sm font-semibold"
                 >
                   Info
                 </Link>
@@ -194,7 +194,7 @@ export function ProcessLayout() {
                     className:
                       'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
-                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
                 >
                   Env
                 </Link>
@@ -207,7 +207,7 @@ export function ProcessLayout() {
                     className:
                       'border-b-line bg-panel/55 text-control-muted hover:bg-panel/40 hover:text-white',
                   }}
-                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold transition-colors"
+                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
                 >
                   Logs
                 </Link>
