@@ -151,7 +151,7 @@ export function ProcessNav({
             />
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
               <span className="truncate font-semibold">{process.name}</span>
-              {process.isCaptain || process.pmId === processes[0]?.pmId ? (
+              {process.isCaptain ? (
                 <img
                   src="/pm2-captain-logo-on-dark.png"
                   alt="Captain"

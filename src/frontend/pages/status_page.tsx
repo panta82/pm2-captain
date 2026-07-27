@@ -14,8 +14,9 @@ import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
+import { ErrorPanel } from '@/components/error_panel';
 import { ProcessActions } from '@/components/process_actions';
-import { Skeleton } from '@/components/ui';
+import { Button, Skeleton } from '@/components/ui';
 
 import type { IProcessSummary } from '@shared/contracts';
 
@@ -159,11 +160,13 @@ export function StatusPage() {
 
   if (query.error) {
     return (
-      <div data-component="StatusPage" className="grid flex-1 place-items-center p-10 text-center">
-        <div>
-          <p className="font-semibold text-danger">Unable to reach PM2</p>
-          <p className="mt-2 max-w-lg text-sm text-muted">{query.error.message}</p>
-        </div>
+      <div data-component="StatusPage" className="flex min-h-0 flex-1 flex-col">
+        <ErrorPanel title="Unable to reach PM2" message={query.error.message}>
+          <Button variant="primary" onClick={() => void query.refetch()}>
+            <RotateCw className="size-4" />
+            Try again
+          </Button>
+        </ErrorPanel>
       </div>
     );
   }

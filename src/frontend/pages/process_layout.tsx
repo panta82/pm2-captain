@@ -7,6 +7,7 @@ import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
 import { AppHeader } from '@/components/app_header';
+import { ErrorPanel } from '@/components/error_panel';
 import { ProcessActions } from '@/components/process_actions';
 import { ProcessNav } from '@/components/process_nav';
 import { Button, Skeleton } from '@/components/ui';
@@ -55,16 +56,30 @@ export function ProcessLayout() {
 
   if (!list.data) {
     return (
-      <div data-component="ProcessLayout" className="grid flex-1 place-items-center text-danger">
-        {list.error?.message || 'Unable to load processes'}
+      <div data-component="ProcessLayout" className="flex min-h-0 flex-1 flex-col">
+        <ErrorPanel
+          title="Unable to load processes"
+          message={list.error?.message || 'Failed to load the PM2 process list.'}
+        >
+          <Button variant="primary" onClick={() => void list.refetch()}>
+            Try again
+          </Button>
+        </ErrorPanel>
       </div>
     );
   }
 
   if (!process && !detail.isLoading) {
     return (
-      <div data-component="ProcessLayout" className="grid flex-1 place-items-center text-danger">
-        {detail.error?.message || 'Process not found'}
+      <div data-component="ProcessLayout" className="flex min-h-0 flex-1 flex-col">
+        <ErrorPanel
+          title="Process not found"
+          message={detail.error?.message || 'This process is not in the current PM2 list.'}
+        >
+          <Button variant="primary" onClick={() => void navigate({ to: '/' })}>
+            Go home
+          </Button>
+        </ErrorPanel>
       </div>
     );
   }
