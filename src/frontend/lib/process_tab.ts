@@ -4,7 +4,7 @@ export type ProcessTab = 'info' | 'env' | 'logs';
 
 export function getProcessTab(): ProcessTab {
   try {
-    const storedTab = sessionStorage.getItem(STORAGE_KEY);
+    const storedTab = localStorage.getItem(STORAGE_KEY);
     return storedTab === 'env' || storedTab === 'logs' ? storedTab : 'info';
   } catch {
     return 'info';
@@ -13,7 +13,7 @@ export function getProcessTab(): ProcessTab {
 
 export function setProcessTab(tab: ProcessTab): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, tab);
+    localStorage.setItem(STORAGE_KEY, tab);
   } catch {
     // ignore quota / private-mode failures
   }

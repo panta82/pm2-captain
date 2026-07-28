@@ -426,7 +426,7 @@ export function LogsPage() {
               variant="toggle"
               aria-pressed={paused}
               className={cn(
-                'w-[6.5rem]',
+                'h-9 w-[6.5rem] gap-1.5 px-2.5 text-xs',
                 paused &&
                   'aria-pressed:border-warning/50 aria-pressed:bg-warning/15 aria-pressed:text-warning aria-pressed:shadow-[inset_0_2px_4px_rgb(0_0_0_/_0.32),inset_0_0_0_1px_rgb(246_183_0_/_0.55)] aria-pressed:hover:bg-warning/25'
               )}
