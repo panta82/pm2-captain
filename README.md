@@ -184,6 +184,11 @@ npm run test:e2e
 
 ## Version history
 
+#### 1.1.0
+
+- Remember the last process tab (Info / Env / Logs) in `localStorage`
+- Match Pause button size to other controls in the logs toolbar
+
 #### 1.0.0
 
 Initial release.
