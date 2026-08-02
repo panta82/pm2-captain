@@ -72,6 +72,9 @@ export function ProcessNav({
     }
     keepFocusRef.current = false;
     navRef.current?.focus();
+    navRef.current
+      ?.querySelector<HTMLElement>('[aria-current="page"]')
+      ?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
 
   const handleFocus = () => {

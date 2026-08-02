@@ -86,13 +86,13 @@ export function ProcessLayout() {
 
   return (
     <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
-      <aside className="hidden w-[244px] shrink-0 border-r border-line bg-topbar lg:block">
+      <aside className="hidden min-h-0 w-[244px] shrink-0 flex-col self-stretch overflow-hidden border-r border-line bg-topbar lg:flex">
         <AppHeader data={list.data} loading={false} failed={false} sidebar />
         <ProcessNav
           processes={list.data.processes}
           selectedId={numericId}
           autoFocus
-          className="py-3"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
           itemClassName="relative mx-2 flex h-12 items-center gap-3 rounded-lg px-3 text-sm"
           selectedItemClassName="border border-primary/50 bg-panel-hover text-white"
           idleItemClassName="border border-transparent text-white/90 hover:bg-panel"

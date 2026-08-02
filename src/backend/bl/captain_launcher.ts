@@ -174,16 +174,11 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         // The diagnostic below is more useful than the fetch error.
       }
       if (isExistingCaptain) {
-        if (!browserOpenCommand(settings.baseURL)) {
-          // PM2 can briefly start the replacement before the previous Captain
-          // has released its listener. Let that orderly restart finish before
-          // treating the occupied port as a persistent configuration conflict.
-          if (await waitForPortRelease()) {
-            return false;
-          }
-          throw new PortConflictError(
-            `PM2 Captain is already running at ${settings.baseURL}. This invocation cannot open browser links; stop the existing instance or use --port <number>.`
-          );
+        // PM2/self-restart and tsx watch can start the replacement before the
+        // previous Captain has released its listener. Wait briefly for that
+        // before treating the occupied port as a live singleton instance.
+        if (await waitForPortRelease()) {
+          return false;
         }
         await openBrowser(true);
         return true;

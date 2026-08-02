@@ -129,10 +129,11 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Captain exits with code `78` when its port remains occupied. The
-`stop_exit_codes` setting prevents PM2 from repeatedly restarting a
-misconfigured instance while preserving normal autorestart behavior for other
-failures.
+If the selected port already hosts Captain, the new invocation prints that
+instance's URL and exits. If another application owns the port, Captain exits
+with code `78`. The `stop_exit_codes` setting prevents PM2 from repeatedly
+restarting a misconfigured instance while preserving normal autorestart
+behavior for other failures.
 
 ## Options
 
@@ -183,6 +184,12 @@ npm run test:e2e
 ```
 
 ## Version history
+
+#### Unreleased
+
+- Keep the process sidebar scrollable when many processes are listed
+- When Captain is already running, print its URL and exit cleanly even with
+  `--no-open` (only exit `78` when another app owns the port)
 
 #### 1.1.0
 
