@@ -185,7 +185,7 @@ npm run test:e2e
 
 ## Version history
 
-#### Unreleased
+#### 1.1.1
 
 - Keep the process sidebar scrollable when many processes are listed
 - When Captain is already running, print its URL and exit cleanly even with
