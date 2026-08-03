@@ -1,17 +1,17 @@
 import { useParams } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Download, Pause, Play, TextWrap } from 'lucide-react';
 import {
-  CaseSensitive,
-  Download,
-  Loader2,
-  Pause,
-  Play,
-  Regex,
-  Search,
-  TextWrap,
-  X,
-} from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+  type CSSProperties,
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 
 import { useDebouncedSearch } from '@/lib/debounce';
@@ -19,6 +19,7 @@ import { trpc } from '@/lib/trpc';
 import { cn, formatTimestamp } from '@/lib/utils';
 
 import { Highlighted, buildHighlightRegex } from '@/components/highlighted';
+import { SearchFilter } from '@/components/search_filter';
 import { Button, ToggleGroup } from '@/components/ui';
 
 import type { ILogEntry, ILogView } from '@shared/contracts';
@@ -26,22 +27,6 @@ import type { ILogEntry, ILogView } from '@shared/contracts';
 const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
 const SEARCH_DEBOUNCE_MS = 300; // quiet period before applying filter
-
-function TypingDots({ className }: { className?: string }) {
-  return (
-    <svg
-      data-component="TypingDots"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      className={cn('typing-dots fill-current', className)}
-      aria-hidden
-    >
-      <ellipse cx="4" cy="12" rx="2.5" ry="2.5" />
-      <ellipse cx="12" cy="12" rx="2.5" ry="2.5" />
-      <ellipse cx="20" cy="12" rx="2.5" ry="2.5" />
-    </svg>
-  );
-}
 
 /**
  * Set first letter in a string to uppercase. Doesn't touch other chars.
@@ -53,6 +38,70 @@ function capitalize<T extends string>(str: T): Capitalize<T> {
   str = String(str) as any;
   return (str[0].toUpperCase() + str.slice(1)) as any;
 }
+
+const LogRow = memo(function LogRow({
+  entry,
+  wrap,
+  highlight,
+  canJumpToContext,
+  focused,
+  onReveal,
+  style,
+  dataIndex,
+}: {
+  entry: ILogEntry;
+  wrap: boolean;
+  highlight: RegExp | null;
+  canJumpToContext: boolean;
+  focused: boolean;
+  onReveal: (entryId: string) => void;
+  style?: CSSProperties;
+  dataIndex?: number;
+}) {
+  const timestamp = formatTimestamp(entry.timestamp);
+
+  return (
+    <div
+      data-component="LogRow"
+      data-index={dataIndex}
+      data-entry-id={entry.id}
+      className={cn(
+        'grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
+        entry.channel === 'err' && 'bg-danger/5',
+        focused && 'bg-cyan/10 ring-1 ring-inset ring-cyan/40',
+        style && 'absolute top-0 left-0'
+      )}
+      style={style}
+    >
+      <i
+        className={cn(
+          'h-full min-h-5 rounded-full',
+          entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
+        )}
+      />
+      {canJumpToContext ? (
+        <button
+          type="button"
+          className="select-none text-left text-muted underline-offset-2 hover:text-cyan hover:underline"
+          title="Clear filter and show surrounding log context"
+          onClick={() => onReveal(entry.id)}
+        >
+          {timestamp}
+        </button>
+      ) : (
+        <span className="select-none text-muted">{timestamp}</span>
+      )}
+      <span
+        className={cn(
+          wrap ? 'whitespace-pre-wrap break-words text-[#d8e8f5]' : 'whitespace-pre text-[#d8e8f5]',
+          entry.channel === 'err' && 'text-[#ff8c9e]'
+        )}
+      >
+        <Highlighted text={entry.text} regex={highlight} />
+      </span>
+    </div>
+  );
+});
 
 export function LogsPage() {
   const { pmId } = useParams({ from: '/processes/$pmId' });
@@ -74,6 +123,10 @@ export function LogsPage() {
   } = useDebouncedSearch(SEARCH_DEBOUNCE_MS);
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
+  // Keep toggle UI snappy; defer the expensive re-filter/highlight pass.
+  const deferredSearch = useDeferredValue(search);
+  const deferredCaseSensitive = useDeferredValue(caseSensitive);
+  const deferredRegex = useDeferredValue(regex);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(paused);
@@ -198,11 +251,14 @@ export function LogsPage() {
   }, [cursor, hasMore, loadingOlder, numericId, utils.client.logs.page, view]);
 
   const searchResult = useMemo(() => {
-    if (!search) {
+    if (!deferredSearch) {
       return { entries, error: '', highlight: null as RegExp | null };
     }
     try {
-      const highlight = buildHighlightRegex(search, { caseSensitive, regex });
+      const highlight = buildHighlightRegex(deferredSearch, {
+        caseSensitive: deferredCaseSensitive,
+        regex: deferredRegex,
+      });
       return {
         entries: entries.filter(entry => {
           highlight.lastIndex = 0;
@@ -218,10 +274,12 @@ export function LogsPage() {
         highlight: null as RegExp | null,
       };
     }
-  }, [caseSensitive, entries, regex, search]);
+  }, [deferredCaseSensitive, deferredRegex, deferredSearch, entries]);
 
   const filteredEntries = searchResult.entries;
-  const canJumpToContext = Boolean(search);
+  const canJumpToContext = Boolean(deferredSearch);
+  const isFilterPending =
+    search !== deferredSearch || caseSensitive !== deferredCaseSensitive || regex !== deferredRegex;
 
   const revealLogEntry = useCallback(
     (entryId: string) => {
@@ -254,10 +312,10 @@ export function LogsPage() {
     const anchor = document.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     anchor.href = url;
-    anchor.download = `pm2-${numericId}-${view}${search ? '-filtered' : ''}-${stamp}.log`;
+    anchor.download = `pm2-${numericId}-${view}${deferredSearch ? '-filtered' : ''}-${stamp}.log`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [filteredEntries, numericId, search, view]);
+  }, [deferredSearch, filteredEntries, numericId, view]);
 
   // Variable-height wrap rows fight virtualization (estimate/measure thrash → overlap).
   // Nowrap rows are fixed height, so virtualize only then.
@@ -274,12 +332,12 @@ export function LogsPage() {
   // Keep pinned to bottom after React/virtualizer layout when following.
   useLayoutEffect(() => {
     pinToBottom();
-  }, [pinToBottom, filteredEntries.length, totalSize, wrap, search]);
+  }, [pinToBottom, filteredEntries.length, totalSize, wrap, deferredSearch]);
 
   // After clearing a filter, scroll the chosen line into full-context view.
   useLayoutEffect(() => {
     const entryId = pendingJumpIdRef.current;
-    if (!entryId || search) {
+    if (!entryId || deferredSearch) {
       return;
     }
     const index = entries.findIndex(entry => entry.id === entryId);
@@ -296,7 +354,7 @@ export function LogsPage() {
       return;
     }
     virtualizer.scrollToIndex(index, { align: 'center' });
-  }, [entries, search, virtualizer, wrap]);
+  }, [deferredSearch, entries, virtualizer, wrap]);
 
   useEffect(() => {
     if (!focusedEntryId) {
@@ -305,23 +363,6 @@ export function LogsPage() {
     const timer = window.setTimeout(() => setFocusedEntryId(null), 2_500);
     return () => window.clearTimeout(timer);
   }, [focusedEntryId]);
-
-  const renderTimestamp = (entry: ILogEntry) => {
-    const label = formatTimestamp(entry.timestamp);
-    if (!canJumpToContext) {
-      return <span className="select-none text-muted">{label}</span>;
-    }
-    return (
-      <button
-        type="button"
-        className="select-none text-left text-muted underline-offset-2 hover:text-cyan hover:underline"
-        title="Clear filter and show surrounding log context"
-        onClick={() => revealLogEntry(entry.id)}
-      >
-        {label}
-      </button>
-    );
-  };
 
   return (
     <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-topbar">
@@ -343,71 +384,16 @@ export function LogsPage() {
         </div>
 
         <div className="flex min-w-0 items-center justify-center">
-          <div className="flex h-9 min-w-0 w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-panel has-[input:focus]:border-cyan/60 sm:w-[min(28rem,40vw)]">
-            <div className="relative min-h-0 min-w-0 flex-1 self-stretch">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
-              <input
-                value={searchDraft}
-                onChange={event => setSearchDraft(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Escape' && searchDraft) {
-                    event.preventDefault();
-                    setSearchDraft('');
-                  }
-                }}
-                placeholder="Filter loaded logs…"
-                className={cn(
-                  'block h-full w-full border-0 bg-transparent py-0 pl-9 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70',
-                  searchDraft || searchPhase !== 'idle' ? 'pr-9' : 'pr-3'
-                )}
-              />
-              {searchPhase === 'debouncing' ? (
-                <span
-                  className="pointer-events-none absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center text-white"
-                  aria-hidden
-                >
-                  <TypingDots className="size-3.5" />
-                </span>
-              ) : searchPhase === 'resolving' ? (
-                <span
-                  className="pointer-events-none absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center text-white"
-                  aria-label="Filtering"
-                >
-                  <Loader2 className="size-3.5 animate-spin" />
-                </span>
-              ) : searchDraft ? (
-                <button
-                  type="button"
-                  aria-label="Clear filter"
-                  title="Clear filter"
-                  className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-white hover:bg-white/10"
-                  onClick={() => setSearchDraft('')}
-                >
-                  <X className="size-3.5" strokeWidth={2.5} />
-                </button>
-              ) : null}
-            </div>
-            <Button
-              variant="toggle"
-              aria-label="Case sensitive"
-              aria-pressed={caseSensitive}
-              className="h-full w-9 shrink-0 rounded-none border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
-              title="Case sensitive"
-              onClick={() => setCaseSensitive(value => !value)}
-            >
-              <CaseSensitive className="size-4" />
-            </Button>
-            <Button
-              variant="toggle"
-              aria-label="Regular expression"
-              aria-pressed={regex}
-              className="h-full w-9 shrink-0 rounded-none rounded-tr-[7px] rounded-br-[7px] border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
-              title="Regular expression"
-              onClick={() => setRegex(value => !value)}
-            >
-              <Regex className="size-4" />
-            </Button>
-          </div>
+          <SearchFilter
+            draft={searchDraft}
+            phase={searchPhase}
+            onDraftChange={setSearchDraft}
+            caseSensitive={caseSensitive}
+            onCaseSensitiveChange={next => setCaseSensitive(next)}
+            regex={regex}
+            onRegexChange={next => setRegex(next)}
+            placeholder="Filter loaded logs…"
+          />
         </div>
 
         <div className="flex items-center justify-end gap-2">
@@ -462,13 +448,18 @@ export function LogsPage() {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1 border-t border-line bg-[#041522]">
+      <div
+        className={cn(
+          'relative min-h-0 flex-1 border-t border-line bg-[#041522]',
+          isFilterPending && 'opacity-80'
+        )}
+      >
         <div className="absolute top-2 right-2 z-10 flex h-8 items-stretch overflow-hidden rounded-lg border border-line/80 bg-topbar/90 shadow-lg backdrop-blur-sm">
           <span
             className="inline-flex min-w-8 items-center justify-center px-2.5 font-mono text-[11px] text-muted"
-            title={search ? 'Filtered / loaded lines' : 'Loaded lines'}
+            title={deferredSearch ? 'Filtered / loaded lines' : 'Loaded lines'}
           >
-            {search ? `${searchResult.entries.length}/${entries.length}` : entries.length}
+            {deferredSearch ? `${searchResult.entries.length}/${entries.length}` : entries.length}
           </span>
           <Button
             variant="toggle"
@@ -497,38 +488,22 @@ export function LogsPage() {
             <div className="p-8 text-center font-mono text-xs text-muted">Loading active logs…</div>
           ) : !filteredEntries.length ? (
             <div className="p-8 text-center font-mono text-xs text-muted">
-              {search
+              {deferredSearch
                 ? 'No loaded lines match the search.'
                 : 'No log lines in the active file yet.'}
             </div>
           ) : wrap ? (
             <div className="w-full">
               {filteredEntries.map(entry => (
-                <div
+                <LogRow
                   key={entry.id}
-                  data-entry-id={entry.id}
-                  className={cn(
-                    'grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
-                    entry.channel === 'err' && 'bg-danger/5',
-                    focusedEntryId === entry.id && 'bg-cyan/10 ring-1 ring-inset ring-cyan/40'
-                  )}
-                >
-                  <i
-                    className={cn(
-                      'h-full min-h-5 rounded-full',
-                      entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
-                    )}
-                  />
-                  {renderTimestamp(entry)}
-                  <span
-                    className={cn(
-                      'whitespace-pre-wrap break-words text-[#d8e8f5]',
-                      entry.channel === 'err' && 'text-[#ff8c9e]'
-                    )}
-                  >
-                    <Highlighted text={entry.text} regex={searchResult.highlight} />
-                  </span>
-                </div>
+                  entry={entry}
+                  wrap
+                  highlight={searchResult.highlight}
+                  canJumpToContext={canJumpToContext}
+                  focused={focusedEntryId === entry.id}
+                  onReveal={revealLogEntry}
+                />
               ))}
             </div>
           ) : (
@@ -536,36 +511,20 @@ export function LogsPage() {
               {virtualizer.getVirtualItems().map(virtualRow => {
                 const entry = filteredEntries[virtualRow.index];
                 return (
-                  <div
+                  <LogRow
                     key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    data-entry-id={entry.id}
-                    className={cn(
-                      'absolute top-0 left-0 grid w-full grid-cols-[4px_104px_minmax(0,1fr)] gap-3 px-5 py-1 font-mono text-[12px] leading-5',
-                      entry.channel === 'err' && 'bg-danger/5',
-                      focusedEntryId === entry.id && 'bg-cyan/10 ring-1 ring-inset ring-cyan/40'
-                    )}
+                    entry={entry}
+                    wrap={false}
+                    highlight={searchResult.highlight}
+                    canJumpToContext={canJumpToContext}
+                    focused={focusedEntryId === entry.id}
+                    onReveal={revealLogEntry}
+                    dataIndex={virtualRow.index}
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
-                  >
-                    <i
-                      className={cn(
-                        'h-full min-h-5 rounded-full',
-                        entry.channel === 'err' ? 'bg-danger' : 'bg-[#31516a]'
-                      )}
-                    />
-                    {renderTimestamp(entry)}
-                    <span
-                      className={cn(
-                        'whitespace-pre text-[#d8e8f5]',
-                        entry.channel === 'err' && 'text-[#ff8c9e]'
-                      )}
-                    >
-                      <Highlighted text={entry.text} regex={searchResult.highlight} />
-                    </span>
-                  </div>
+                  />
                 );
               })}
             </div>

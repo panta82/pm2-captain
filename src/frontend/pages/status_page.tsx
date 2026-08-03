@@ -8,19 +8,23 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ChevronDown, ChevronUp, Eye, RotateCw } from 'lucide-react';
-import { useState } from 'react';
+import { startTransition, useEffect, useMemo, useState } from 'react';
 
+import { useProcessListFilter } from '@/lib/process_list_filter';
 import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
 import { ErrorPanel } from '@/components/error_panel';
+import { Highlighted, buildHighlightRegex } from '@/components/highlighted';
 import { ProcessActions } from '@/components/process_actions';
 import { Button, Skeleton } from '@/components/ui';
 
 import type { IProcessSummary } from '@shared/contracts';
 
 const column = createColumnHelper<IProcessSummary>();
+const coreRowModel = getCoreRowModel();
+const sortedRowModel = getSortedRowModel();
 
 function compareNullableNumber(
   left: number | null | undefined,
@@ -38,114 +42,205 @@ function compareNullableNumber(
   return left - right;
 }
 
+function processSearchHaystack(process: IProcessSummary): string {
+  return [
+    String(process.pmId),
+    process.name,
+    process.namespace,
+    process.status,
+    process.mode,
+    process.pid == null ? '' : String(process.pid),
+    process.version || '',
+  ].join(' ');
+}
+
+function useIsDesktopTable(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const onChange = () => setIsDesktop(media.matches);
+    onChange();
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  return isDesktop;
+}
+
 export function StatusPage() {
   const navigate = useNavigate();
+  const processFilter = useProcessListFilter();
+  const isDesktopTable = useIsDesktopTable();
   const [sorting, setSorting] = useState<SortingState>([]);
   const query = trpc.processes.list.useQuery(undefined, {
     refetchInterval: 2_000,
   });
-  const columns = [
-    column.accessor('pmId', {
-      header: 'ID',
-      cell: info => info.getValue(),
-    }),
-    column.accessor('name', {
-      header: 'NAME',
-      cell: info => (
-        <div className="flex min-w-0 items-center gap-2">
-          <i
-            className={cn(
-              'size-2 shrink-0 rounded-full',
-              info.row.original.status === 'online'
-                ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                : 'border border-muted'
-            )}
-          />
-          <span className="truncate font-sans font-semibold text-white">{info.getValue()}</span>
-          {info.row.original.isCaptain ? (
-            <img
-              src="/pm2-captain-logo-on-dark.png"
-              alt="Captain"
-              title="This is Captain"
-              className="size-3.5 shrink-0 object-contain"
+
+  const filterResult = useMemo(() => {
+    const processes = query.data?.processes || [];
+    if (!processFilter.search) {
+      return {
+        processes,
+        error: '',
+        highlight: null as RegExp | null,
+      };
+    }
+
+    try {
+      const highlight = buildHighlightRegex(processFilter.search, {
+        caseSensitive: processFilter.caseSensitive,
+        regex: processFilter.regex,
+      });
+      return {
+        processes: processes.filter(process => {
+          highlight.lastIndex = 0;
+          return highlight.test(processSearchHaystack(process));
+        }),
+        highlight,
+        error: '',
+      };
+    } catch (error) {
+      return {
+        processes: [],
+        highlight: null as RegExp | null,
+        error: error instanceof Error ? error.message : 'Invalid regular expression',
+      };
+    }
+  }, [
+    processFilter.caseSensitive,
+    processFilter.regex,
+    processFilter.search,
+    query.data?.processes,
+  ]);
+
+  const columns = useMemo(
+    () => [
+      column.accessor('pmId', {
+        header: 'ID',
+        cell: info => <Highlighted text={String(info.getValue())} regex={filterResult.highlight} />,
+      }),
+      column.accessor('name', {
+        header: 'NAME',
+        cell: info => (
+          <div className="flex min-w-0 items-center gap-2">
+            <i
+              className={cn(
+                'size-2 shrink-0 rounded-full',
+                info.row.original.status === 'online'
+                  ? 'bg-online shadow-[0_0_9px_#35D07F]'
+                  : 'border border-muted'
+              )}
             />
-          ) : null}
-        </div>
-      ),
-    }),
-    column.accessor('mode', { header: 'MODE' }),
-    column.accessor('restarts', {
-      header: () => <RotateCw className="inline-block size-3" />,
-      cell: info => (
-        <span className={info.getValue() > 10 ? 'text-warning' : ''}>{info.getValue()}</span>
-      ),
-    }),
-    column.accessor('cpu', {
-      header: 'CPU',
-      sortingFn: (left, right, columnId) =>
-        compareNullableNumber(
-          left.getValue<number | null>(columnId),
-          right.getValue<number | null>(columnId)
+            <span className="truncate font-sans font-semibold text-white">
+              <Highlighted text={info.getValue()} regex={filterResult.highlight} />
+            </span>
+            {info.row.original.isCaptain ? (
+              <img
+                src="/pm2-captain-logo-on-dark.png"
+                alt="Captain"
+                title="This is Captain"
+                className="size-3.5 shrink-0 object-contain"
+              />
+            ) : null}
+          </div>
         ),
-      cell: info => (
-        <span className="text-cyan">
-          {info.getValue() === null ? '—' : `${info.getValue()!.toFixed(1)}%`}
-        </span>
-      ),
-    }),
-    column.accessor('memory', {
-      header: 'MEM',
-      sortingFn: (left, right, columnId) =>
-        compareNullableNumber(
-          left.getValue<number | null>(columnId),
-          right.getValue<number | null>(columnId)
+      }),
+      column.accessor('namespace', {
+        header: 'NAMESPACE',
+        cell: info => (
+          <span className="text-muted">
+            <Highlighted text={info.getValue()} regex={filterResult.highlight} />
+          </span>
         ),
-      cell: info => <span className="text-[#73a8ff]">{formatBytes(info.getValue())}</span>,
-    }),
-    column.accessor('uptime', {
-      header: 'UPTIME',
-      sortingFn: (left, right, columnId) =>
-        compareNullableNumber(
-          left.getValue<number | null>(columnId),
-          right.getValue<number | null>(columnId)
+      }),
+      column.accessor('mode', {
+        header: 'MODE',
+        cell: info => <Highlighted text={info.getValue()} regex={filterResult.highlight} />,
+      }),
+      column.accessor('restarts', {
+        header: () => <RotateCw className="inline-block size-3" />,
+        cell: info => (
+          <span className={info.getValue() > 10 ? 'text-warning' : ''}>{info.getValue()}</span>
         ),
-      cell: info => formatDuration(info.getValue()),
-    }),
-    column.accessor('pid', {
-      header: 'PID',
-      sortingFn: (left, right, columnId) =>
-        compareNullableNumber(
-          left.getValue<number | null>(columnId),
-          right.getValue<number | null>(columnId)
+      }),
+      column.accessor('cpu', {
+        header: 'CPU',
+        sortingFn: (left, right, columnId) =>
+          compareNullableNumber(
+            left.getValue<number | null>(columnId),
+            right.getValue<number | null>(columnId)
+          ),
+        cell: info => (
+          <span className="text-cyan">
+            {info.getValue() === null ? '—' : `${info.getValue()!.toFixed(1)}%`}
+          </span>
         ),
-      cell: info => info.getValue() || '—',
-    }),
-    column.accessor('version', {
-      header: 'VERSION',
-      cell: info => info.getValue() || '—',
-    }),
-    column.accessor('watching', {
-      header: 'WATCH',
-      cell: info => (
-        <span className={info.getValue() ? 'text-online' : 'text-muted'}>
-          {info.getValue() ? '✓' : '×'}
-        </span>
-      ),
-    }),
-    column.display({
-      id: 'actions',
-      header: '',
-      enableSorting: false,
-      cell: info => <ProcessActions process={info.row.original} compact />,
-    }),
-  ];
+      }),
+      column.accessor('memory', {
+        header: 'MEM',
+        sortingFn: (left, right, columnId) =>
+          compareNullableNumber(
+            left.getValue<number | null>(columnId),
+            right.getValue<number | null>(columnId)
+          ),
+        cell: info => <span className="text-[#73a8ff]">{formatBytes(info.getValue())}</span>,
+      }),
+      column.accessor('uptime', {
+        header: 'UPTIME',
+        sortingFn: (left, right, columnId) =>
+          compareNullableNumber(
+            left.getValue<number | null>(columnId),
+            right.getValue<number | null>(columnId)
+          ),
+        cell: info => formatDuration(info.getValue()),
+      }),
+      column.accessor('pid', {
+        header: 'PID',
+        sortingFn: (left, right, columnId) =>
+          compareNullableNumber(
+            left.getValue<number | null>(columnId),
+            right.getValue<number | null>(columnId)
+          ),
+        cell: info => {
+          const pid = info.getValue();
+          if (!pid) {
+            return '—';
+          }
+          return <Highlighted text={String(pid)} regex={filterResult.highlight} />;
+        },
+      }),
+      column.accessor('version', {
+        header: 'VERSION',
+        cell: info => {
+          const version = info.getValue() || '—';
+          return <Highlighted text={version} regex={filterResult.highlight} />;
+        },
+      }),
+      column.display({
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        cell: info => <ProcessActions process={info.row.original} compact />,
+      }),
+    ],
+    [filterResult.highlight]
+  );
+
   const table = useReactTable({
-    data: query.data?.processes || [],
+    data: filterResult.processes,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: updater => {
+      startTransition(() => {
+        setSorting(updater);
+      });
+    },
+    getRowId: row => String(row.pmId),
+    getCoreRowModel: coreRowModel,
+    getSortedRowModel: sortedRowModel,
   });
 
   if (query.isLoading) {
@@ -173,136 +268,128 @@ export function StatusPage() {
 
   return (
     <main data-component="StatusPage" className="flex-1 overflow-auto">
-      <div className="hidden min-w-[1100px] lg:block">
-        <table className="w-full border-collapse font-mono text-[13px]">
-          <thead>
-            {table.getHeaderGroups().map(group => (
-              <tr key={group.id} className="h-11 border-b border-line bg-topbar/70">
-                {group.headers.map(header => {
-                  const canSort = header.column.getCanSort();
-                  const sorted = header.column.getIsSorted();
-                  const isCentered =
-                    header.column.id === 'restarts' || header.column.id === 'watching';
-                  return (
-                    <th
-                      key={header.id}
-                      className={cn(
-                        'px-4 text-[10px] font-semibold first:pl-6',
-                        isCentered ? 'text-center' : 'text-left',
-                        sorted ? 'text-white' : 'text-muted'
-                      )}
-                    >
-                      {header.isPlaceholder ? null : canSort ? (
-                        <button
-                          type="button"
-                          className={cn(
-                            'inline-flex items-center gap-1 hover:text-white',
-                            isCentered && 'justify-center'
-                          )}
-                          onClick={header.column.getToggleSortingHandler()}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          {sorted === 'asc' ? (
-                            <ChevronUp className="size-3 shrink-0" />
-                          ) : sorted === 'desc' ? (
-                            <ChevronDown className="size-3 shrink-0" />
-                          ) : (
-                            <span className="size-3 shrink-0" aria-hidden />
-                          )}
-                        </button>
-                      ) : (
-                        flexRender(header.column.columnDef.header, header.getContext())
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map(row => (
-              <tr
-                key={row.id}
-                tabIndex={0}
-                className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
-                onClick={() =>
-                  navigate({
-                    to: processDetailTo(),
-                    params: { pmId: String(row.original.pmId) },
-                  })
-                }
-                onKeyDown={event => {
-                  if (event.key === 'Enter') {
-                    navigate({
-                      to: processDetailTo(),
-                      params: { pmId: String(row.original.pmId) },
-                    });
-                  }
-                }}
-              >
-                {row.getVisibleCells().map(cell => (
+      {filterResult.error ? (
+        <div className="border-b border-line px-4 py-2 font-mono text-xs text-danger sm:px-6">
+          {filterResult.error}
+        </div>
+      ) : null}
+      {isDesktopTable ? (
+        <div className="min-w-[1100px]">
+          <table className="w-full border-collapse font-mono text-[13px]">
+            <thead>
+              {table.getHeaderGroups().map(group => (
+                <tr key={group.id} className="h-11 border-b border-line bg-topbar/70">
+                  {group.headers.map(header => {
+                    const canSort = header.column.getCanSort();
+                    const sorted = header.column.getIsSorted();
+                    const isCentered = header.column.id === 'restarts';
+                    return (
+                      <th
+                        key={header.id}
+                        className={cn(
+                          'px-4 text-[10px] font-semibold first:pl-6',
+                          isCentered ? 'w-12 px-1 text-center' : 'text-left',
+                          sorted ? 'text-white' : 'text-muted'
+                        )}
+                      >
+                        {header.isPlaceholder ? null : canSort ? (
+                          <button
+                            type="button"
+                            className={cn(
+                              'inline-flex items-center gap-1 hover:text-white',
+                              isCentered && 'relative justify-center'
+                            )}
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            {sorted === 'asc' ? (
+                              <ChevronUp
+                                className={cn(
+                                  'size-3 shrink-0',
+                                  isCentered && 'absolute top-1/2 left-full ml-0.5 -translate-y-1/2'
+                                )}
+                              />
+                            ) : sorted === 'desc' ? (
+                              <ChevronDown
+                                className={cn(
+                                  'size-3 shrink-0',
+                                  isCentered && 'absolute top-1/2 left-full ml-0.5 -translate-y-1/2'
+                                )}
+                              />
+                            ) : isCentered ? null : (
+                              <span className="size-3 shrink-0" aria-hidden />
+                            )}
+                          </button>
+                        ) : (
+                          flexRender(header.column.columnDef.header, header.getContext())
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
                   <td
-                    key={cell.id}
-                    className={cn(
-                      'px-4 first:pl-6',
-                      (cell.column.id === 'restarts' || cell.column.id === 'watching') &&
-                        'text-center'
-                    )}
+                    colSpan={columns.length}
+                    className="px-6 py-10 text-center font-mono text-sm text-muted"
                   >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    {processFilter.search
+                      ? 'No processes match the filter.'
+                      : 'No PM2 processes found.'}
                   </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid gap-3 p-3 lg:hidden">
-        {query.data?.processes.map(process => (
-          <article key={process.pmId} className="rounded-xl border border-line bg-panel p-4">
-            <button
-              className="block w-full text-left"
-              onClick={() =>
-                navigate({
-                  to: processDetailTo(),
-                  params: { pmId: String(process.pmId) },
-                })
-              }
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold text-white">{process.name}</span>
-                <span
-                  className={cn(
-                    'rounded-full border px-2 py-1 font-mono text-[10px] uppercase',
-                    process.status === 'online'
-                      ? 'border-online/40 bg-online/10 text-online'
-                      : 'border-muted/30 text-muted'
-                  )}
-                >
-                  {process.status}
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-3 font-mono text-xs text-muted">
-                <span>
-                  CPU <b className="block pt-1 text-cyan">{process.cpu?.toFixed(1) || '—'}%</b>
-                </span>
-                <span>
-                  MEM <b className="block pt-1 text-white">{formatBytes(process.memory)}</b>
-                </span>
-                <span>
-                  UP <b className="block pt-1 text-online">{formatDuration(process.uptime)}</b>
-                </span>
-              </div>
-            </button>
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">
-              <span className="font-mono text-xs text-muted">
-                id {process.pmId} · pid {process.pid || '—'}
-              </span>
-              <div className="flex items-center gap-3">
-                <ProcessActions process={process} compact />
+                </tr>
+              ) : (
+                table.getRowModel().rows.map(row => (
+                  <tr
+                    key={row.id}
+                    tabIndex={0}
+                    className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
+                    onClick={() =>
+                      navigate({
+                        to: processDetailTo(),
+                        params: { pmId: String(row.original.pmId) },
+                      })
+                    }
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        navigate({
+                          to: processDetailTo(),
+                          params: { pmId: String(row.original.pmId) },
+                        });
+                      }
+                    }}
+                  >
+                    {row.getVisibleCells().map(cell => (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          'px-4 first:pl-6',
+                          cell.column.id === 'restarts' && 'text-center'
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid gap-3 p-3">
+          {filterResult.processes.length === 0 ? (
+            <div className="rounded-xl border border-line bg-panel px-4 py-8 text-center font-mono text-sm text-muted">
+              {processFilter.search ? 'No processes match the filter.' : 'No PM2 processes found.'}
+            </div>
+          ) : (
+            filterResult.processes.map(process => (
+              <article key={process.pmId} className="rounded-xl border border-line bg-panel p-4">
                 <button
-                  aria-label={`Open ${process.name}`}
+                  className="block w-full text-left"
                   onClick={() =>
                     navigate({
                       to: processDetailTo(),
@@ -310,13 +397,57 @@ export function StatusPage() {
                     })
                   }
                 >
-                  <Eye className="size-4 text-cyan" />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-white">
+                      <Highlighted text={process.name} regex={filterResult.highlight} />
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full border px-2 py-1 font-mono text-[10px] uppercase',
+                        process.status === 'online'
+                          ? 'border-online/40 bg-online/10 text-online'
+                          : 'border-muted/30 text-muted'
+                      )}
+                    >
+                      {process.status}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3 font-mono text-xs text-muted">
+                    <span>
+                      CPU <b className="block pt-1 text-cyan">{process.cpu?.toFixed(1) || '—'}%</b>
+                    </span>
+                    <span>
+                      MEM <b className="block pt-1 text-white">{formatBytes(process.memory)}</b>
+                    </span>
+                    <span>
+                      UP <b className="block pt-1 text-online">{formatDuration(process.uptime)}</b>
+                    </span>
+                  </div>
                 </button>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">
+                  <span className="font-mono text-xs text-muted">
+                    id {process.pmId} · pid {process.pid || '—'}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <ProcessActions process={process} compact />
+                    <button
+                      aria-label={`Open ${process.name}`}
+                      onClick={() =>
+                        navigate({
+                          to: processDetailTo(),
+                          params: { pmId: String(process.pmId) },
+                        })
+                      }
+                    >
+                      <Eye className="size-4 text-cyan" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      )}
     </main>
   );
 }

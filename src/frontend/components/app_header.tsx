@@ -1,14 +1,19 @@
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, ShieldCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
+
+import { cn } from '@/lib/utils';
 
 import type { IProcessListResult } from '@shared/contracts';
 
 export function HostStatus({
   data,
   showHost = true,
+  className,
 }: {
   data?: IProcessListResult;
   showHost?: boolean;
+  className?: string;
 }) {
   const online = data?.processes.filter(process => process.status === 'online').length || 0;
   const offline = (data?.processes.length || 0) - online;
@@ -16,7 +21,7 @@ export function HostStatus({
   return (
     <div
       data-component="HostStatus"
-      className="flex items-center gap-4 font-mono text-xs text-muted"
+      className={cn('flex items-center gap-3 font-mono text-xs text-muted sm:gap-4', className)}
     >
       {showHost && data?.hostLabel ? <span className="truncate">{data.hostLabel}</span> : null}
       <span className="flex items-center gap-2">
@@ -36,27 +41,32 @@ export function AppHeader({
   loading,
   failed,
   sidebar = false,
+  filter,
 }: {
   data?: IProcessListResult;
   loading: boolean;
   failed: boolean;
   sidebar?: boolean;
+  filter?: ReactNode;
 }) {
   return (
     <header
       data-component="AppHeader"
       className={
         sidebar
-          ? 'flex h-16 shrink-0 items-center justify-between border-b border-line bg-panel/45 px-4 sm:px-5'
-          : 'flex h-16 shrink-0 items-center justify-between border-b border-line bg-topbar px-4 sm:px-5'
+          ? 'flex h-16 shrink-0 items-center justify-between gap-3 border-b border-line bg-panel/45 px-4 sm:px-5'
+          : cn(
+              'flex shrink-0 flex-wrap items-center gap-x-3 border-b border-line bg-topbar px-3 sm:h-16 sm:flex-nowrap sm:gap-3 sm:px-5',
+              filter ? 'gap-y-2 py-2.5 sm:py-0' : 'h-16 px-4'
+            )
       }
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="order-1 flex min-w-0 flex-1 items-center gap-3">
         <Link
           to="/"
           className="flex min-w-0 items-center gap-3 rounded-md hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan"
         >
-          <div className="relative grid size-8 place-items-center">
+          <div className="relative grid size-8 shrink-0 place-items-center">
             <img
               src="/pm2-captain-logo-on-dark.png"
               alt=""
@@ -88,7 +98,14 @@ export function AppHeader({
           </span>
         ) : null}
       </div>
-      {!sidebar ? <HostStatus data={data} showHost={false} /> : null}
+      {!sidebar && filter ? (
+        <div className="order-3 w-full min-w-0 basis-full sm:order-2 sm:w-[min(28rem,40vw)] sm:max-w-md sm:basis-auto sm:justify-self-end">
+          {filter}
+        </div>
+      ) : null}
+      {!sidebar ? (
+        <HostStatus data={data} showHost={false} className="order-2 shrink-0 sm:order-3" />
+      ) : null}
     </header>
   );
 }

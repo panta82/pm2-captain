@@ -185,18 +185,25 @@ npm run test:e2e
 
 ## Version history
 
-#### 1.1.1
+#### `1.2.0` (2026-08-03)
+
+- Filter the process list from the header (same search UI as logs, with match
+  highlighting)
+- Show namespace on the status table; drop the watch column
+- Improve mobile header layout and log/process list interaction performance
+
+#### `1.1.1` (2026-08-02)
 
 - Keep the process sidebar scrollable when many processes are listed
 - When Captain is already running, print its URL and exit cleanly even with
   `--no-open` (only exit `78` when another app owns the port)
 
-#### 1.1.0
+#### `1.1.0` (2026-07-28)
 
 - Remember the last process tab (Info / Env / Logs) in `localStorage`
 - Match Pause button size to other controls in the logs toolbar
 
-#### 1.0.0
+#### `1.0.0` (2026-07-27)
 
 Initial release.
 

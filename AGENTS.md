@@ -255,6 +255,14 @@ responsive behavior, or production-serving changes.
 - The packed npm artifact must include runtime `dist` output, README, license,
   and source-reference documentation, but not tests or development sources.
 
+### Preparing a new release
+
+When told to prepare a new release, the following steps should be taken:
+- Update `package.json` with a new version number (decide whether to bump the patch or minor version).
+- Update README.md "Version history" section with the new version number and date, then write brief bullet points describing the changes.
+- Commit the changes, with a good commit messsage, containing the version number and a short description of the changes.
+- Push to origin/master
+
 ## General agent behavior
 
 - Do not ask the user to run checks or generation steps that can be run safely
