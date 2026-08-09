@@ -11,6 +11,7 @@ export const SERVICES = [
   importer('log', () => import('./lib/logger'), 'logDefinition'),
   importer('app', () => import('./lib/app')),
 
+  importer('sshConnection', () => import('./lib/ssh_connection')),
   importer('pm2Client', () => import('./lib/pm2_client')),
   importer('logFileReader', () => import('./lib/log_file_reader')),
 

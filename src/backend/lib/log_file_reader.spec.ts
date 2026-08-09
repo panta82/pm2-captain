@@ -20,7 +20,11 @@ describe('logFileReader', () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  const reader = () => createLogFileReader({ log: { warn } } as never);
+  const reader = () =>
+    createLogFileReader({
+      log: { warn },
+      sshConnection: { isRemote: false },
+    } as never);
 
   it('pages backward without duplicating a trailing newline', async () => {
     await writeFile(path, 'one\ntwo\nthree\nfour\n', 'utf8');
@@ -78,5 +82,89 @@ describe('logFileReader', () => {
       lines: [],
       hasMore: false,
     });
+  });
+
+  it('assembles partial SFTP reads while paging remote logs', async () => {
+    const content = Buffer.from('one\ntwo\nthree\nfour\n');
+    const close = vi.fn();
+    const remoteReader = createLogFileReader({
+      log: { warn },
+      sshConnection: {
+        isRemote: true,
+        openFile: vi.fn(async () => ({
+          stat: async () => ({ identity: 'remote-file', size: content.length }),
+          read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+            const bytesRead = Math.min(7, length, Math.max(0, content.length - position));
+            content.copy(buffer, offset, position, position + bytesRead);
+            return { bytesRead };
+          },
+          close,
+        })),
+      },
+    } as never);
+
+    const newest = await remoteReader.readPreviousLines('/remote/process.log', null, 2);
+    const older = await remoteReader.readPreviousLines('/remote/process.log', newest.cursor, 2);
+
+    expect(newest.lines).toEqual(['three', 'four']);
+    expect(older.lines).toEqual(['one', 'two']);
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a successful page when closing the remote file fails', async () => {
+    const closeError = new Error('SFTP close failed');
+    const content = Buffer.from('captain log');
+    const remoteReader = createLogFileReader({
+      log: { warn },
+      sshConnection: {
+        isRemote: true,
+        openFile: vi.fn(async () => ({
+          stat: async () => ({ identity: 'remote-file', size: content.length }),
+          read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+            const bytesRead = Math.min(length, Math.max(0, content.length - position));
+            content.copy(buffer, offset, position, position + bytesRead);
+            return { bytesRead };
+          },
+          close: vi.fn(async () => {
+            throw closeError;
+          }),
+        })),
+      },
+    } as never);
+
+    await expect(
+      remoteReader.readPreviousLines('/remote/process.log', null, 10)
+    ).resolves.toMatchObject({ lines: ['captain log'] });
+    expect(warn).toHaveBeenCalledWith(
+      { error: closeError, path: '/remote/process.log' },
+      'Unable to close PM2 log file'
+    );
+  });
+
+  it('logs remote read failures before returning an empty page', async () => {
+    const connectionError = Object.assign(new Error('Connection refused'), {
+      code: 'SSH_CONNECTION_FAILED',
+    });
+    const remoteReader = createLogFileReader({
+      log: { warn },
+      sshConnection: {
+        isRemote: true,
+        openFile: vi.fn(async () => {
+          throw connectionError;
+        }),
+      },
+    } as never);
+
+    await expect(remoteReader.readPreviousLines('/remote/process.log', null, 10)).resolves.toEqual({
+      lines: [],
+      cursor: null,
+      hasMore: false,
+      rotated: false,
+      truncated: false,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      { error: connectionError, path: '/remote/process.log' },
+      'Unable to read PM2 log file'
+    );
   });
 });

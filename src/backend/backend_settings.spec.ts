@@ -38,4 +38,30 @@ describe('backend settings', () => {
 
     expect(loadBackendSettings().noAuth).toBe(true);
   });
+
+  it('passes every argument after the ssh subcommand to SSH', () => {
+    process.argv = [
+      'node',
+      'pm2-captain',
+      '--port',
+      '4321',
+      'ssh',
+      '-p',
+      '2222',
+      'captain@example.com',
+    ];
+    vi.stubEnv('PM2_HOME', '/tmp/pm2-captain-settings-test');
+
+    const settings = loadBackendSettings();
+
+    expect(settings.port).toBe(4321);
+    expect(settings.sshArgs).toEqual(['-p', '2222', 'captain@example.com']);
+  });
+
+  it('requires an SSH destination', () => {
+    process.argv = ['node', 'pm2-captain', 'ssh'];
+    vi.stubEnv('PM2_HOME', '/tmp/pm2-captain-settings-test');
+
+    expect(() => loadBackendSettings()).toThrow('requires a destination');
+  });
 });

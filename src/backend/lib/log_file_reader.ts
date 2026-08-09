@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
+import { IRandomAccessFile } from './ssh_connection';
 
 export interface IFileCursor {
   inode: string;
@@ -17,9 +18,45 @@ export interface IReverseLinePage {
 }
 
 const READ_CHUNK_SIZE = 64 * 1024;
+const REMOTE_READ_CHUNK_SIZE = 512 * 1024;
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
 
-export function createLogFileReader({ log }: IContainer) {
+export function createLogFileReader({ log, sshConnection }: IContainer) {
+  const openFile = async (path: string): Promise<IRandomAccessFile> => {
+    if (sshConnection.isRemote) {
+      return sshConnection.openFile(path);
+    }
+    const handle = await fs.open(path, 'r');
+    return {
+      stat: async () => {
+        const stat = await handle.stat();
+        return { identity: `${stat.dev}:${stat.ino}`, size: stat.size };
+      },
+      read: async (buffer, offset, length, position) => {
+        const { bytesRead } = await handle.read(buffer, offset, length, position);
+        return { bytesRead };
+      },
+      close: async () => handle.close(),
+    };
+  };
+
+  const readAt = async (
+    handle: IRandomAccessFile,
+    buffer: Buffer,
+    length: number,
+    position: number
+  ) => {
+    let total = 0;
+    while (total < length) {
+      const { bytesRead } = await handle.read(buffer, total, length - total, position + total);
+      if (!bytesRead) {
+        break;
+      }
+      total += bytesRead;
+    }
+    return total;
+  };
+
   return new (class LogFileReader {
     readPreviousLines = async (
       path: string | null,
@@ -32,15 +69,15 @@ export function createLogFileReader({ log }: IContainer) {
 
       let handle;
       try {
-        handle = await fs.open(path, 'r');
+        handle = await openFile(path);
         const stat = await handle.stat();
-        const inode = `${stat.dev}:${stat.ino}`;
+        const inode = stat.identity;
         const rotated = Boolean(cursor && (cursor.inode !== inode || cursor.offset > stat.size));
         let boundary = rotated || !cursor ? stat.size : cursor.offset;
 
         if (boundary > 0) {
           const lastByte = Buffer.alloc(1);
-          await handle.read(lastByte, 0, 1, boundary - 1);
+          await readAt(handle, lastByte, 1, boundary - 1);
           if (lastByte[0] === 0x0a) {
             boundary--;
           }
@@ -53,13 +90,17 @@ export function createLogFileReader({ log }: IContainer) {
         let truncated = false;
 
         while (position > 0 && newlines < limit) {
-          const chunkSize = Math.min(READ_CHUNK_SIZE, position);
+          const chunkSize = Math.min(
+            sshConnection.isRemote ? REMOTE_READ_CHUNK_SIZE : READ_CHUNK_SIZE,
+            position
+          );
           const chunkStart = position - chunkSize;
           const chunk = Buffer.allocUnsafe(chunkSize);
-          await handle.read(chunk, 0, chunkSize, chunkStart);
+          const bytesRead = await readAt(handle, chunk, chunkSize, chunkStart);
+          const readableChunk = bytesRead === chunkSize ? chunk : chunk.subarray(0, bytesRead);
 
-          for (let index = chunk.length - 1; index >= 0; index--) {
-            if (chunk[index] === 0x0a) {
+          for (let index = readableChunk.length - 1; index >= 0; index--) {
+            if (readableChunk[index] === 0x0a) {
               newlines++;
               if (newlines === limit) {
                 start = chunkStart + index + 1;
@@ -82,7 +123,7 @@ export function createLogFileReader({ log }: IContainer) {
         const length = Math.max(0, boundary - start);
         const data = Buffer.alloc(length);
         if (length) {
-          await handle.read(data, 0, length, start);
+          await readAt(handle, data, length, start);
         }
         const text = data.toString('utf8');
         const lines = text.length ? text.split(/\r?\n/) : [];
@@ -103,7 +144,11 @@ export function createLogFileReader({ log }: IContainer) {
         }
         return { lines: [], cursor: null, hasMore: false, rotated: false, truncated: false };
       } finally {
-        await handle?.close();
+        try {
+          await handle?.close();
+        } catch (error) {
+          log.warn({ error, path }, 'Unable to close PM2 log file');
+        }
       }
     };
   })();

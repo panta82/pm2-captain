@@ -17,6 +17,7 @@ const BackendSettingsSchema = z.object({
   serverDevMode: z.boolean().default(false),
   skipBrowserOpen: z.boolean().default(false),
   noAuth: z.boolean().default(false),
+  sshArgs: z.array(z.string()).nullable().default(null),
 });
 
 export type IBackendSettings = z.infer<typeof BackendSettingsSchema> & {
@@ -24,13 +25,26 @@ export type IBackendSettings = z.infer<typeof BackendSettingsSchema> & {
 };
 
 export function loadBackendSettings(): IBackendSettings {
-  const args: { port?: number; pm2Home?: string; open: boolean; noAuth: boolean } = {
+  const args: {
+    port?: number;
+    pm2Home?: string;
+    open: boolean;
+    noAuth: boolean;
+    sshArgs: string[] | null;
+  } = {
     open: true,
     noAuth: false,
+    sshArgs: null,
   };
   for (let index = 2; index < process.argv.length; index++) {
     const argument = process.argv[index];
-    if (argument === '--no-open') {
+    if (argument === 'ssh') {
+      args.sshArgs = process.argv.slice(index + 1);
+      if (!args.sshArgs.length) {
+        throw new Error('The ssh command requires a destination.');
+      }
+      break;
+    } else if (argument === '--no-open') {
       args.open = false;
     } else if (argument === '--no-auth') {
       args.noAuth = true;
@@ -40,13 +54,22 @@ export function loadBackendSettings(): IBackendSettings {
       args.pm2Home = process.argv[++index];
     } else if (argument === '--help' || argument === '-h') {
       console.log(`Usage: pm2-captain [options]
+       pm2-captain [options] ssh <ssh arguments>
 
 Options:
   -p, --port <number>   HTTP port (default: 3212)
   --pm2-home <path>     PM2 home directory (default: PM2_HOME or ~/.pm2)
   --no-open             Do not open a browser
   --no-auth             Disable Captain authentication (use behind an authenticated proxy)
-  -h, --help            Show this help`);
+  -h, --help            Show this help
+
+Remote server:
+  pm2-captain ssh tk-dev
+  pm2-captain --port 3213 ssh -p 2222 user@example.com
+
+Arguments after "ssh" are passed to your system SSH client. Captain uses its
+configuration, keys, agent, and jump hosts, and does not install anything on
+the remote server.`);
       process.exit(0);
     } else {
       throw new Error(`Unknown option: ${argument}`);
@@ -61,6 +84,7 @@ Options:
     serverDevMode: process.env.SERVER_DEV_MODE === 'true' || process.env.NODE_ENV === 'development',
     skipBrowserOpen: !args.open || process.env.PM2_CAPTAIN_NO_OPEN === 'true',
     noAuth: args.noAuth || process.env.PM2_CAPTAIN_NO_AUTH === 'true',
+    sshArgs: args.sshArgs,
   });
 
   process.env.PM2_HOME = ownSettings.pm2Home;

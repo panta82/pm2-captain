@@ -36,7 +36,7 @@ export const AppStateSchema = z.object({
   initializedAt: z.date().nullable(),
   startedAt: z.date().nullable(),
   enrollments: z.set(z.union([z.string(), z.literal('*')])),
-  serviceSequence: z.array(z.string()).nullable(),
+  serviceSequence: z.array(z.string<IServiceIdentifier>()).nullable(),
 });
 export type IAppState = IReplaceProperty<
   z.infer<typeof AppStateSchema>,
@@ -53,15 +53,19 @@ interface IAppSequenceStateWaitingRecord {
 
 interface IAppSequenceState {
   methodName: IAppLifecycleMethodName;
-  reverse: boolean;
   cycle: number;
   identifierMethods: Partial<Record<IServiceIdentifier, IAppLifecycleMethod>>;
   currentCycle: IServiceIdentifier[];
   nextCycle: IServiceIdentifier[];
   waiting: Map<IServiceIdentifier, IAppSequenceStateWaitingRecord>;
-  completed: Set<IServiceIdentifier>;
-  promise: IPromtzel<void>;
+  invoked: Set<IServiceIdentifier>;
+  promise: IPromtzel<IAppSequenceState>;
 }
+
+const APP_LIFECYCLE_ROLLBACK_METHOD_NAMES: Record<'initialize' | 'start', 'dispose' | 'stop'> = {
+  initialize: 'dispose',
+  start: 'stop',
+};
 
 export function createApp({ log, container }: IContainer) {
   const state: IAppState = {
@@ -125,25 +129,77 @@ export function createApp({ log, container }: IContainer) {
       log.debug(`Service sequence initialized: ${arrToStr(state.serviceSequence)}`);
     };
 
-    _runSequence = async (methodName: IAppLifecycleMethodName, reverse: boolean) => {
+    _runUpSequenceOrThrow = async (methodName: 'initialize' | 'start') => {
+      this._ensureServiceSequenceFinalized();
+
+      const identifiers = state.serviceSequence!.slice();
+      const rollbackMethodName = APP_LIFECYCLE_ROLLBACK_METHOD_NAMES[methodName];
+
+      let firstError: unknown;
+      const result = await this._doRunSequence(methodName, identifiers, error => {
+        if (firstError === undefined) {
+          firstError = error;
+        }
+        return false;
+      });
+
+      if (firstError === undefined) {
+        return;
+      }
+
+      const rollbackIdentifiers = identifiers
+        .filter(identifier => result.invoked.has(identifier))
+        .reverse();
+
+      await this._doRunSequence(rollbackMethodName, rollbackIdentifiers, (error, identifier) => {
+        log.error(
+          { error, identifier, methodName: rollbackMethodName },
+          `Rollback lifecycle method ${identifier}.${rollbackMethodName}() failed`
+        );
+        return true;
+      });
+
+      throw firstError;
+    };
+
+    _runDownSequenceSafely = async (methodName: 'stop' | 'dispose') => {
+      this._ensureServiceSequenceFinalized();
+      const identifiers = state.serviceSequence!.slice().reverse();
+
+      await this._doRunSequence(methodName, identifiers, (error, identifier) => {
+        log.error(
+          { error, identifier, methodName },
+          `Lifecycle method ${identifier}.${methodName}() failed`
+        );
+        return true;
+      });
+    };
+
+    _doRunSequence = async (
+      methodName: IAppLifecycleMethodName,
+      identifiers: IServiceIdentifier[],
+      /** Return true to continue the sequence, false to abort. No error is thrown by the sequence. */
+      onError: (error: unknown, identifier: IServiceIdentifier | null) => boolean
+    ): Promise<IAppSequenceState> => {
       if (_runningSequence) {
         await _runningSequence.promise;
       }
 
+      let sequenceState: IAppSequenceState;
       try {
-        _runningSequence = {
-          reverse,
+        sequenceState = {
           cycle: 1,
           methodName,
           identifierMethods: {},
           currentCycle: [],
           nextCycle: [],
           waiting: new Map(),
-          completed: new Set(),
-          promise: promtzel(),
+          invoked: new Set(),
+          promise: promtzel<IAppSequenceState>(),
         };
-
-        this._ensureServiceSequenceFinalized();
+        _runningSequence = sequenceState;
+        const pending = new Set<IServiceIdentifier>();
+        const identifierSet = new Set(identifiers);
 
         const doWaitFor = async (
           identifier: IServiceIdentifier,
@@ -151,6 +207,12 @@ export function createApp({ log, container }: IContainer) {
           waitingFor: IServiceIdentifier[]
         ) => {
           assert(!_runningSequence!.waiting.has(identifier), `Already waiting for ${identifier}`);
+          for (const waitingForIdentifier of waitingFor) {
+            assert(
+              identifierSet.has(waitingForIdentifier),
+              `Service ${identifier} cannot wait for unknown service ${waitingForIdentifier}`
+            );
+          }
           const waitPromise = promtzel<void>();
           _runningSequence!.waiting.set(identifier, {
             identifier,
@@ -161,24 +223,35 @@ export function createApp({ log, container }: IContainer) {
           await waitPromise;
         };
 
-        const sequence = state.serviceSequence!.slice();
-        if (reverse) {
-          sequence.reverse();
-        }
+        const cancelWaiting = async (error: unknown) => {
+          const waitingJobs = Array.from(_runningSequence!.waiting.values());
+          _runningSequence!.waiting.clear();
+          for (const waitingJob of waitingJobs) {
+            waitingJob.waitPromise.reject(error);
+          }
+          for (const waitingJob of waitingJobs) {
+            try {
+              await waitingJob.lifecycleMethodPromise;
+            } catch (waitingError) {
+              pending.delete(waitingJob.identifier);
+              onError(waitingError, waitingJob.identifier);
+            }
+          }
+        };
 
-        for (const identifier of sequence) {
+        for (const identifier of identifiers) {
           const instance = (container as any)[identifier];
           assert(instance, `Service not found: ${identifier}`);
 
           if (instance[methodName]) {
             _runningSequence.identifierMethods[identifier] = instance[methodName].bind(instance);
             _runningSequence.currentCycle.push(identifier);
-          } else {
-            _runningSequence.completed.add(identifier);
+            pending.add(identifier);
           }
         }
 
-        while (_runningSequence.currentCycle.length) {
+        let shouldAbort = false;
+        while (_runningSequence.currentCycle.length && !shouldAbort) {
           log.debug(
             `Running "${methodName}" on services ${arrToStr(_runningSequence.currentCycle)}${
               _runningSequence.cycle > 1 ? ` (cycle ${_runningSequence.cycle})` : ''
@@ -193,6 +266,7 @@ export function createApp({ log, container }: IContainer) {
               lifecycleMethodPromise = waitingJob.lifecycleMethodPromise;
               waitingJob.waitPromise.resolve();
             } else {
+              _runningSequence.invoked.add(identifier);
               lifecycleMethodPromise = Promise.resolve().then(() =>
                 _runningSequence!.identifierMethods[identifier]!(
                   (...waitingForIdentifiers: IServiceIdentifier[]) =>
@@ -205,7 +279,18 @@ export function createApp({ log, container }: IContainer) {
               () => _runningSequence!.waiting.get(identifier),
               5
             );
-            const waitResult = await Promise.race([lifecycleMethodPromise, waitForWaitingPromise]);
+            let waitResult: IAppLifecycleMethodResult | IAppSequenceStateWaitingRecord;
+            try {
+              waitResult = await Promise.race([lifecycleMethodPromise, waitForWaitingPromise]);
+            } catch (error) {
+              pending.delete(identifier);
+              if (!onError(error, identifier)) {
+                await cancelWaiting(error);
+                shouldAbort = true;
+                break;
+              }
+              continue;
+            }
             if (
               waitResult &&
               typeof waitResult === 'object' &&
@@ -220,15 +305,19 @@ export function createApp({ log, container }: IContainer) {
               _runningSequence.identifierMethods[identifier] = waitResult;
             } else {
               // We are done with this
-              _runningSequence.completed.add(identifier);
+              pending.delete(identifier);
             }
+          }
+
+          if (shouldAbort) {
+            break;
           }
 
           if (_runningSequence.waiting.size > 0) {
             // Try to finish some of the waiting jobs
             for (const waitingJob of _runningSequence.waiting.values()) {
-              const stillWaiting = waitingJob.waitingFor.some(
-                identifier => !_runningSequence!.completed.has(identifier)
+              const stillWaiting = waitingJob.waitingFor.some(identifier =>
+                pending.has(identifier)
               );
               if (!stillWaiting) {
                 // If we are done waiting, we can resume the lifecycle method
@@ -242,29 +331,34 @@ export function createApp({ log, container }: IContainer) {
           _runningSequence.cycle++;
         }
 
-        if (_runningSequence.waiting.size > 0) {
+        if (!shouldAbort && _runningSequence.waiting.size > 0) {
           // These jobs never got resolved. There is a dead loop among waiting jobs.
+          let waitError: Error | undefined;
           for (const waitingJob of _runningSequence.waiting.values()) {
             const conflictIdentifiers = waitingJob.waitingFor.filter(identifier =>
               _runningSequence!.waiting.has(identifier)
             );
             if (conflictIdentifiers.length) {
-              throw new CircularWaitError(waitingJob.identifier, conflictIdentifiers);
+              waitError = new CircularWaitError(waitingJob.identifier, conflictIdentifiers);
+              break;
             }
           }
-          // Just in case we haven't thrown any
-          throw new Error(
-            `Failed wait among services: ${arrToStr(Array.from(_runningSequence.waiting.keys()))}`
-          );
+          if (!waitError) {
+            waitError = new Error(
+              `Failed wait among services: ${arrToStr(Array.from(_runningSequence.waiting.keys()))}`
+            );
+          }
+          onError(waitError, null);
+          await cancelWaiting(waitError);
         }
-
-        _runningSequence?.promise?.resolve();
       } catch (err) {
-        _runningSequence?.promise?.reject(err);
-        throw err;
+        onError(err, null);
       } finally {
         _runningSequence = null;
+        sequenceState!.promise.resolve(sequenceState!);
       }
+
+      return sequenceState!;
     };
 
     initialize = async (): Promise<boolean> => {
@@ -277,7 +371,7 @@ export function createApp({ log, container }: IContainer) {
         log.debug(`Initialization sequence: ${arrToStr(state.serviceSequence)}`);
       }
 
-      await this._runSequence('initialize', false);
+      await this._runUpSequenceOrThrow('initialize');
       log.info(`Initialized`);
       state.stage = 'ready';
       state.initializedAt = new Date();
@@ -293,7 +387,7 @@ export function createApp({ log, container }: IContainer) {
         await this.initialize();
       }
 
-      await this._runSequence('start', false);
+      await this._runUpSequenceOrThrow('start');
       log.info(`Started`);
       state.stage = 'active';
       state.startedAt = new Date();
@@ -305,7 +399,7 @@ export function createApp({ log, container }: IContainer) {
         return false;
       }
 
-      await this._runSequence('stop', true);
+      await this._runDownSequenceSafely('stop');
       log.info(`Stopped`);
       state.stage = 'ready';
     };
@@ -319,7 +413,7 @@ export function createApp({ log, container }: IContainer) {
         await this.stop();
       }
 
-      await this._runSequence('dispose', true);
+      await this._runDownSequenceSafely('dispose');
       log.info(`Disposed`);
       state.stage = 'idle';
     };

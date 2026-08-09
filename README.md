@@ -20,7 +20,26 @@ npx pm2-captain
 Captain opens automatically when the system supports opening browser links;
 otherwise, it prints the URL. Press Ctrl+C to stop it.
 
-### 2. Set up as a service
+### 2. Connect to a remote server over SSH
+
+Use the same destination and options that you pass to your system SSH client:
+
+```bash
+npx pm2-captain ssh tk-dev
+npx pm2-captain --port 3213 ssh -p 2222 user@example.com
+```
+
+Captain honors your OpenSSH configuration, keys, agent, and jump hosts. It
+does not install or leave anything on the remote server. PM2 control and live
+logs travel through SSH-forwarded PM2 sockets; historical logs are read in
+bounded ranges through the server's SFTP subsystem.
+
+Put Captain options before `ssh`; all arguments after `ssh` are passed to the
+SSH client. The remote user must be able to access its PM2 daemon and log
+files. Captain discovers remote `PM2_HOME` from the remote environment, falling
+back to `~/.pm2`.
+
+### 3. Set up as a service
 
 In this example, we'll use PM2 (of course) and [Nginx](https://nginx.org/) as a reverse proxy.
 
@@ -148,6 +167,10 @@ Captain can be configured via command-line options or environment variables.
 | `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off      | Do not open a browser automatically.                                            |
 | `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off      | Disable Captain's launch-token session. Use only behind an authenticated proxy. |
 | `-h, --help`          | —                          | —        | Print CLI help and exit.                                                        |
+
+The `ssh <ssh arguments>` subcommand selects a remote PM2 daemon for the
+current Captain session. Remote mode requires the system `ssh` executable,
+OpenSSH stream-local forwarding, and an enabled SFTP subsystem on the server.
 
 Command-line values take precedence over environment values. Set `DEBUG=true`
 to enable diagnostic service and request logs; production output otherwise

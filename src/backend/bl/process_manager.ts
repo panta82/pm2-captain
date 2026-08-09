@@ -76,7 +76,7 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
-export function createProcessManager({ pm2Client, log }: IContainer) {
+export function createProcessManager({ pm2Client, log, sshConnection }: IContainer) {
   const actionQueues = new Map<number, Promise<unknown>>();
 
   const normalize = (
@@ -101,7 +101,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
       unstableRestarts: Number(environment.unstable_restarts || 0),
       version: typeof environment.version === 'string' ? environment.version : null,
       watching: Boolean(environment.watch),
-      isCaptain: description.pid === global.process.pid,
+      isCaptain: !sshConnection.isRemote && description.pid === global.process.pid,
       script: typeof environment.pm_exec_path === 'string' ? environment.pm_exec_path : null,
       args: stringArray(environment.args),
       cwd: typeof environment.pm_cwd === 'string' ? environment.pm_cwd : null,
@@ -132,6 +132,7 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
                   name,
                   value: stringValue,
                   isDivergent:
+                    !sshConnection.isRemote &&
                     global.process.env[name] !== undefined &&
                     global.process.env[name] !== stringValue,
                 };
@@ -145,10 +146,11 @@ export function createProcessManager({ pm2Client, log }: IContainer) {
   return new (class ProcessManager {
     list = async (): Promise<IProcessListResult> => {
       const processes = await pm2Client.list();
-      const hostname = libOs.hostname();
+      const hostname = sshConnection.remoteInfo?.hostname || libOs.hostname();
+      const username = sshConnection.remoteInfo?.username || libOs.userInfo().username;
       return {
         hostname,
-        hostLabel: `${libOs.userInfo().username}@${hostname}`,
+        hostLabel: `${username}@${hostname}`,
         processes: processes
           .map(description => normalize(description))
           .map(

@@ -3,7 +3,7 @@ import pm2, { ProcessDescription } from 'pm2';
 
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
-import { IAppLifecycleMethods } from './app';
+import { IAppLifecycleMethods, IAppWaitForMethod } from './app';
 
 export interface IPM2LogPacket {
   at?: number;
@@ -20,8 +20,29 @@ export interface IPM2LogEvent {
   packet: IPM2LogPacket;
 }
 
-export function createPm2Client({ log }: IContainer) {
+interface IPM2Api {
+  Client?: {
+    launchRPC(callback: (error: Error | null) => void): void;
+  };
+  connect(callback: (error: Error | null) => void): void;
+  disconnect(): void;
+  launchBus(callback: (error: Error | null, bus: EventEmitter) => void): void;
+  list(callback: (error: Error | null, processes: ProcessDescription[]) => void): void;
+  describe(
+    pmId: number,
+    callback: (error: Error | null, processes: ProcessDescription[]) => void
+  ): void;
+  restart(pmId: number, callback: (error: Error | null, result: unknown) => void): void;
+  stop(pmId: number, callback: (error: Error | null, result: unknown) => void): void;
+}
+
+interface IPM2Module extends IPM2Api {
+  custom: new (options: { pm2_home: string; daemon_mode: boolean }) => IPM2Api;
+}
+
+export function createPm2Client({ log, sshConnection }: IContainer) {
   const events = new EventEmitter();
+  let pm2Api: IPM2Api | null = sshConnection.isRemote ? null : (pm2 as unknown as IPM2Api);
   let bus: EventEmitter | null = null;
   let isConnected = false;
   let isStopping = false;
@@ -47,7 +68,26 @@ export function createPm2Client({ log }: IContainer) {
 
   const connect = async () => {
     if (!isConnected) {
-      await call<void>('connect', callback => pm2.connect(callback));
+      await sshConnection.ensureConnected();
+      if (!pm2Api) {
+        if (sshConnection.isRemote) {
+          if (!sshConnection.socketDirectory) {
+            throw new Error('The SSH socket forwarding directory is not available.');
+          }
+          const PM2 = pm2 as unknown as IPM2Module;
+          pm2Api = new PM2.custom({
+            pm2_home: sshConnection.socketDirectory,
+            daemon_mode: false,
+          });
+        } else {
+          pm2Api = pm2 as unknown as IPM2Api;
+        }
+      }
+      if (sshConnection.isRemote) {
+        await call<void>('connect', callback => pm2Api!.Client!.launchRPC(callback));
+      } else {
+        await call<void>('connect', callback => pm2Api!.connect(callback));
+      }
       isConnected = true;
       events.emit('daemon-status', true);
       log.info('Connected to PM2');
@@ -58,7 +98,7 @@ export function createPm2Client({ log }: IContainer) {
     bus?.removeAllListeners?.();
     try {
       bus = await call<EventEmitter>('launchBus', callback => {
-        pm2.launchBus((error, launchedBus) => callback(error, launchedBus as EventEmitter));
+        pm2Api!.launchBus((error, launchedBus) => callback(error, launchedBus as EventEmitter));
       });
       reconnectAttempt = 0;
       for (const type of ['out', 'err'] as const) {
@@ -71,7 +111,7 @@ export function createPm2Client({ log }: IContainer) {
       bus.on('close', () => {
         bus = null;
         if (isConnected) {
-          pm2.disconnect();
+          pm2Api!.disconnect();
           isConnected = false;
         }
         events.emit('daemon-status', false);
@@ -80,7 +120,7 @@ export function createPm2Client({ log }: IContainer) {
       log.info('PM2 event bus attached');
     } catch (error) {
       if (isConnected) {
-        pm2.disconnect();
+        pm2Api!.disconnect();
         isConnected = false;
       }
       events.emit('daemon-status', false);
@@ -110,10 +150,12 @@ export function createPm2Client({ log }: IContainer) {
   return new (class PM2Client implements IAppLifecycleMethods {
     initialize = async () => {
       isStopping = false;
-      await connect();
     };
 
-    start = async () => {
+    start = async (waitFor: IAppWaitForMethod) => {
+      await waitFor('sshConnection');
+      isStopping = false;
+      await connect();
       await attachBus();
     };
 
@@ -125,28 +167,36 @@ export function createPm2Client({ log }: IContainer) {
       }
       bus?.removeAllListeners?.();
       bus = null;
+      if (isConnected) {
+        pm2Api!.disconnect();
+        isConnected = false;
+      }
+      if (sshConnection.isRemote) {
+        // SSH recreates its temporary socket directory on every start.
+        pm2Api = null;
+      }
     };
 
     dispose = async () => {
       if (isConnected) {
-        pm2.disconnect();
+        pm2Api!.disconnect();
         isConnected = false;
       }
+      pm2Api = null;
     };
 
-    list = () => call<ProcessDescription[]>('list', callback => pm2.list(callback));
+    list = () => call<ProcessDescription[]>('list', callback => pm2Api!.list(callback));
 
     describe = (pmId: number) =>
-      call<ProcessDescription[]>('describe', callback => pm2.describe(pmId, callback));
+      call<ProcessDescription[]>('describe', callback => pm2Api!.describe(pmId, callback));
 
     startProcess = (pmId: number) =>
-      call<unknown>('start', callback => pm2.restart(pmId, callback as never));
+      call<unknown>('start', callback => pm2Api!.restart(pmId, callback));
 
-    stopProcess = (pmId: number) =>
-      call<unknown>('stop', callback => pm2.stop(pmId, callback as never));
+    stopProcess = (pmId: number) => call<unknown>('stop', callback => pm2Api!.stop(pmId, callback));
 
     restartProcess = (pmId: number) =>
-      call<unknown>('restart', callback => pm2.restart(pmId, callback as never));
+      call<unknown>('restart', callback => pm2Api!.restart(pmId, callback));
 
     onLog = (listener: (event: IPM2LogEvent) => void) => {
       events.on('log', listener);

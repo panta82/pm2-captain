@@ -20,8 +20,20 @@ const mocked = vi.hoisted(() => {
       listeners.clear();
     },
   };
+  const remotePm2 = {
+    Client: {
+      launchRPC: vi.fn((callback: (error: Error | null) => void) => callback(null)),
+    },
+    launchBus: vi.fn((callback: (error: Error | null, bus: any) => void) => callback(null, bus)),
+    disconnect: vi.fn(),
+    list: vi.fn(),
+    describe: vi.fn(),
+    stop: vi.fn(),
+    restart: vi.fn(),
+  };
   return {
     bus,
+    remotePm2,
     pm2: {
       connect: vi.fn((callback: (error: Error | null) => void) => callback(null)),
       launchBus: vi.fn((callback: (error: Error | null, bus: any) => void) => callback(null, bus)),
@@ -31,6 +43,9 @@ const mocked = vi.hoisted(() => {
       start: vi.fn(),
       stop: vi.fn(),
       restart: vi.fn(),
+      custom: vi.fn(function CustomPm2() {
+        return remotePm2;
+      }),
     },
   };
 });
@@ -43,6 +58,7 @@ function createClient() {
       info: vi.fn(),
       warn: vi.fn(),
     },
+    sshConnection: { isRemote: false, ensureConnected: vi.fn() },
   } as never);
 }
 
@@ -60,7 +76,7 @@ describe('pm2Client', () => {
     const listener = vi.fn();
     client.onLog(listener);
     await client.initialize();
-    await client.start();
+    await client.start(vi.fn());
 
     const packet = {
       data: 'captain',
@@ -74,6 +90,34 @@ describe('pm2Client', () => {
     await client.stop();
     await client.dispose();
     expect(mocked.pm2.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('connects a custom PM2 client directly to forwarded remote sockets', async () => {
+    const ensureConnected = vi.fn();
+    const client = createPm2Client({
+      log: { info: vi.fn(), warn: vi.fn() },
+      sshConnection: {
+        isRemote: true,
+        socketDirectory: '/tmp/pm2-captain-forward',
+        ensureConnected,
+      },
+    } as never);
+
+    await client.initialize();
+    await client.start(vi.fn());
+
+    expect(ensureConnected).toHaveBeenCalledOnce();
+    expect(mocked.pm2.custom).toHaveBeenCalledWith({
+      pm2_home: '/tmp/pm2-captain-forward',
+      daemon_mode: false,
+    });
+    expect(mocked.remotePm2.Client.launchRPC).toHaveBeenCalledOnce();
+    expect(mocked.pm2.connect).not.toHaveBeenCalled();
+    await client.stop();
+    await client.start(vi.fn());
+    expect(mocked.pm2.custom).toHaveBeenCalledTimes(2);
+    await client.stop();
+    await client.dispose();
   });
 
   it('times out callback operations that never settle', async () => {
@@ -93,7 +137,7 @@ describe('pm2Client', () => {
     const statuses: boolean[] = [];
     client.onDaemonStatus(connected => statuses.push(connected));
     await client.initialize();
-    await client.start();
+    await client.start(vi.fn());
 
     mocked.bus.emit('close');
     await vi.advanceTimersByTimeAsync(500);
@@ -109,7 +153,7 @@ describe('pm2Client', () => {
     vi.useFakeTimers();
     const client = createClient();
     await client.initialize();
-    await client.start();
+    await client.start(vi.fn());
     mocked.bus.emit('close');
 
     await client.stop();

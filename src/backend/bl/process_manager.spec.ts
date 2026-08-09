@@ -34,7 +34,13 @@ function description(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function setup(item = description()) {
+function setup(
+  item = description(),
+  sshConnection = {
+    isRemote: false,
+    remoteInfo: null as null | { username: string; hostname: string },
+  }
+) {
   const pm2Client = {
     list: vi.fn().mockResolvedValue([item]),
     describe: vi.fn().mockResolvedValue([item]),
@@ -45,6 +51,7 @@ function setup(item = description()) {
   const manager = createProcessManager({
     pm2Client,
     log: { info: vi.fn(), error: vi.fn() },
+    sshConnection,
   } as never);
   return { manager, pm2Client };
 }
@@ -119,6 +126,20 @@ describe('processManager', () => {
 
     await expect(manager.action(4, 'stop')).rejects.toThrow('PM2 Captain cannot stop itself');
     expect(pm2Client.stopProcess).not.toHaveBeenCalled();
+  });
+
+  it('uses the remote host identity without treating a matching PID as Captain', async () => {
+    const item = description();
+    item.pid = process.pid;
+    const { manager } = setup(item, {
+      isRemote: true,
+      remoteInfo: { username: 'deploy', hostname: 'remote-box' },
+    });
+
+    const result = await manager.list();
+
+    expect(result).toMatchObject({ hostname: 'remote-box', hostLabel: 'deploy@remote-box' });
+    expect(result.processes[0].isCaptain).toBe(false);
   });
 
   it('serializes conflicting lifecycle actions for one PM2 id', async () => {
