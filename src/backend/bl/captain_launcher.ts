@@ -10,6 +10,15 @@ import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods, IAppWaitForMethod } from '../lib/app';
 
 const TOKEN_FILE_NAME = 'launch-token';
+/** Captains on different ports share the config directory, so the file is per port. */
+const TAB_SEEN_FILE_PREFIX = 'tab-seen-';
+/** A tab connected this recently before launch is assumed to still be open. */
+const TAB_RECENT_MS = 60_000;
+/**
+ * How long a launch waits for such a tab before opening a new one. Browsers
+ * retry a dropped event stream about every 3 seconds, hidden tabs included.
+ */
+const TAB_RECONNECT_WAIT_MS = 6_000;
 export const PORT_CONFLICT_EXIT_CODE = 78;
 
 export class PortConflictError extends Error {}
@@ -67,6 +76,11 @@ export function resolveBrowserOpenCommand(
 
 export function createCaptainLauncher({ settings, log }: IContainer) {
   let token = '';
+  let openTabCount = 0;
+  /** When a tab was last connected to this Captain, or null if none was yet. */
+  let tabSeenAt: number | null = null;
+  let tabReconnectTimer: NodeJS.Timeout | null = null;
+  const tabSeenPath = libPath.join(settings.configDir, `${TAB_SEEN_FILE_PREFIX}${settings.port}`);
 
   const ensureToken = async () => {
     if (token) {
@@ -96,29 +110,67 @@ export function createCaptainLauncher({ settings, log }: IContainer) {
       : `${settings.baseURL}/launch?token=${encodeURIComponent(await ensureToken())}`;
 
   const browserOpenCommand = (url: string) =>
-    settings.skipBrowserOpen ? null : resolveBrowserOpenCommand(url);
+    settings.browserOpen === 'never' ? null : resolveBrowserOpenCommand(url);
+
+  const wasTabSeenRecently = async () => {
+    let content: string;
+    try {
+      content = await fs.readFile(tabSeenPath, 'utf8');
+    } catch {
+      return false;
+    }
+    // A malformed or future timestamp fails the range check and opens a tab.
+    const elapsed = Date.now() - Number(content.trim());
+    return elapsed >= 0 && elapsed < TAB_RECENT_MS;
+  };
+
+  const spawnBrowser = ([command, args]: IBrowserOpenCommand) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    child.once('error', error => {
+      log.warn({ error, command }, 'Failed to open PM2 Captain in the browser');
+    });
+    child.unref();
+  };
 
   const openBrowser = async (isAlreadyRunning = false) => {
     const url = await launchURL();
     const openCommand = browserOpenCommand(url);
+    // A tab left over from the previous run reconnects by itself, so a restart
+    // should not stack another one next to it.
+    const shouldAwaitTab =
+      !!openCommand &&
+      !isAlreadyRunning &&
+      settings.browserOpen === 'auto' &&
+      (await wasTabSeenRecently());
+    let openHint = 'Open the URL above to access the UI.';
+    if (shouldAwaitTab) {
+      openHint = 'Waiting for your open tab to reconnect.';
+    } else if (openCommand) {
+      openHint = 'Opening the UI in your browser.';
+    }
     console.log(`
 PM2 Captain ${isAlreadyRunning ? 'is already running' : 'is ready'}.
 
   ${url}
 
-${openCommand ? 'Opening the UI in your browser.' : 'Open the URL above to access the UI.'}
+${openHint}
 ${settings.noAuth ? 'Captain authentication is disabled.' : ''}
 ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
 `);
     if (!openCommand) {
       return;
     }
-    const [command, args] = openCommand;
-    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
-    child.once('error', error => {
-      log.warn({ error, command }, 'Failed to open PM2 Captain in the browser');
-    });
-    child.unref();
+    if (!shouldAwaitTab) {
+      spawnBrowser(openCommand);
+      return;
+    }
+    tabReconnectTimer = setTimeout(() => {
+      tabReconnectTimer = null;
+      if (tabSeenAt === null) {
+        console.log('No tab reconnected. Opening the UI in your browser.\n');
+        spawnBrowser(openCommand);
+      }
+    }, TAB_RECONNECT_WAIT_MS);
   };
 
   const isPortOccupied = () =>
@@ -191,6 +243,35 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
     start = async (waitFor: IAppWaitForMethod) => {
       await waitFor('webServer');
       await openBrowser();
+    };
+
+    stop = async () => {
+      if (tabReconnectTimer) {
+        clearTimeout(tabReconnectTimer);
+        tabReconnectTimer = null;
+      }
+      // The web server stops first and drops every stream, so by now a tab
+      // that was connected is only visible through its release time. When no
+      // tab connected during this run, the previous run's record still stands.
+      const seenAt = openTabCount > 0 ? Date.now() : tabSeenAt;
+      if (seenAt === null) {
+        return;
+      }
+      await fs.mkdir(settings.configDir, { recursive: true, mode: 0o700 });
+      await fs.writeFile(tabSeenPath, `${seenAt}\n`, { mode: 0o600 });
+      await fs.chmod(tabSeenPath, 0o600);
+    };
+
+    /**
+     * Counts a browser tab as connected until the returned function is called.
+     */
+    trackTab = () => {
+      openTabCount++;
+      tabSeenAt = Date.now();
+      return () => {
+        openTabCount--;
+        tabSeenAt = Date.now();
+      };
     };
 
     openExistingIfRunning = async () => {

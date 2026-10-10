@@ -1,5 +1,8 @@
 import { TRPCError } from '@trpc/server';
+import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+
+import { ILogStreamEvent } from '@shared/contracts';
 
 import {
   DaemonConflictError,
@@ -68,6 +71,15 @@ async function withProcessErrors<T>(operation: () => Promise<T>): Promise<T> {
 
 export function createAppRouter(container: IContainer) {
   return router({
+    session: router({
+      /**
+       * Held open by every tab that has no log stream, so the launcher knows
+       * whether a tab is around to reconnect after a restart. It never emits.
+       */
+      presence: protectedProcedure.subscription(() =>
+        observable<never>(() => container.captainLauncher.trackTab())
+      ),
+    }),
     daemons: router({
       list: protectedProcedure.query(() => container.daemonManager.listSettings()),
       add: protectedProcedure
@@ -148,9 +160,19 @@ export function createAppRouter(container: IContainer) {
             view: logViewSchema,
           })
         )
-        .subscription(({ input }) =>
-          container.daemonManager.logStream(input.daemonId, input.pmId, input.view)
-        ),
+        .subscription(({ input }) => {
+          const stream = container.daemonManager.logStream(input.daemonId, input.pmId, input.view);
+          // Browsers allow few connections per origin, so a tab on the logs
+          // page reports its presence through this stream instead of a second one.
+          return observable<ILogStreamEvent>(emit => {
+            const releaseTab = container.captainLauncher.trackTab();
+            const subscription = stream.subscribe(emit);
+            return () => {
+              subscription.unsubscribe();
+              releaseTab();
+            };
+          });
+        }),
     }),
   });
 }

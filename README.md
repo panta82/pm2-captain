@@ -16,7 +16,9 @@ The equivalent of:
 ```bash
 npx pm2-captain
 ```
+
 or
+
 ```
 npm install -g pm2-captain
 pm2-captain
@@ -198,13 +200,14 @@ Captain can be configured via command-line options or environment variables.
 
 ### Available options
 
-| Command-line option   | Environment variable       | Default | Description                                                                     |
-| --------------------- | -------------------------- | ------- | ------------------------------------------------------------------------------- |
-| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`  | HTTP port on `127.0.0.1`.                                                       |
-| `--pm2-home <path>`   | —                          | —       | Add the PM2 home at this path. With `ssh`, the path is on the remote server.    |
-| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                            |
-| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy. |
-| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                        |
+| Command-line option   | Environment variable       | Default | Description                                                                      |
+| --------------------- | -------------------------- | ------- | -------------------------------------------------------------------------------- |
+| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`  | HTTP port on `127.0.0.1`.                                                        |
+| `--pm2-home <path>`   | —                          | —       | Add the PM2 home at this path. With `ssh`, the path is on the remote server.     |
+| `--open`              | —                          | Off     | Always open a browser tab, even when a restart could reuse the one already open. |
+| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                             |
+| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy.  |
+| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                         |
 
 The `ssh <ssh arguments>` subcommand adds a remote PM2 daemon to Captain.
 Remote daemons require the system `ssh` executable, OpenSSH stream-local
@@ -254,6 +257,10 @@ npm run test:e2e
 ```
 
 ## Version history
+
+#### `1.3.1` (2026-10-10)
+
+- Try to smartly detect whether to open a new browser tab, or reuse an existing one. User can pass `--open` to always open a new tab, or `--no-open` to never open one.
 
 #### `1.3.0` (2026-10-10)
 

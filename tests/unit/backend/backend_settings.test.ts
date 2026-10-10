@@ -39,6 +39,20 @@ describe('backend settings', () => {
     expect(loadBackendSettings().noAuth).toBe(true);
   });
 
+  it.each([
+    [[], '', 'auto'],
+    [['--open'], '', 'always'],
+    [['--no-open'], '', 'never'],
+    [[], 'true', 'never'],
+    [['--open'], 'true', 'always'],
+  ])('resolves browser opening for %j with PM2_CAPTAIN_NO_OPEN=%j', (args, noOpen, expected) => {
+    process.argv = ['node', 'pm2-captain', ...args];
+    vi.stubEnv('PM2_HOME', '/tmp/pm2-captain-settings-test');
+    vi.stubEnv('PM2_CAPTAIN_NO_OPEN', noOpen);
+
+    expect(loadBackendSettings().browserOpen).toBe(expected);
+  });
+
   it('passes every argument after the ssh subcommand to SSH', () => {
     process.argv = [
       'node',

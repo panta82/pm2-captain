@@ -26,7 +26,11 @@ const BackendSettingsSchema = z.object({
   environmentPm2Home: z.string().min(1).nullable().default(null),
   debug: z.boolean().default(false),
   serverDevMode: z.boolean().default(false),
-  skipBrowserOpen: z.boolean().default(false),
+  /**
+   * "auto" opens a browser tab unless one from the previous run is expected to
+   * reconnect.
+   */
+  browserOpen: z.enum(['auto', 'always', 'never']).default('auto'),
   noAuth: z.boolean().default(false),
   sshArgs: z.array(z.string()).nullable().default(null),
   runtimeDaemonId: z.string().nullable().default(null),
@@ -68,11 +72,11 @@ export function loadBackendSettings(): IBackendSettings {
   const args: {
     port?: number;
     pm2Home?: string;
-    open: boolean;
+    open: boolean | null;
     noAuth: boolean;
     sshArgs: string[] | null;
   } = {
-    open: true,
+    open: null,
     noAuth: false,
     sshArgs: null,
   };
@@ -84,6 +88,8 @@ export function loadBackendSettings(): IBackendSettings {
         throw new Error('The ssh command requires a destination.');
       }
       break;
+    } else if (argument === '--open') {
+      args.open = true;
     } else if (argument === '--no-open') {
       args.open = false;
     } else if (argument === '--no-auth') {
@@ -100,6 +106,8 @@ Options:
   -p, --port <number>   HTTP port (default: 3212)
   --pm2-home <path>     Add the PM2 home at this path. With "ssh", the path is
                         on the remote server.
+  --open                Always open a browser tab. By default a restart reuses
+                        the tab that is already open.
   --no-open             Do not open a browser
   --no-auth             Disable Captain authentication (use behind an authenticated proxy)
   -h, --help            Show this help
@@ -132,7 +140,12 @@ computer.`);
     environmentPm2Home: process.env.PM2_HOME || null,
     debug: process.env.DEBUG === 'true',
     serverDevMode: process.env.SERVER_DEV_MODE === 'true' || process.env.NODE_ENV === 'development',
-    skipBrowserOpen: !args.open || process.env.PM2_CAPTAIN_NO_OPEN === 'true',
+    browserOpen:
+      args.open === false || (args.open === null && process.env.PM2_CAPTAIN_NO_OPEN === 'true')
+        ? 'never'
+        : args.open
+          ? 'always'
+          : 'auto',
     noAuth: args.noAuth || process.env.PM2_CAPTAIN_NO_AUTH === 'true',
     sshArgs: args.sshArgs,
     runtimeDaemonId: null,

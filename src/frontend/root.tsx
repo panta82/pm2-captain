@@ -47,6 +47,11 @@ function RootLayout() {
   const processDetailOpen = useRouterState({
     select: state => state.location.pathname.startsWith('/daemons/'),
   });
+  // The logs page already holds a stream that reports this tab's presence.
+  const isLogsPageOpen = useRouterState({
+    select: state => state.location.pathname.endsWith('/logs'),
+  });
+  trpc.session.presence.useSubscription(undefined, { enabled: !isLogsPageOpen });
   const [search, setSearch] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
