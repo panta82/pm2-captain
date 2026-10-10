@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildHighlightRegex, escapeRegExp, getHighlightSegments } from './highlight';
+import {
+  buildHighlightRegex,
+  escapeRegExp,
+  getHighlightSegments,
+} from '../../../../src/frontend/lib/highlight';
 
 describe('escapeRegExp', () => {
   it('escapes regex metacharacters', () => {

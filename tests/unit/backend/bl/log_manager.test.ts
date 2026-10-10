@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createLogManager } from './log_manager';
+import { createLogManager } from '../../../../src/backend/bl/log_manager';
 
 const detail = {
   pmId: 1,

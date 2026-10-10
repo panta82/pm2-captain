@@ -7,24 +7,38 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { ChevronDown, ChevronUp, Eye, RotateCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, LoaderCircle, Plus, RotateCw, Server } from 'lucide-react';
 import { startTransition, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
-import { useProcessListFilter } from '@/lib/process_list_filter';
+import { useDaemonSelection } from '@/lib/daemon_selection';
+import { useFilteredProcesses, useProcessListFilter } from '@/lib/process_list_filter';
 import { processDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
+import { useDaemonManager } from '@/components/daemon_manager';
 import { ErrorPanel } from '@/components/error_panel';
-import { Highlighted, buildHighlightRegex } from '@/components/highlighted';
+import { Highlighted } from '@/components/highlighted';
 import { ProcessActions } from '@/components/process_actions';
 import { Button, Skeleton } from '@/components/ui';
 
-import type { IProcessSummary } from '@shared/contracts';
+import type { IDaemonSummary, IProcessSummary } from '@shared/contracts';
 
 const column = createColumnHelper<IProcessSummary>();
 const coreRowModel = getCoreRowModel();
 const sortedRowModel = getSortedRowModel();
+
+const STABLE_COLUMN_CLASS: Record<string, string> = {
+  namespace: 'whitespace-nowrap',
+  mode: 'whitespace-nowrap',
+  restarts: 'w-12 min-w-12 px-1 text-center tabular-nums',
+  cpu: 'w-[calc(6ch+2rem)] min-w-[calc(6ch+2rem)] whitespace-nowrap tabular-nums',
+  memory: 'w-[calc(8ch+2rem)] min-w-[calc(8ch+2rem)] whitespace-nowrap tabular-nums',
+  uptime: 'w-[calc(13ch+2rem)] min-w-[calc(13ch+2rem)] whitespace-nowrap tabular-nums',
+  pid: 'whitespace-nowrap tabular-nums',
+  version: 'whitespace-nowrap',
+};
 
 function compareNullableNumber(
   left: number | null | undefined,
@@ -40,18 +54,6 @@ function compareNullableNumber(
     return -1;
   }
   return left - right;
-}
-
-function processSearchHaystack(process: IProcessSummary): string {
-  return [
-    String(process.pmId),
-    process.name,
-    process.namespace,
-    process.status,
-    process.mode,
-    process.pid == null ? '' : String(process.pid),
-    process.version || '',
-  ].join(' ');
 }
 
 function useIsDesktopTable(): boolean {
@@ -70,51 +72,91 @@ function useIsDesktopTable(): boolean {
   return isDesktop;
 }
 
+function DaemonUnavailable({ daemon }: { daemon: IDaemonSummary }) {
+  const utils = trpc.useUtils();
+  const daemonManager = useDaemonManager();
+  const retry = trpc.daemons.retry.useMutation({
+    onSuccess: () => utils.processes.list.invalidate(),
+    onError: error => toast.error(error.message),
+  });
+
+  if (daemon.status === 'connecting' || daemon.status === 'reconnecting') {
+    return (
+      <div
+        data-component="DaemonUnavailable"
+        className="grid min-h-0 flex-1 place-items-center px-5 py-12"
+      >
+        <p className="flex items-center gap-3 font-mono text-sm text-muted">
+          <LoaderCircle className="size-4 shrink-0 animate-spin text-cyan" />
+          Connecting to {daemon.label}…
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div data-component="DaemonUnavailable" className="flex min-h-0 flex-1 flex-col">
+      <ErrorPanel
+        title={`Can't reach ${daemon.label}`}
+        message={daemon.error || 'Unable to connect to the PM2 daemon.'}
+      >
+        <Button
+          variant="primary"
+          disabled={retry.isPending}
+          onClick={() => retry.mutate({ daemonId: daemon.daemonId })}
+        >
+          {retry.isPending ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <RotateCw className="size-4" />
+          )}
+          Try again
+        </Button>
+        <Button onClick={() => daemonManager.open()}>Manage daemons</Button>
+      </ErrorPanel>
+    </div>
+  );
+}
+
+function NoDaemons() {
+  const daemonManager = useDaemonManager();
+
+  return (
+    <div data-component="NoDaemons" className="grid min-h-0 flex-1 place-items-center px-5 py-12">
+      <section className="w-full max-w-md rounded-2xl border border-line bg-panel p-7 text-center">
+        <Server className="mx-auto size-9 text-muted" aria-hidden />
+        <h1 className="mt-4 text-2xl font-bold text-white">No PM2 daemons</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Add a PM2 daemon on this computer or on a server reached over SSH.
+        </p>
+        <div className="mt-6 flex justify-center">
+          <Button variant="primary" onClick={() => daemonManager.open('add')}>
+            <Plus className="size-4" />
+            Add daemon
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function StatusPage() {
   const navigate = useNavigate();
   const processFilter = useProcessListFilter();
+  const { selectedDaemonId } = useDaemonSelection();
   const isDesktopTable = useIsDesktopTable();
   const [sorting, setSorting] = useState<SortingState>([]);
   const query = trpc.processes.list.useQuery(undefined, {
     refetchInterval: 2_000,
   });
+  const selectedDaemon = query.data?.daemons.find(daemon => daemon.daemonId === selectedDaemonId);
+  const isDaemonAvailable = selectedDaemon?.status === 'online';
+  const daemonProcesses = useMemo(
+    () => (query.data?.processes || []).filter(process => process.daemonId === selectedDaemonId),
+    [query.data?.processes, selectedDaemonId]
+  );
 
-  const filterResult = useMemo(() => {
-    const processes = query.data?.processes || [];
-    if (!processFilter.search) {
-      return {
-        processes,
-        error: '',
-        highlight: null as RegExp | null,
-      };
-    }
-
-    try {
-      const highlight = buildHighlightRegex(processFilter.search, {
-        caseSensitive: processFilter.caseSensitive,
-        regex: processFilter.regex,
-      });
-      return {
-        processes: processes.filter(process => {
-          highlight.lastIndex = 0;
-          return highlight.test(processSearchHaystack(process));
-        }),
-        highlight,
-        error: '',
-      };
-    } catch (error) {
-      return {
-        processes: [],
-        highlight: null as RegExp | null,
-        error: error instanceof Error ? error.message : 'Invalid regular expression',
-      };
-    }
-  }, [
-    processFilter.caseSensitive,
-    processFilter.regex,
-    processFilter.search,
-    query.data?.processes,
-  ]);
+  const filterResult = useFilteredProcesses(daemonProcesses);
 
   const columns = useMemo(
     () => [
@@ -163,7 +205,9 @@ export function StatusPage() {
       column.accessor('restarts', {
         header: () => <RotateCw className="inline-block size-3" />,
         cell: info => (
-          <span className={info.getValue() > 10 ? 'text-warning' : ''}>{info.getValue()}</span>
+          <span className={cn('tabular-nums', info.getValue() > 10 && 'text-warning')}>
+            {info.getValue()}
+          </span>
         ),
       }),
       column.accessor('cpu', {
@@ -174,7 +218,7 @@ export function StatusPage() {
             right.getValue<number | null>(columnId)
           ),
         cell: info => (
-          <span className="text-cyan">
+          <span className="text-cyan tabular-nums">
             {info.getValue() === null ? '—' : `${info.getValue()!.toFixed(1)}%`}
           </span>
         ),
@@ -186,7 +230,9 @@ export function StatusPage() {
             left.getValue<number | null>(columnId),
             right.getValue<number | null>(columnId)
           ),
-        cell: info => <span className="text-[#73a8ff]">{formatBytes(info.getValue())}</span>,
+        cell: info => (
+          <span className="text-[#73a8ff] tabular-nums">{formatBytes(info.getValue())}</span>
+        ),
       }),
       column.accessor('uptime', {
         header: 'UPTIME',
@@ -195,7 +241,7 @@ export function StatusPage() {
             left.getValue<number | null>(columnId),
             right.getValue<number | null>(columnId)
           ),
-        cell: info => formatDuration(info.getValue()),
+        cell: info => <span className="tabular-nums">{formatDuration(info.getValue())}</span>,
       }),
       column.accessor('pid', {
         header: 'PID',
@@ -223,10 +269,12 @@ export function StatusPage() {
         id: 'actions',
         header: '',
         enableSorting: false,
-        cell: info => <ProcessActions process={info.row.original} compact />,
+        cell: info => (
+          <ProcessActions process={info.row.original} compact daemonAvailable={isDaemonAvailable} />
+        ),
       }),
     ],
-    [filterResult.highlight]
+    [filterResult.highlight, isDaemonAvailable]
   );
 
   const table = useReactTable({
@@ -238,7 +286,7 @@ export function StatusPage() {
         setSorting(updater);
       });
     },
-    getRowId: row => String(row.pmId),
+    getRowId: row => `${row.daemonId}:${row.pmId}`,
     getCoreRowModel: coreRowModel,
     getSortedRowModel: sortedRowModel,
   });
@@ -266,6 +314,16 @@ export function StatusPage() {
     );
   }
 
+  // Stale processes stay listed while their daemon is unreachable; without any,
+  // the daemon's own state is the only useful thing to show.
+  if (query.data && !query.data.daemons.length) {
+    return <NoDaemons />;
+  }
+
+  if (selectedDaemon && !isDaemonAvailable && !daemonProcesses.length) {
+    return <DaemonUnavailable daemon={selectedDaemon} />;
+  }
+
   return (
     <main data-component="StatusPage" className="flex-1 overflow-auto">
       {filterResult.error ? (
@@ -273,12 +331,19 @@ export function StatusPage() {
           {filterResult.error}
         </div>
       ) : null}
+      {selectedDaemon && !isDaemonAvailable ? (
+        <div className="border-b border-warning/30 bg-warning/5 px-4 py-2 font-mono text-xs text-warning sm:px-6">
+          {selectedDaemon.status === 'connecting' || selectedDaemon.status === 'reconnecting'
+            ? `Reconnecting to ${selectedDaemon.label}…`
+            : `${selectedDaemon.label}: ${selectedDaemon.error || 'Unable to connect'}`}
+        </div>
+      ) : null}
       {isDesktopTable ? (
         <div className="min-w-[1100px]">
           <table className="w-full border-collapse font-mono text-[13px]">
             <thead>
               {table.getHeaderGroups().map(group => (
-                <tr key={group.id} className="h-11 border-b border-line bg-topbar/70">
+                <tr key={group.id} className="h-11 border-b border-line bg-surface-control">
                   {group.headers.map(header => {
                     const canSort = header.column.getCanSort();
                     const sorted = header.column.getIsSorted();
@@ -287,8 +352,8 @@ export function StatusPage() {
                       <th
                         key={header.id}
                         className={cn(
-                          'px-4 text-[10px] font-semibold first:pl-6',
-                          isCentered ? 'w-12 px-1 text-center' : 'text-left',
+                          'px-4 text-left text-[10px] font-semibold first:pl-6',
+                          STABLE_COLUMN_CLASS[header.column.id],
                           sorted ? 'text-white' : 'text-muted'
                         )}
                       >
@@ -346,18 +411,24 @@ export function StatusPage() {
                   <tr
                     key={row.id}
                     tabIndex={0}
-                    className="h-[54px] cursor-pointer border-b border-line/70 bg-panel/45 hover:bg-panel-hover focus:bg-panel-hover focus:outline-none"
+                    className="h-[54px] cursor-pointer border-b border-line/70 hover:bg-panel focus:bg-panel focus:outline-none"
                     onClick={() =>
                       navigate({
                         to: processDetailTo(),
-                        params: { pmId: String(row.original.pmId) },
+                        params: {
+                          daemonId: row.original.daemonId,
+                          pmId: String(row.original.pmId),
+                        },
                       })
                     }
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
                         navigate({
                           to: processDetailTo(),
-                          params: { pmId: String(row.original.pmId) },
+                          params: {
+                            daemonId: row.original.daemonId,
+                            pmId: String(row.original.pmId),
+                          },
                         });
                       }
                     }}
@@ -365,10 +436,7 @@ export function StatusPage() {
                     {row.getVisibleCells().map(cell => (
                       <td
                         key={cell.id}
-                        className={cn(
-                          'px-4 first:pl-6',
-                          cell.column.id === 'restarts' && 'text-center'
-                        )}
+                        className={cn('px-4 first:pl-6', STABLE_COLUMN_CLASS[cell.column.id])}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
@@ -387,13 +455,16 @@ export function StatusPage() {
             </div>
           ) : (
             filterResult.processes.map(process => (
-              <article key={process.pmId} className="rounded-xl border border-line bg-panel p-4">
+              <article
+                key={`${process.daemonId}:${process.pmId}`}
+                className="rounded-xl border border-line bg-panel p-4"
+              >
                 <button
                   className="block w-full text-left"
                   onClick={() =>
                     navigate({
                       to: processDetailTo(),
-                      params: { pmId: String(process.pmId) },
+                      params: { daemonId: process.daemonId, pmId: String(process.pmId) },
                     })
                   }
                 >
@@ -429,13 +500,13 @@ export function StatusPage() {
                     id {process.pmId} · pid {process.pid || '—'}
                   </span>
                   <div className="flex items-center gap-3">
-                    <ProcessActions process={process} compact />
+                    <ProcessActions process={process} compact daemonAvailable={isDaemonAvailable} />
                     <button
                       aria-label={`Open ${process.name}`}
                       onClick={() =>
                         navigate({
                           to: processDetailTo(),
-                          params: { pmId: String(process.pmId) },
+                          params: { daemonId: process.daemonId, pmId: String(process.pmId) },
                         })
                       }
                     >

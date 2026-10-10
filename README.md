@@ -16,9 +16,25 @@ The equivalent of:
 ```bash
 npx pm2-captain
 ```
+or
+```
+npm install -g pm2-captain
+pm2-captain
+```
 
 Captain opens automatically when the system supports opening browser links;
 otherwise, it prints the URL. Press Ctrl+C to stop it.
+
+On the first launch, Captain looks for PM2 daemons on this computer (running
+daemons, `PM2_HOME`, and `~/.pm2`) and adds every one it finds. To add a daemon
+whose PM2 home is somewhere else, pass it on the command line:
+
+```bash
+npx pm2-captain --pm2-home /srv/pm2
+```
+
+Captain never starts or stops a PM2 daemon. It also runs fine on a computer
+without PM2, for example, to watch remote servers only.
 
 ### 2. Connect to a remote server over SSH
 
@@ -37,7 +53,26 @@ bounded ranges through the server's SFTP subsystem.
 Put Captain options before `ssh`; all arguments after `ssh` are passed to the
 SSH client. The remote user must be able to access its PM2 daemon and log
 files. Captain discovers remote `PM2_HOME` from the remote environment, falling
-back to `~/.pm2`.
+back to `~/.pm2`. To use another PM2 on the same server, name its home with
+`--pm2-home`; a leading `~` is the remote user's home directory:
+
+```bash
+npx pm2-captain --pm2-home '~/.pm2-staging' ssh tk-dev
+```
+
+### Managing daemons
+
+Use the daemon picker in the top bar to add, edit and remove daemons.
+Captain shows one daemon at a time; the picker next to the logo switches
+between them. A daemon is identified by its PM2 home, either on this computer
+or on a server reached over SSH, and you can add as many as you like, including
+several on the same machine. Choose **Manage daemons…** in the picker to add,
+edit, or remove them. Running `pm2-captain` with `--pm2-home` or `ssh` also adds
+that daemon, including to an instance that is already running.
+
+Daemons are remembered between launches. Removing a daemon only disconnects it
+from Captain; it does not stop PM2 or any managed applications, and Captain does
+not add it back on its own.
 
 ### 3. Set up as a service
 
@@ -148,11 +183,14 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-If the selected port already hosts Captain, the new invocation prints that
-instance's URL and exits. If another application owns the port, Captain exits
-with code `78`. The `stop_exit_codes` setting prevents PM2 from repeatedly
-restarting a misconfigured instance while preserving normal autorestart
-behavior for other failures.
+If the selected port already hosts Captain, a new `ssh` or `--pm2-home`
+invocation adds the requested daemon to that running instance, then opens or
+prints its URL. An invocation without a daemon simply opens or prints the
+existing instance. If
+another application owns the port, Captain exits with code `78`. The
+`stop_exit_codes` setting prevents PM2 from repeatedly restarting a
+misconfigured instance while preserving normal autorestart behavior for other
+failures.
 
 ## Options
 
@@ -160,25 +198,34 @@ Captain can be configured via command-line options or environment variables.
 
 ### Available options
 
-| Command-line option   | Environment variable       | Default  | Description                                                                     |
-| --------------------- | -------------------------- | -------- | ------------------------------------------------------------------------------- |
-| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`   | HTTP port on `127.0.0.1`.                                                       |
-| `--pm2-home <path>`   | `PM2_HOME`                 | `~/.pm2` | PM2 daemon and data directory.                                                  |
-| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off      | Do not open a browser automatically.                                            |
-| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off      | Disable Captain's launch-token session. Use only behind an authenticated proxy. |
-| `-h, --help`          | —                          | —        | Print CLI help and exit.                                                        |
+| Command-line option   | Environment variable       | Default | Description                                                                     |
+| --------------------- | -------------------------- | ------- | ------------------------------------------------------------------------------- |
+| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`  | HTTP port on `127.0.0.1`.                                                       |
+| `--pm2-home <path>`   | —                          | —       | Add the PM2 home at this path. With `ssh`, the path is on the remote server.    |
+| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                            |
+| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy. |
+| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                        |
 
-The `ssh <ssh arguments>` subcommand selects a remote PM2 daemon for the
-current Captain session. Remote mode requires the system `ssh` executable,
-OpenSSH stream-local forwarding, and an enabled SFTP subsystem on the server.
+The `ssh <ssh arguments>` subcommand adds a remote PM2 daemon to Captain.
+Remote daemons require the system `ssh` executable, OpenSSH stream-local
+forwarding, and an enabled SFTP subsystem on the server.
+
+`PM2_HOME` is only used to detect local PM2 daemons; it does not add one on its
+own once the daemon list exists.
 
 Command-line values take precedence over environment values. Set `DEBUG=true`
 to enable diagnostic service and request logs; production output otherwise
 contains only startup information and errors.
 
-When authentication is enabled, Captain stores a persistent launch token under
-`PM2_HOME` with mode `0600`. The launch URL exchanges it for an HttpOnly,
-SameSite session cookie.
+Captain keeps its own files in `~/.config/pm2-captain` (or
+`$XDG_CONFIG_HOME/pm2-captain`). The directory uses mode `0700`.
+
+1. `daemons.json` is the daemon list, with mode `0600` because saved SSH
+   arguments can contain sensitive option values. Delete it, or set `daemons` to
+   `null`, to have Captain detect local PM2 daemons again on the next launch.
+2. `launch-token` is the persistent launch token used when authentication is
+   enabled, with mode `0600`. The launch URL exchanges it for an HttpOnly,
+   SameSite session cookie.
 
 ## Development
 
@@ -207,6 +254,11 @@ npm run test:e2e
 ```
 
 ## Version history
+
+#### `1.3.0` (2026-10-10)
+
+- Add multi-daemon support. You can now connect to multiple PM2 daemons, either on the same machine or on different servers. Use the daemon picker in the top bar to switch between them.
+- Improve and standardize the UI
 
 #### `1.2.0` (2026-08-03)
 

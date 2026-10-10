@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createProcessManager } from './process_manager';
+import { createProcessManager } from '../../../../src/backend/bl/process_manager';
 
 function description(overrides: Record<string, unknown> = {}) {
   return {
@@ -128,7 +128,7 @@ describe('processManager', () => {
     expect(pm2Client.stopProcess).not.toHaveBeenCalled();
   });
 
-  it('uses the remote host identity without treating a matching PID as Captain', async () => {
+  it('uses the remote daemon identity without treating a matching PID as Captain', async () => {
     const item = description();
     item.pid = process.pid;
     const { manager } = setup(item, {

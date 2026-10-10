@@ -104,7 +104,7 @@ const LogRow = memo(function LogRow({
 });
 
 export function LogsPage() {
-  const { pmId } = useParams({ from: '/processes/$pmId' });
+  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
   const numericId = Number(pmId);
   const [view, setView] = useState<ILogView>('combined');
   const [entries, setEntries] = useState<ILogEntry[]>([]);
@@ -149,6 +149,7 @@ export function LogsPage() {
   }, [paused]);
 
   const initialPage = trpc.logs.page.useQuery({
+    daemonId,
     pmId: numericId,
     view,
     cursor: null,
@@ -165,7 +166,7 @@ export function LogsPage() {
     setBufferedCount(0);
     setDropped(0);
     isFollowingRef.current = true;
-  }, [numericId, view]);
+  }, [daemonId, numericId, view]);
 
   useEffect(() => {
     if (!initialPage.data) {
@@ -179,7 +180,7 @@ export function LogsPage() {
   }, [initialPage.data]);
 
   trpc.logs.stream.useSubscription(
-    { pmId: numericId, view },
+    { daemonId, pmId: numericId, view },
     {
       onData(event) {
         if (event.type === 'daemon-status') {
@@ -226,6 +227,7 @@ export function LogsPage() {
     const previousHeight = element?.scrollHeight || 0;
     try {
       const page = await utils.client.logs.page.query({
+        daemonId,
         pmId: numericId,
         view,
         cursor,
@@ -248,7 +250,7 @@ export function LogsPage() {
     } finally {
       setLoadingOlder(false);
     }
-  }, [cursor, hasMore, loadingOlder, numericId, utils.client.logs.page, view]);
+  }, [cursor, hasMore, daemonId, loadingOlder, numericId, utils.client.logs.page, view]);
 
   const searchResult = useMemo(() => {
     if (!deferredSearch) {
@@ -365,8 +367,8 @@ export function LogsPage() {
   }, [focusedEntryId]);
 
   return (
-    <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-topbar">
-      <div className="grid shrink-0 grid-cols-1 items-center gap-2 border-b border-line bg-panel/30 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-7">
+    <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-surface-plane">
+      <div className="grid shrink-0 grid-cols-1 items-center gap-2 border-b border-line bg-surface-control px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-7 lg:h-detail-toolbar lg:py-0">
         <div className="flex justify-start">
           <ToggleGroup aria-label="Log stream filter">
             {(['combined', 'out', 'err'] as const).map(option => (
@@ -374,7 +376,7 @@ export function LogsPage() {
                 key={option}
                 variant="toggle"
                 aria-pressed={view === option}
-                className="h-8 px-3 font-mono text-xs"
+                className="h-9 px-3 font-mono text-xs"
                 onClick={() => setView(option)}
               >
                 {option === 'combined' ? 'All' : capitalize(option)}
@@ -422,7 +424,7 @@ export function LogsPage() {
               {paused ? 'Resume' : 'Pause'}
             </Button>
             {paused && bufferedCount > 0 ? (
-              <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-10 min-w-5 rounded-full border border-warning/50 bg-warning px-1.5 py-0.5 text-center font-mono text-[10px] font-bold leading-none text-navy">
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-10 min-w-5 rounded-full border border-warning/50 bg-warning px-1.5 py-0.5 text-center font-mono text-[10px] font-bold leading-none text-accent-ink">
                 {bufferedCount}
               </span>
             ) : null}
@@ -448,13 +450,8 @@ export function LogsPage() {
         </div>
       ) : null}
 
-      <div
-        className={cn(
-          'relative min-h-0 flex-1 border-t border-line bg-[#041522]',
-          isFilterPending && 'opacity-80'
-        )}
-      >
-        <div className="absolute top-2 right-2 z-10 flex h-8 items-stretch overflow-hidden rounded-lg border border-line/80 bg-topbar/90 shadow-lg backdrop-blur-sm">
+      <div className={cn('relative min-h-0 flex-1', isFilterPending && 'opacity-80')}>
+        <div className="absolute top-2 right-2 z-10 flex h-8 items-stretch overflow-hidden rounded-lg border border-line/80 bg-surface-plane/90 shadow-lg backdrop-blur-sm">
           <span
             className="inline-flex min-w-8 items-center justify-center px-2.5 font-mono text-[11px] text-muted"
             title={deferredSearch ? 'Filtered / loaded lines' : 'Loaded lines'}

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createApp } from './app';
+import { createApp } from '../../../../src/backend/lib/app';
 
 function setup(services: Record<string, object>) {
   const log = {

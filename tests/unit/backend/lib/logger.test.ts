@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createLoggerOptions } from './logger';
+import { createLoggerOptions } from '../../../../src/backend/lib/logger';
 
 describe('logger options', () => {
   it('only emits errors by default', () => {

@@ -11,7 +11,7 @@ import { IAppLifecycleMethods } from './app';
 const SSH_CONNECT_TIMEOUT = 15_000;
 const MAX_SFTP_PACKET_SIZE = 16 * 1024 * 1024;
 const REMOTE_INFO_MARKER = '__PM2_CAPTAIN_REMOTE__';
-const REMOTE_INFO_COMMAND = `printf '${REMOTE_INFO_MARKER}\\n%s\\n%s\\n%s\\n' "\${PM2_HOME:-$HOME/.pm2}" "\${USER:-$(id -un)}" "$(hostname)"`;
+const REMOTE_INFO_COMMAND = `printf '${REMOTE_INFO_MARKER}\\n%s\\n%s\\n%s\\n%s\\n' "\${PM2_HOME:-$HOME/.pm2}" "\${USER:-$(id -un)}" "$(hostname)" "$HOME"`;
 
 const enum SftpPacketType {
   Init = 1,
@@ -363,10 +363,25 @@ async function runSSHCommand(sshArgs: string[], command: string): Promise<string
   });
 }
 
-export function parseRemoteInfo(output: string): ISshRemoteInfo {
+/**
+ * Reads the discovery output. A configured PM2 home replaces the discovered
+ * one; a leading `~` in it stands for the remote user's home directory.
+ */
+export function parseRemoteInfo(
+  output: string,
+  configuredPm2Home: string | null = null
+): ISshRemoteInfo {
   const lines = output.trim().split(/\r?\n/);
   const markerIndex = lines.lastIndexOf(REMOTE_INFO_MARKER);
-  const [pm2Home, username, hostname] = lines.slice(markerIndex + 1, markerIndex + 4);
+  const [discoveredPm2Home, username, hostname, homeDirectory] = lines.slice(
+    markerIndex + 1,
+    markerIndex + 5
+  );
+  const pm2Home =
+    configuredPm2Home === '~' || configuredPm2Home?.startsWith('~/')
+      ? homeDirectory && libPath.posix.join(homeDirectory, configuredPm2Home.slice(1))
+      : configuredPm2Home || discoveredPm2Home;
+  // The path becomes part of an SSH stream-local forward ("local:remote").
   if (
     markerIndex < 0 ||
     !pm2Home ||
@@ -544,7 +559,10 @@ export function createSshConnection({ settings, log }: IContainer) {
       }
       _isStopping = false;
       try {
-        _remoteInfo = parseRemoteInfo(await runSSHCommand(settings.sshArgs, REMOTE_INFO_COMMAND));
+        _remoteInfo = parseRemoteInfo(
+          await runSSHCommand(settings.sshArgs, REMOTE_INFO_COMMAND),
+          settings.pm2Home
+        );
         _socketDirectory = await fs.mkdtemp(libPath.join(libOs.tmpdir(), 'pm2c-'));
         await connectSSH();
       } catch (error) {

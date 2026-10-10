@@ -20,10 +20,7 @@ function DetailPanel({
   rows: Array<[string, string | number | null, string?]>;
 }) {
   return (
-    <section
-      data-component="DetailPanel"
-      className="overflow-hidden rounded-xl border border-line bg-topbar"
-    >
+    <section data-component="DetailPanel" className="overflow-hidden rounded-xl border border-line">
       <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
         {title}
       </h2>
@@ -42,8 +39,11 @@ function DetailPanel({
 }
 
 export function InfoPage() {
-  const { pmId } = useParams({ from: '/processes/$pmId' });
-  const detail = trpc.processes.detail.useQuery({ pmId: Number(pmId) }, { refetchInterval: 2_000 });
+  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
+  const detail = trpc.processes.detail.useQuery(
+    { daemonId, pmId: Number(pmId) },
+    { refetchInterval: 2_000 }
+  );
   if (!detail.data) {
     return null;
   }

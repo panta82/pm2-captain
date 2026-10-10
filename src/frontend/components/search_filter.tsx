@@ -23,7 +23,7 @@ function TypingDots({ className }: { className?: string }) {
 
 export function SearchFilter({
   draft,
-  phase,
+  phase = 'idle',
   onDraftChange,
   caseSensitive,
   onCaseSensitiveChange,
@@ -33,7 +33,8 @@ export function SearchFilter({
   className,
 }: {
   draft: string;
-  phase: IDebouncePhase;
+  /** Omit for a filter that applies immediately. */
+  phase?: IDebouncePhase;
   onDraftChange: (next: string) => void;
   caseSensitive: boolean;
   onCaseSensitiveChange: (next: boolean) => void;
@@ -46,7 +47,7 @@ export function SearchFilter({
     <div
       data-component="SearchFilter"
       className={cn(
-        'flex h-9 min-w-0 w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-panel has-[input:focus]:border-cyan/60 sm:w-[min(28rem,40vw)]',
+        'flex h-9 min-w-0 w-full max-w-md items-stretch overflow-hidden rounded-lg border border-line bg-input has-[input:focus]:border-cyan/60 has-[input:focus]:bg-input-focus sm:w-[min(28rem,40vw)]',
         className
       )}
     >

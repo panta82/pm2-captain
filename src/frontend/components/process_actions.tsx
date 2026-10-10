@@ -13,9 +13,11 @@ export const ProcessActions = memo(
   function ProcessActions({
     process,
     compact = false,
+    daemonAvailable = true,
   }: {
     process: IProcessSummary | IProcessDetail;
     compact?: boolean;
+    daemonAvailable?: boolean;
   }) {
     const utils = trpc.useUtils();
     const action = trpc.processes.action.useMutation({
@@ -32,7 +34,7 @@ export const ProcessActions = memo(
         }
         await Promise.all([
           utils.processes.list.invalidate(),
-          utils.processes.detail.invalidate({ pmId: process.pmId }),
+          utils.processes.detail.invalidate({ daemonId: process.daemonId, pmId: process.pmId }),
         ]);
       },
       onError: error => toast.error(error.message),
@@ -57,8 +59,11 @@ export const ProcessActions = memo(
         <Button
           variant="primary"
           className={primaryButtonClass}
-          disabled={action.isPending}
-          onClick={() => action.mutate({ pmId: process.pmId, action: primaryAction })}
+          disabled={!daemonAvailable || action.isPending}
+          title={!daemonAvailable ? 'Daemon is not connected' : undefined}
+          onClick={() =>
+            action.mutate({ daemonId: process.daemonId, pmId: process.pmId, action: primaryAction })
+          }
         >
           {primaryPending ? (
             <LoaderCircle className={cn(iconClass, 'animate-spin')} />
@@ -71,15 +76,19 @@ export const ProcessActions = memo(
         </Button>
         <Button
           className={buttonClass}
-          disabled={stopped || process.isCaptain || action.isPending}
+          disabled={!daemonAvailable || stopped || process.isCaptain || action.isPending}
           title={
-            stopped
-              ? 'Process is already stopped'
-              : process.isCaptain
-                ? 'Captain cannot stop itself'
-                : undefined
+            !daemonAvailable
+              ? 'Daemon is not connected'
+              : stopped
+                ? 'Process is already stopped'
+                : process.isCaptain
+                  ? 'Captain cannot stop itself'
+                  : undefined
           }
-          onClick={() => action.mutate({ pmId: process.pmId, action: 'stop' })}
+          onClick={() =>
+            action.mutate({ daemonId: process.daemonId, pmId: process.pmId, action: 'stop' })
+          }
         >
           {stopPending ? (
             <LoaderCircle className={cn(iconClass, 'animate-spin')} />
@@ -93,6 +102,8 @@ export const ProcessActions = memo(
   },
   (prev, next) =>
     prev.compact === next.compact &&
+    prev.daemonAvailable === next.daemonAvailable &&
+    prev.process.daemonId === next.process.daemonId &&
     prev.process.pmId === next.process.pmId &&
     prev.process.name === next.process.name &&
     prev.process.status === next.process.status &&

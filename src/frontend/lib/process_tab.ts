@@ -21,9 +21,14 @@ export function setProcessTab(tab: ProcessTab): void {
 
 export function processDetailTo(
   tab: ProcessTab = getProcessTab()
-): '/processes/$pmId/info' | '/processes/$pmId/env' | '/processes/$pmId/logs' {
+):
+  | '/daemons/$daemonId/processes/$pmId/info'
+  | '/daemons/$daemonId/processes/$pmId/env'
+  | '/daemons/$daemonId/processes/$pmId/logs' {
   if (tab === 'env') {
-    return '/processes/$pmId/env';
+    return '/daemons/$daemonId/processes/$pmId/env';
   }
-  return tab === 'logs' ? '/processes/$pmId/logs' : '/processes/$pmId/info';
+  return tab === 'logs'
+    ? '/daemons/$daemonId/processes/$pmId/logs'
+    : '/daemons/$daemonId/processes/$pmId/info';
 }

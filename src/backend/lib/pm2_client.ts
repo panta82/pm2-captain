@@ -1,5 +1,8 @@
+/// <reference path="./pm2_api.d.ts" />
 import { EventEmitter } from 'node:events';
-import pm2, { ProcessDescription } from 'pm2';
+import { promises as fs, constants as fsConstants } from 'node:fs';
+import libPath from 'node:path';
+import type { ProcessDescription } from 'pm2';
 
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
@@ -23,6 +26,7 @@ export interface IPM2LogEvent {
 interface IPM2Api {
   Client?: {
     launchRPC(callback: (error: Error | null) => void): void;
+    pingDaemon(callback: (isAlive: boolean) => void): void;
   };
   connect(callback: (error: Error | null) => void): void;
   disconnect(): void;
@@ -36,13 +40,29 @@ interface IPM2Api {
   stop(pmId: number, callback: (error: Error | null, result: unknown) => void): void;
 }
 
-interface IPM2Module extends IPM2Api {
-  custom: new (options: { pm2_home: string; daemon_mode: boolean }) => IPM2Api;
+type IPM2ApiConstructor = new (options: { pm2_home: string; daemon_mode: boolean }) => IPM2Api;
+
+// The pm2 package entry builds a default client on import, and that creates
+// ~/.pm2 even on a computer without PM2. The API class alone does not. It reads
+// PM2_PROGRAMMATIC when it loads; without it, the first client in a new
+// directory prints PM2's install banner.
+async function loadPm2Api() {
+  process.env.PM2_PROGRAMMATIC = 'true';
+  return (await import('pm2/lib/API.js')).default as unknown as IPM2ApiConstructor;
 }
 
-export function createPm2Client({ log, sshConnection }: IContainer) {
+export class Pm2DaemonUnavailableError extends Error {
+  readonly code = 'PM2_DAEMON_UNAVAILABLE';
+
+  constructor(message = 'Not connected to the PM2 daemon.') {
+    super(message);
+    this.name = 'Pm2DaemonUnavailableError';
+  }
+}
+
+export function createPm2Client({ log, sshConnection, settings }: IContainer) {
   const events = new EventEmitter();
-  let pm2Api: IPM2Api | null = sshConnection.isRemote ? null : (pm2 as unknown as IPM2Api);
+  let pm2Api: IPM2Api | null = null;
   let bus: EventEmitter | null = null;
   let isConnected = false;
   let isStopping = false;
@@ -66,26 +86,56 @@ export function createPm2Client({ log, sshConnection }: IContainer) {
       });
     });
 
+  // PM2 lazily starts (or embeds) a daemon when an operation runs on a
+  // disconnected client, so operations are refused until connect() succeeds.
+  const callConnected = <T>(
+    name: string,
+    operation: (callback: (error: Error | null, result: T) => void) => void
+  ) => (isConnected ? call(name, operation) : Promise.reject(new Pm2DaemonUnavailableError()));
+
+  const createApi = async () => {
+    const PM2Api = await loadPm2Api();
+    if (sshConnection.isRemote) {
+      if (!sshConnection.socketDirectory) {
+        throw new Error('The SSH socket forwarding directory is not available.');
+      }
+      return new PM2Api({ pm2_home: sshConnection.socketDirectory, daemon_mode: false });
+    }
+    const pm2Home = settings.pm2Home;
+    if (!pm2Home) {
+      throw new Error('This daemon has no PM2 home.');
+    }
+    // A PM2 client creates its directories when it is constructed, so a home
+    // without a daemon socket is left alone. The socket must also be writable:
+    // PM2 exits the whole process when connecting fails with EACCES.
+    const rpcSocket = libPath.join(pm2Home, 'rpc.sock');
+    try {
+      await fs.access(rpcSocket, fsConstants.R_OK | fsConstants.W_OK);
+    } catch (error) {
+      throw new Pm2DaemonUnavailableError(
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+          ? `PM2 is not running in ${pm2Home}.`
+          : `No permission to use the PM2 daemon in ${pm2Home}.`
+      );
+    }
+    return new PM2Api({ pm2_home: pm2Home, daemon_mode: true });
+  };
+
   const connect = async () => {
     if (!isConnected) {
       await sshConnection.ensureConnected();
-      if (!pm2Api) {
-        if (sshConnection.isRemote) {
-          if (!sshConnection.socketDirectory) {
-            throw new Error('The SSH socket forwarding directory is not available.');
-          }
-          const PM2 = pm2 as unknown as IPM2Module;
-          pm2Api = new PM2.custom({
-            pm2_home: sshConnection.socketDirectory,
-            daemon_mode: false,
-          });
-        } else {
-          pm2Api = pm2 as unknown as IPM2Api;
-        }
-      }
+      pm2Api ??= await createApi();
       if (sshConnection.isRemote) {
         await call<void>('connect', callback => pm2Api!.Client!.launchRPC(callback));
       } else {
+        // pm2.connect() spawns a daemon when none is running. Captain only
+        // observes an existing PM2, so a stopped one stays stopped.
+        const isDaemonAlive = await call<boolean>('ping', callback =>
+          pm2Api!.Client!.pingDaemon(isAlive => callback(null, isAlive))
+        );
+        if (!isDaemonAlive) {
+          throw new Pm2DaemonUnavailableError(`PM2 is not running in ${settings.pm2Home}.`);
+        }
         await call<void>('connect', callback => pm2Api!.connect(callback));
       }
       isConnected = true;
@@ -171,10 +221,9 @@ export function createPm2Client({ log, sshConnection }: IContainer) {
         pm2Api!.disconnect();
         isConnected = false;
       }
-      if (sshConnection.isRemote) {
-        // SSH recreates its temporary socket directory on every start.
-        pm2Api = null;
-      }
+      // The client is recreated on every start. SSH also recreates its
+      // temporary socket directory.
+      pm2Api = null;
     };
 
     dispose = async () => {
@@ -185,18 +234,19 @@ export function createPm2Client({ log, sshConnection }: IContainer) {
       pm2Api = null;
     };
 
-    list = () => call<ProcessDescription[]>('list', callback => pm2Api!.list(callback));
+    list = () => callConnected<ProcessDescription[]>('list', callback => pm2Api!.list(callback));
 
     describe = (pmId: number) =>
-      call<ProcessDescription[]>('describe', callback => pm2Api!.describe(pmId, callback));
+      callConnected<ProcessDescription[]>('describe', callback => pm2Api!.describe(pmId, callback));
 
     startProcess = (pmId: number) =>
-      call<unknown>('start', callback => pm2Api!.restart(pmId, callback));
+      callConnected<unknown>('start', callback => pm2Api!.restart(pmId, callback));
 
-    stopProcess = (pmId: number) => call<unknown>('stop', callback => pm2Api!.stop(pmId, callback));
+    stopProcess = (pmId: number) =>
+      callConnected<unknown>('stop', callback => pm2Api!.stop(pmId, callback));
 
     restartProcess = (pmId: number) =>
-      call<unknown>('restart', callback => pm2Api!.restart(pmId, callback));
+      callConnected<unknown>('restart', callback => pm2Api!.restart(pmId, callback));
 
     onLog = (listener: (event: IPM2LogEvent) => void) => {
       events.on('log', listener);

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createLogFileReader } from './log_file_reader';
+import { createLogFileReader } from '../../../../src/backend/lib/log_file_reader';
 
 describe('logFileReader', () => {
   let directory: string;

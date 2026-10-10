@@ -4,10 +4,21 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 
-  --color-navy: #071a2b;
-  --color-topbar: #041522;
-  --color-panel: #0b263b;
-  --color-panel-hover: #10344e;
+  /*
+   * Surfaces, from the top of the screen down. Each level is one solid color.
+   * Never tint a surface with opacity: the result then depends on whatever is
+   * behind it, and the same class ends up as different shades. Only scrims and
+   * glass overlays are translucent.
+   */
+  --color-surface-menu: #091f32; /* top menu row */
+  --color-surface-control: #071a2b; /* submenu and control rows under the menu */
+  --color-surface-plane: #041522; /* side menu and content; popovers and dialogs */
+
+  /* Things placed on a plane. */
+  --color-panel: #0b263b; /* raised: cards, header strips, hovered items */
+  --color-panel-hover: #10344e; /* selected items */
+  --color-input: #020b12; /* wells: fields and pickers */
+  --color-input-focus: #041822;
   --color-line: #153b55;
   --color-primary: #1677ff;
   --color-primary-hover: #3188ff;
@@ -23,11 +34,14 @@
   --color-muted: #7090aa;
   --color-danger: #ff5d73;
   --color-warning: #f6b700;
+  --color-highlight: #3dff7a;
+  --color-accent-ink: #071a2b; /* text on bright accent fills */
+  --height-detail-toolbar: 3.75rem;
 }
 
 :root {
   font-family: var(--font-sans);
-  background: var(--color-navy);
+  background: var(--color-surface-plane);
   color: white;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -36,7 +50,7 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: #31516a #041522;
+  scrollbar-color: #31516a var(--color-surface-plane);
 }
 
 html,

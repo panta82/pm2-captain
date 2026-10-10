@@ -11,6 +11,8 @@ import {
 import { processDetailTo } from '@/lib/process_tab';
 import { cn } from '@/lib/utils';
 
+import { Highlighted } from '@/components/highlighted';
+
 import type { IProcessSummary } from '@shared/contracts';
 
 function NavKeysHint({ className }: { className?: string }) {
@@ -33,6 +35,8 @@ function NavKeysHint({ className }: { className?: string }) {
 
 export function ProcessNav({
   processes,
+  highlight = null,
+  selectedDaemonId,
   selectedId,
   className,
   itemClassName,
@@ -43,6 +47,8 @@ export function ProcessNav({
   autoFocus = false,
 }: {
   processes: IProcessSummary[];
+  highlight?: RegExp | null;
+  selectedDaemonId: string;
   selectedId: number;
   className?: string;
   itemClassName?: string;
@@ -75,7 +81,7 @@ export function ProcessNav({
     navRef.current
       ?.querySelector<HTMLElement>('[aria-current="page"]')
       ?.scrollIntoView({ block: 'nearest' });
-  }, [selectedId]);
+  }, [selectedDaemonId, selectedId]);
 
   const handleFocus = () => {
     setIsFocused(true);
@@ -105,12 +111,16 @@ export function ProcessNav({
     if (!processes.length) {
       return;
     }
-    const currentIndex = processes.findIndex(process => process.pmId === selectedId);
-    const baseIndex = currentIndex < 0 ? 0 : currentIndex;
+    const currentIndex = processes.findIndex(
+      process => process.daemonId === selectedDaemonId && process.pmId === selectedId
+    );
+    // A filter can hide the open process; the arrows then enter the list at the top.
     const nextIndex =
-      event.key === 'ArrowDown'
-        ? Math.min(baseIndex + 1, processes.length - 1)
-        : Math.max(baseIndex - 1, 0);
+      currentIndex < 0
+        ? 0
+        : event.key === 'ArrowDown'
+          ? Math.min(currentIndex + 1, processes.length - 1)
+          : Math.max(currentIndex - 1, 0);
     if (nextIndex === currentIndex) {
       return;
     }
@@ -118,7 +128,7 @@ export function ProcessNav({
     keepFocusRef.current = true;
     void navigate({
       to: processDetailTo(),
-      params: { pmId: String(next.pmId) },
+      params: { daemonId: next.daemonId, pmId: String(next.pmId) },
     });
   };
 
@@ -134,12 +144,12 @@ export function ProcessNav({
       onKeyDown={handleKeyDown}
     >
       {processes.map(process => {
-        const isSelected = process.pmId === selectedId;
+        const isSelected = process.daemonId === selectedDaemonId && process.pmId === selectedId;
         return (
           <Link
-            key={process.pmId}
+            key={`${process.daemonId}:${process.pmId}`}
             to={processDetailTo()}
-            params={{ pmId: String(process.pmId) }}
+            params={{ daemonId: process.daemonId, pmId: String(process.pmId) }}
             onClick={onItemClick}
             className={cn(itemClassName, isSelected ? selectedItemClassName : idleItemClassName)}
           >
@@ -153,7 +163,9 @@ export function ProcessNav({
               )}
             />
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="truncate font-semibold">{process.name}</span>
+              <span className="truncate font-semibold">
+                <Highlighted text={process.name} regex={highlight} />
+              </span>
               {process.isCaptain ? (
                 <img
                   src="/pm2-captain-logo-on-dark.png"

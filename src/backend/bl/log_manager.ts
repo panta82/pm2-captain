@@ -9,6 +9,9 @@ import { IFileCursor } from '../lib/log_file_reader';
 import { IPM2LogEvent } from '../lib/pm2_client';
 
 interface ILogCursor {
+  daemonId?: string;
+  pmId?: number;
+  view?: ILogView;
   out?: IFileCursor | null;
   err?: IFileCursor | null;
   shared?: IFileCursor | null;
@@ -23,13 +26,21 @@ function encodeCursor(cursor: ILogCursor): string | null {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-function decodeCursor(cursor?: string | null): ILogCursor {
+function decodeCursor(
+  cursor: string | null | undefined,
+  daemonId: string,
+  pmId: number,
+  view: ILogView
+): ILogCursor {
   if (!cursor) {
     return {};
   }
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Invalid log cursor');
+    }
+    if (parsed.daemonId !== daemonId || parsed.pmId !== pmId || parsed.view !== view) {
       throw new Error('Invalid log cursor');
     }
     for (const key of ['out', 'err', 'shared'] as const) {
@@ -58,6 +69,7 @@ function decodeCursor(cursor?: string | null): ILogCursor {
 
 function parseLine(
   line: string,
+  daemonId: string,
   pmId: number,
   processName: string,
   channel: ILogChannel,
@@ -89,6 +101,7 @@ function parseLine(
 
   return {
     id: `${channel}:${sequence}:${randomUUID()}`,
+    daemonId,
     pmId,
     processName,
     channel,
@@ -98,8 +111,14 @@ function parseLine(
   };
 }
 
-export function createLogManager({ processManager, logFileReader, pm2Client }: IContainer) {
+export function createLogManager({
+  processManager,
+  logFileReader,
+  pm2Client,
+  settings,
+}: IContainer) {
   let liveSequence = 0;
+  const daemonId = settings?.runtimeDaemonId || 'local';
 
   return new (class LogManager {
     page = async (
@@ -110,7 +129,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
     ): Promise<ILogPage> => {
       const detail = await processManager.detail(pmId);
       const limit = Math.min(1_000, Math.max(1, requestedLimit));
-      const cursor = decodeCursor(cursorValue);
+      const cursor = decodeCursor(cursorValue, daemonId, pmId, view);
       const sharedFile = Boolean(detail.outLogPath) && detail.outLogPath === detail.errLogPath;
 
       if (sharedFile) {
@@ -121,9 +140,9 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
         );
         return {
           entries: page.lines.map((line, index) =>
-            parseLine(line, pmId, detail.name, 'shared', index)
+            parseLine(line, daemonId, pmId, detail.name, 'shared', index)
           ),
-          cursor: encodeCursor({ shared: page.cursor }),
+          cursor: encodeCursor({ daemonId, pmId, view, shared: page.cursor }),
           hasMore: page.hasMore,
           approximateOrder: false,
           sharedFile: true,
@@ -151,7 +170,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
         return {
           ...page,
           entries: page.lines.map((line, index) =>
-            parseLine(line, pmId, detail.name, channel, index)
+            parseLine(line, daemonId, pmId, detail.name, channel, index)
           ),
         };
       };
@@ -160,7 +179,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
         const page = await readChannel(view, limit);
         return {
           entries: page.entries,
-          cursor: encodeCursor({ [view]: page.cursor }),
+          cursor: encodeCursor({ daemonId, pmId, view, [view]: page.cursor }),
           hasMore: page.hasMore,
           approximateOrder: false,
           sharedFile: false,
@@ -188,6 +207,9 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
       return {
         entries,
         cursor: encodeCursor({
+          daemonId,
+          pmId,
+          view,
           out: out.cursor,
           err: err.cursor,
           outDone: !out.hasMore,
@@ -218,6 +240,7 @@ export function createLogManager({ processManager, logFileReader, pm2Client }: I
               type: 'log',
               entry: {
                 id: `live:${liveSequence}:${randomUUID()}`,
+                daemonId,
                 pmId,
                 processName: event.packet.process.name,
                 channel: event.type,

@@ -1,11 +1,11 @@
 import libOs from 'node:os';
-import { ProcessDescription } from 'pm2';
+import type { ProcessDescription } from 'pm2';
 
 import {
   IProcessAction,
   IProcessDetail,
-  IProcessListResult,
   IProcessStatus,
+  ISingleDaemonProcessListResult,
 } from '../../shared/contracts';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
@@ -76,7 +76,7 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
-export function createProcessManager({ pm2Client, log, sshConnection }: IContainer) {
+export function createProcessManager({ pm2Client, log, sshConnection, settings }: IContainer) {
   const actionQueues = new Map<number, Promise<unknown>>();
 
   const normalize = (
@@ -88,6 +88,7 @@ export function createProcessManager({ pm2Client, log, sshConnection }: IContain
     const startedAt = typeof environment.pm_uptime === 'number' ? environment.pm_uptime : null;
 
     return {
+      daemonId: settings?.runtimeDaemonId || 'local',
       pmId: Number(environment.pm_id ?? -1),
       name: environment.name || description.name || 'unnamed',
       namespace: environment.namespace || 'default',
@@ -144,12 +145,13 @@ export function createProcessManager({ pm2Client, log, sshConnection }: IContain
   };
 
   return new (class ProcessManager {
-    list = async (): Promise<IProcessListResult> => {
+    list = async (): Promise<ISingleDaemonProcessListResult> => {
       const processes = await pm2Client.list();
       const hostname = sshConnection.remoteInfo?.hostname || libOs.hostname();
       const username = sshConnection.remoteInfo?.username || libOs.userInfo().username;
       return {
         hostname,
+        username,
         hostLabel: `${username}@${hostname}`,
         processes: processes
           .map(description => normalize(description))

@@ -8,10 +8,7 @@ import type { IEnvironmentVariable } from '@shared/contracts';
 
 function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
   return (
-    <section
-      data-component="EnvPanel"
-      className="overflow-hidden rounded-xl border border-line bg-topbar"
-    >
+    <section data-component="EnvPanel" className="overflow-hidden rounded-xl border border-line">
       <h2 className="flex items-center gap-2 border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
         <span>ENVIRONMENT</span>
         <span className="ml-auto font-normal text-muted">{environment.length}</span>
@@ -39,8 +36,9 @@ function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
 }
 
 export function EnvPage() {
-  const { pmId } = useParams({ from: '/processes/$pmId' });
+  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
   const detail = trpc.processes.detail.useQuery({
+    daemonId,
     pmId: Number(pmId),
     includeEnvironment: true,
   });
@@ -61,7 +59,7 @@ export function EnvPage() {
         {environment.length ? (
           <EnvPanel environment={environment} />
         ) : (
-          <section className="overflow-hidden rounded-xl border border-line bg-topbar">
+          <section className="overflow-hidden rounded-xl border border-line">
             <h2 className="border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
               ENVIRONMENT
             </h2>

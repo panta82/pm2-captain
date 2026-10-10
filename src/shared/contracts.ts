@@ -4,8 +4,55 @@ export type IProcessStatus =
 export type IProcessAction = 'start' | 'stop' | 'restart';
 export type ILogView = 'combined' | 'out' | 'err';
 export type ILogChannel = 'out' | 'err' | 'shared';
+export type IDaemonKind = 'local' | 'ssh';
+export type IDaemonStatus = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'error';
+
+/** A PM2 home directory on the computer that runs Captain. */
+export interface ILocalDaemonConfig {
+  daemonId: string;
+  kind: 'local';
+  /** Absolute path. */
+  pm2Home: string;
+  label?: string;
+}
+
+/** A PM2 home on a server reached with the system SSH client. */
+export interface ISshDaemonConfig {
+  daemonId: string;
+  kind: 'ssh';
+  sshArgs: string[];
+  /** Absolute or `~`-relative remote path. Omitted: the remote PM2_HOME, else ~/.pm2. */
+  pm2Home?: string;
+  label?: string;
+  lastKnownHostname?: string;
+  lastKnownUsername?: string;
+}
+
+export type IDaemonConfig = ILocalDaemonConfig | ISshDaemonConfig;
+
+/** A daemon as entered by the user or the command line, before it gets an ID. */
+export type IDaemonInput =
+  | Omit<ILocalDaemonConfig, 'daemonId'>
+  | Omit<ISshDaemonConfig, 'daemonId' | 'lastKnownHostname' | 'lastKnownUsername'>;
+
+export interface IDaemonSummary {
+  daemonId: string;
+  kind: IDaemonKind;
+  label: string;
+  hostname: string | null;
+  username: string | null;
+  status: IDaemonStatus;
+  error: string | null;
+  lastSeenAt: number | null;
+}
+
+/** A daemon together with its stored configuration, for the daemon settings screen. */
+export interface IDaemonSettings extends IDaemonSummary {
+  config: IDaemonConfig;
+}
 
 export interface IProcessSummary {
+  daemonId: string;
   pmId: number;
   name: string;
   namespace: string;
@@ -44,13 +91,20 @@ export interface IEnvironmentVariable {
 }
 
 export interface IProcessListResult {
+  daemons: IDaemonSummary[];
+  processes: IProcessSummary[];
+}
+
+export interface ISingleDaemonProcessListResult {
   hostname: string;
+  username: string;
   hostLabel: string;
   processes: IProcessSummary[];
 }
 
 export interface ILogEntry {
   id: string;
+  daemonId: string;
   pmId: number;
   processName: string;
   channel: ILogChannel;

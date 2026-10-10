@@ -4,11 +4,12 @@ import { accessSync, promises as fs, constants as fsConstants } from 'node:fs';
 import libNet from 'node:net';
 import libPath from 'node:path';
 
+import { requestedDaemonInput } from '../backend_settings';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods, IAppWaitForMethod } from '../lib/app';
 
-const TOKEN_FILE_NAME = 'pm2-captain-token';
+const TOKEN_FILE_NAME = 'launch-token';
 export const PORT_CONFLICT_EXIT_CODE = 78;
 
 export class PortConflictError extends Error {}
@@ -71,8 +72,9 @@ export function createCaptainLauncher({ settings, log }: IContainer) {
     if (token) {
       return token;
     }
-    const tokenPath = libPath.join(settings.pm2Home, TOKEN_FILE_NAME);
-    await fs.mkdir(settings.pm2Home, { recursive: true, mode: 0o700 });
+    const tokenPath = libPath.join(settings.configDir, TOKEN_FILE_NAME);
+    await fs.mkdir(settings.configDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(settings.configDir, 0o700);
     try {
       token = (await fs.readFile(tokenPath, 'utf8')).trim();
     } catch (error) {
@@ -143,6 +145,42 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
     return false;
   };
 
+  const handoffRequestedDaemon = async () => {
+    const daemon = requestedDaemonInput(settings);
+    if (!daemon) {
+      return;
+    }
+    const launchToken = settings.noAuth ? '' : await ensureToken();
+    const response = await fetch(`${settings.baseURL}/launch/daemon`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(launchToken ? { authorization: `Bearer ${launchToken}` } : {}),
+      },
+      body: JSON.stringify(daemon),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('The running PM2 Captain uses another launch token. Use another --port.');
+      }
+      const detail = (response.status === 400 ? await response.json().catch(() => null) : null) as {
+        error?: unknown;
+      } | null;
+      throw new Error(
+        typeof detail?.error === 'string'
+          ? detail.error
+          : `The running PM2 Captain could not add the requested daemon (${response.status}).`
+      );
+    }
+    const result = (await response.json()) as { added?: boolean; daemon?: { label?: string } };
+    console.log(
+      result.added
+        ? `Added ${result.daemon?.label || 'the requested daemon'} to the running Captain.`
+        : `${result.daemon?.label || 'The requested daemon'} is already configured.`
+    );
+  };
+
   return new (class CaptainLauncher implements IAppLifecycleMethods {
     initialize = async () => {
       if (!settings.noAuth) {
@@ -180,6 +218,7 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         if (await waitForPortRelease()) {
           return false;
         }
+        await handoffRequestedDaemon();
         await openBrowser(true);
         return true;
       }

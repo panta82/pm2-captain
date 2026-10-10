@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { isBackendRequestPath } from './web_server';
+import { isBackendRequestPath } from '../../../../src/backend/web/web_server';
 
 describe('development request routing', () => {
-  it.each(['/health', '/launch', '/api/trpc/processes.list'])(
+  it.each(['/health', '/launch', '/launch/daemon', '/api/trpc/processes.list'])(
     'keeps %s out of Vite SPA middleware',
     path => {
       expect(isBackendRequestPath(path)).toBe(true);

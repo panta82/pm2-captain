@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isRequestOriginAllowed } from './trpc';
+import { isRequestOriginAllowed } from '../../../../src/backend/web/trpc';
 
 describe('request origin validation', () => {
   it('uses the internal URL while Captain authentication is enabled', () => {

@@ -7,14 +7,20 @@ import { Socket } from 'node:net';
 import libPath from 'node:path';
 
 import { PACKAGE_VERSION, ROOT_DIR } from '../backend_settings';
+import { InvalidDaemonError } from '../bl/daemon_manager';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { createLoggerOptions } from '../lib/logger';
-import { IAppRouter, createAppRouter } from './app_router';
+import { IAppRouter, createAppRouter, daemonInputSchema } from './app_router';
 import { AUTH_COOKIE_NAME, makeCreateContext } from './trpc';
 
 export function isBackendRequestPath(path: string) {
-  return path === '/health' || path === '/launch' || path.startsWith('/api/');
+  return (
+    path === '/health' ||
+    path === '/launch' ||
+    path.startsWith('/launch/') ||
+    path.startsWith('/api/')
+  );
 }
 
 export function createWebServer({ log, container }: IContainer) {
@@ -50,6 +56,34 @@ export function createWebServer({ log, container }: IContainer) {
       path: '/',
     });
     return reply.redirect('/');
+  });
+
+  app.post('/launch/daemon', async (request, reply) => {
+    if (request.headers.origin) {
+      return reply
+        .status(403)
+        .send({ error: 'Browser-originated launch handoffs are not allowed.' });
+    }
+
+    const authorization = request.headers.authorization;
+    const candidate = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+    if (!container.captainLauncher.authenticate(candidate)) {
+      return reply.status(401).send({ error: 'Invalid PM2 Captain launch token.' });
+    }
+
+    const input = daemonInputSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.status(400).send({ error: 'Invalid daemon.' });
+    }
+
+    try {
+      return await container.daemonManager.add(input.data);
+    } catch (error) {
+      if (error instanceof InvalidDaemonError) {
+        return reply.status(400).send({ error: error.message });
+      }
+      throw error;
+    }
   });
 
   app.register(fastifyTRPCPlugin, {

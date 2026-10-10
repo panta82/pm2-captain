@@ -9,7 +9,7 @@ export function highlightText(text: string, regex: RegExp): ReactNode[] {
     segment.isHighlighted ? (
       <mark
         key={`h-${index}`}
-        className="rounded-[2px] bg-[#3dff7a] px-0.5 font-semibold text-navy [box-decoration-break:clone]"
+        className="rounded-[2px] bg-highlight px-0.5 font-semibold text-accent-ink [box-decoration-break:clone]"
       >
         {segment.text}
       </mark>

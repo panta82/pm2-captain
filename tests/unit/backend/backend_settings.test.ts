@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { loadBackendSettings } from './backend_settings';
+import { loadBackendSettings } from '../../../src/backend/backend_settings';
 
 const originalArgv = process.argv;
 const originalPm2Home = process.env.PM2_HOME;
