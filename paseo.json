@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "Open in Code": {
-      "type": "link",
-      "url": "https://rog-code.pantas.pw/?folder={workspacePath}"
-    }
-  }
-}
