@@ -23,14 +23,38 @@ export interface IPM2LogEvent {
   packet: IPM2LogPacket;
 }
 
+/**
+ * The axon socket under PM2's RPC client or event bus. Its events describe the
+ * connection itself.
+ */
+interface IPM2Socket extends EventEmitter {
+  close(): void;
+}
+
+/**
+ * PM2's event bus. `on` subscribes to a topic the daemon publishes. The bus is
+ * not an EventEmitter and reports nothing about the connection.
+ */
+interface IPM2Bus {
+  on(topic: string, listener: (packet: IPM2LogPacket) => void): void;
+}
+
 interface IPM2Api {
   Client?: {
+    /** Set by launchRPC() and launchBus(). PM2 replaces them but never clears them. */
+    client_sock?: IPM2Socket;
+    sub_sock?: IPM2Socket;
     launchRPC(callback: (error: Error | null) => void): void;
     pingDaemon(callback: (isAlive: boolean) => void): void;
+    executeRemote(
+      method: string,
+      args: object,
+      callback: (error: Error | null, result: unknown) => void
+    ): void;
   };
   connect(callback: (error: Error | null) => void): void;
   disconnect(): void;
-  launchBus(callback: (error: Error | null, bus: EventEmitter) => void): void;
+  launchBus(callback: (error: Error | null, bus: IPM2Bus) => void): void;
   list(callback: (error: Error | null, processes: ProcessDescription[]) => void): void;
   describe(
     pmId: number,
@@ -63,11 +87,13 @@ export class Pm2DaemonUnavailableError extends Error {
 export function createPm2Client({ log, sshConnection, settings }: IContainer) {
   const events = new EventEmitter();
   let pm2Api: IPM2Api | null = null;
-  let bus: EventEmitter | null = null;
   let isConnected = false;
   let isStopping = false;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let reconnectAttempt = 0;
+  // PM2 calls still waiting for their callback. A lost connection fails them
+  // at once instead of leaving each one to its timeout.
+  const pendingCalls = new Set<(error: Error) => void>();
 
   const call = <T>(
     name: string,
@@ -75,12 +101,19 @@ export function createPm2Client({ log, sshConnection, settings }: IContainer) {
     timeout = 10_000
   ) =>
     new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`PM2 ${name} timed out`)), timeout);
-      operation((error, result) => {
+      const fail = (error: Error) => {
         clearTimeout(timer);
+        pendingCalls.delete(fail);
+        reject(error);
+      };
+      const timer = setTimeout(() => fail(new Error(`PM2 ${name} timed out`)), timeout);
+      pendingCalls.add(fail);
+      operation((error, result) => {
         if (error) {
-          reject(error);
+          fail(error);
         } else {
+          clearTimeout(timer);
+          pendingCalls.delete(fail);
           resolve(result);
         }
       });
@@ -93,24 +126,17 @@ export function createPm2Client({ log, sshConnection, settings }: IContainer) {
     operation: (callback: (error: Error | null, result: T) => void) => void
   ) => (isConnected ? call(name, operation) : Promise.reject(new Pm2DaemonUnavailableError()));
 
-  const createApi = async () => {
-    const PM2Api = await loadPm2Api();
-    if (sshConnection.isRemote) {
-      if (!sshConnection.socketDirectory) {
-        throw new Error('The SSH socket forwarding directory is not available.');
-      }
-      return new PM2Api({ pm2_home: sshConnection.socketDirectory, daemon_mode: false });
-    }
+  // A PM2 client creates its directories when it is constructed, so a home
+  // without a daemon socket is left alone. The socket must also be writable:
+  // PM2 exits the whole process when connecting fails with EACCES. A daemon can
+  // come back under another user, so this runs before every local attempt.
+  const requireLocalHome = async () => {
     const pm2Home = settings.pm2Home;
     if (!pm2Home) {
       throw new Error('This daemon has no PM2 home.');
     }
-    // A PM2 client creates its directories when it is constructed, so a home
-    // without a daemon socket is left alone. The socket must also be writable:
-    // PM2 exits the whole process when connecting fails with EACCES.
-    const rpcSocket = libPath.join(pm2Home, 'rpc.sock');
     try {
-      await fs.access(rpcSocket, fsConstants.R_OK | fsConstants.W_OK);
+      await fs.access(libPath.join(pm2Home, 'rpc.sock'), fsConstants.R_OK | fsConstants.W_OK);
     } catch (error) {
       throw new Pm2DaemonUnavailableError(
         (error as NodeJS.ErrnoException).code === 'ENOENT'
@@ -118,64 +144,120 @@ export function createPm2Client({ log, sshConnection, settings }: IContainer) {
           : `No permission to use the PM2 daemon in ${pm2Home}.`
       );
     }
-    return new PM2Api({ pm2_home: pm2Home, daemon_mode: true });
+    return pm2Home;
   };
 
-  const connect = async () => {
-    if (!isConnected) {
-      await sshConnection.ensureConnected();
-      pm2Api ??= await createApi();
-      if (sshConnection.isRemote) {
-        await call<void>('connect', callback => pm2Api!.Client!.launchRPC(callback));
-      } else {
-        // pm2.connect() spawns a daemon when none is running. Captain only
-        // observes an existing PM2, so a stopped one stays stopped.
-        const isDaemonAlive = await call<boolean>('ping', callback =>
-          pm2Api!.Client!.pingDaemon(isAlive => callback(null, isAlive))
-        );
-        if (!isDaemonAlive) {
-          throw new Pm2DaemonUnavailableError(`PM2 is not running in ${settings.pm2Home}.`);
-        }
-        await call<void>('connect', callback => pm2Api!.connect(callback));
+  const createApi = async (localHome: string | null) => {
+    const PM2Api = await loadPm2Api();
+    if (localHome) {
+      return new PM2Api({ pm2_home: localHome, daemon_mode: true });
+    }
+    if (!sshConnection.socketDirectory) {
+      throw new Error('The SSH socket forwarding directory is not available.');
+    }
+    return new PM2Api({ pm2_home: sshConnection.socketDirectory, daemon_mode: false });
+  };
+
+  // Closes the current connection for good. PM2's own disconnect() only forgets
+  // a socket that has already lost the daemon, and axon retries such a socket
+  // forever. It would come back with the daemon, deliver every log line a
+  // second time and send the requests that were queued on it in the meantime.
+  const disconnect = () => {
+    isConnected = false;
+    for (const socket of [pm2Api?.Client?.client_sock, pm2Api?.Client?.sub_sock]) {
+      if (!socket) {
+        continue;
       }
-      isConnected = true;
-      events.emit('daemon-status', true);
-      log.info('Connected to PM2');
+      // This also removes PM2's and axon's own listeners, including the one
+      // that sends queued requests on the next connect.
+      socket.removeAllListeners();
+      // close() does not cancel a retry axon has already scheduled. That last
+      // attempt can still connect, or fail with an error nobody else handles.
+      socket.on('connect', () => socket.close());
+      socket.on('error', () => undefined);
+      socket.close();
+    }
+    pm2Api?.disconnect();
+    for (const fail of pendingCalls) {
+      fail(new Pm2DaemonUnavailableError());
     }
   };
 
-  const attachBus = async () => {
-    bus?.removeAllListeners?.();
+  const handleConnectionLost = (error?: Error) => {
+    const wasConnected = isConnected;
+    disconnect();
+    if (wasConnected) {
+      log.warn({ error }, 'Disconnected from PM2');
+      events.emit('daemon-status', false);
+      scheduleReconnect();
+    }
+  };
+
+  // axon never reports a lost connection. It retries by itself and emits
+  // `close` only for a socket that was closed on purpose, so its first retry,
+  // about 100 ms after the loss, is the earliest sign that the daemon is gone.
+  // An `error` without a listener would take the whole process down.
+  const watchSocket = (socket: IPM2Socket) => {
+    socket.on('reconnect attempt', () => handleConnectionLost());
+    socket.on('error', handleConnectionLost);
+  };
+
+  const connect = async () => {
+    if (isConnected) {
+      return;
+    }
+    await sshConnection.ensureConnected();
+    const localHome = sshConnection.isRemote ? null : await requireLocalHome();
+    pm2Api ??= await createApi(localHome);
+    const api = pm2Api;
+    const client = api.Client!;
+    if (localHome) {
+      // pm2.connect() spawns a daemon when none is running. Captain only
+      // observes an existing PM2, so a stopped one stays stopped.
+      const isDaemonAlive = await call<boolean>('ping', callback =>
+        client.pingDaemon(isAlive => callback(null, isAlive))
+      );
+      if (!isDaemonAlive) {
+        throw new Pm2DaemonUnavailableError(`PM2 is not running in ${localHome}.`);
+      }
+    }
     try {
-      bus = await call<EventEmitter>('launchBus', callback => {
-        pm2Api!.launchBus((error, launchedBus) => callback(error, launchedBus as EventEmitter));
-      });
-      reconnectAttempt = 0;
+      await call<void>('connect', callback =>
+        localHome ? api.connect(callback) : client.launchRPC(callback)
+      );
+      watchSocket(client.client_sock!);
+      // An SSH-forwarded socket accepts connections even when no PM2 daemon
+      // listens behind it, so only an answer proves that the daemon is there.
+      await call<unknown>('RPC ping', callback => client.executeRemote('ping', {}, callback));
+    } catch (error) {
+      disconnect();
+      throw error;
+    }
+    isConnected = true;
+    events.emit('daemon-status', true);
+    log.info('Connected to PM2');
+  };
+
+  const attachBus = async () => {
+    const api = pm2Api!;
+    try {
+      const bus = await call<IPM2Bus>('launchBus', callback => api.launchBus(callback));
+      watchSocket(api.Client!.sub_sock!);
       for (const type of ['out', 'err'] as const) {
-        bus.on(`log:${type}`, (packet: IPM2LogPacket) => {
+        bus.on(`log:${type}`, packet => {
           if (typeof packet.data === 'string') {
             events.emit('log', { type, packet } satisfies IPM2LogEvent);
           }
         });
       }
-      bus.on('close', () => {
-        bus = null;
-        if (isConnected) {
-          pm2Api!.disconnect();
-          isConnected = false;
-        }
-        events.emit('daemon-status', false);
-        scheduleReconnect();
-      });
+      reconnectAttempt = 0;
       log.info('PM2 event bus attached');
     } catch (error) {
+      // A lost socket has already been handled by the time its call fails here.
       if (isConnected) {
-        pm2Api!.disconnect();
-        isConnected = false;
+        log.warn({ error }, 'Unable to attach PM2 event bus');
+        handleConnectionLost();
       }
-      events.emit('daemon-status', false);
-      log.warn({ error }, 'Unable to attach PM2 event bus');
-      scheduleReconnect();
     }
   };
 
@@ -189,7 +271,6 @@ export function createPm2Client({ log, sshConnection, settings }: IContainer) {
       void connect()
         .then(attachBus)
         .catch(error => {
-          isConnected = false;
           log.warn({ error, delay }, 'Unable to reconnect to PM2');
           scheduleReconnect();
         });
@@ -215,22 +296,14 @@ export function createPm2Client({ log, sshConnection, settings }: IContainer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      bus?.removeAllListeners?.();
-      bus = null;
-      if (isConnected) {
-        pm2Api!.disconnect();
-        isConnected = false;
-      }
+      disconnect();
       // The client is recreated on every start. SSH also recreates its
       // temporary socket directory.
       pm2Api = null;
     };
 
     dispose = async () => {
-      if (isConnected) {
-        pm2Api!.disconnect();
-        isConnected = false;
-      }
+      disconnect();
       pm2Api = null;
     };
 
