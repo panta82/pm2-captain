@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A newer push to the same branch makes the run before it pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, unit tests and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # support/build-backend.sh lists the sources with ripgrep.
+      - name: Make sure ripgrep is installed
+        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:package
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Make sure ripgrep is installed
+        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # The browser tests run against dist, not the sources.
+      - run: npm run build
+      - run: npm run test:e2e
+      - name: Keep the traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
