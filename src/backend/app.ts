@@ -2,6 +2,7 @@
 import { loadBackendSettings } from './backend_settings';
 import { PORT_CONFLICT_EXIT_CODE, PortConflictError } from './bl/captain_launcher';
 import { IContainer, createAppContainer } from './container';
+import { runFakeCommandLine } from './fake/fake_cli';
 
 let container: IContainer;
 
@@ -24,6 +25,11 @@ PM2 Captain failed to start.
 async function main(): Promise<void> {
   const settings = loadBackendSettings();
   container = createAppContainer(settings);
+
+  if (settings.fakeCommand) {
+    await runFakeCommandLine(container, settings.fakeCommand);
+    return;
+  }
 
   if (await container.captainLauncher.openExistingIfRunning()) {
     return;

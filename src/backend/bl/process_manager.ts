@@ -1,4 +1,3 @@
-import libOs from 'node:os';
 import type { ProcessDescription } from 'pm2';
 
 import {
@@ -9,6 +8,7 @@ import {
 } from '../../shared/contracts';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
+import { Pm2DaemonUnavailableError } from '../lib/pm2_client';
 
 const PM2_ENVIRONMENT_KEYS = new Set([
   'args',
@@ -76,7 +76,7 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
-export function createProcessManager({ pm2Client, log, sshConnection, settings }: IContainer) {
+export function createProcessManager({ pm2Daemon, log, settings }: IContainer) {
   const actionQueues = new Map<number, Promise<unknown>>();
 
   const normalize = (
@@ -102,7 +102,7 @@ export function createProcessManager({ pm2Client, log, sshConnection, settings }
       unstableRestarts: Number(environment.unstable_restarts || 0),
       version: typeof environment.version === 'string' ? environment.version : null,
       watching: Boolean(environment.watch),
-      isCaptain: !sshConnection.isRemote && description.pid === global.process.pid,
+      isCaptain: pm2Daemon.isLocal && description.pid === global.process.pid,
       script: typeof environment.pm_exec_path === 'string' ? environment.pm_exec_path : null,
       args: stringArray(environment.args),
       cwd: typeof environment.pm_cwd === 'string' ? environment.pm_cwd : null,
@@ -133,7 +133,7 @@ export function createProcessManager({ pm2Client, log, sshConnection, settings }
                   name,
                   value: stringValue,
                   isDivergent:
-                    !sshConnection.isRemote &&
+                    pm2Daemon.isLocal &&
                     global.process.env[name] !== undefined &&
                     global.process.env[name] !== stringValue,
                 };
@@ -146,9 +146,12 @@ export function createProcessManager({ pm2Client, log, sshConnection, settings }
 
   return new (class ProcessManager {
     list = async (): Promise<ISingleDaemonProcessListResult> => {
-      const processes = await pm2Client.list();
-      const hostname = sshConnection.remoteInfo?.hostname || libOs.hostname();
-      const username = sshConnection.remoteInfo?.username || libOs.userInfo().username;
+      const processes = await pm2Daemon.list();
+      const identity = pm2Daemon.identity;
+      if (!identity) {
+        throw new Pm2DaemonUnavailableError();
+      }
+      const { hostname, username } = identity;
       return {
         hostname,
         username,
@@ -177,7 +180,7 @@ export function createProcessManager({ pm2Client, log, sshConnection, settings }
     };
 
     detail = async (pmId: number, includeEnvironment = false): Promise<IProcessDetail> => {
-      const result = await pm2Client.describe(pmId);
+      const result = await pm2Daemon.describe(pmId);
       if (!result.length) {
         throw new ProcessNotFoundError(pmId);
       }
@@ -196,20 +199,20 @@ export function createProcessManager({ pm2Client, log, sshConnection, settings }
         .then(async () => {
           log.info({ pmId, action }, `PM2 ${action} requested`);
           if (action === 'start') {
-            return pm2Client.startProcess(pmId);
+            return pm2Daemon.startProcess(pmId);
           }
           if (action === 'stop') {
-            return pm2Client.stopProcess(pmId);
+            return pm2Daemon.stopProcess(pmId);
           }
           if (process.isCaptain) {
             setTimeout(() => {
-              void pm2Client.restartProcess(pmId).catch(error => {
+              void pm2Daemon.restartProcess(pmId).catch(error => {
                 log.error({ error, pmId }, 'Captain self-restart failed');
               });
             }, 350);
             return { accepted: true, reconnecting: true };
           }
-          return pm2Client.restartProcess(pmId);
+          return pm2Daemon.restartProcess(pmId);
         })
         .finally(() => {
           if (actionQueues.get(pmId) === operation) {

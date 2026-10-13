@@ -2,7 +2,7 @@ import cookie from '@fastify/cookie';
 import middie from '@fastify/middie';
 import fastifyStatic from '@fastify/static';
 import { FastifyTRPCPluginOptions, fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
-import fastify, { LogController } from 'fastify';
+import fastify, { FastifyPluginAsync, LogController } from 'fastify';
 import { Socket } from 'node:net';
 import libPath from 'node:path';
 
@@ -39,6 +39,7 @@ export function createWebServer({ log, container }: IContainer) {
     name: 'pm2-captain',
     version: PACKAGE_VERSION,
     pid: process.pid,
+    fake: Boolean(container.settings.fake),
   }));
 
   app.get('/launch', async (request, reply) => {
@@ -101,6 +102,13 @@ export function createWebServer({ log, container }: IContainer) {
   });
 
   return {
+    /**
+     * Lets another service add its own routes. They have to be added before the
+     * server starts, and under one of the backend paths.
+     */
+    register: (plugin: FastifyPluginAsync) => {
+      app.register(plugin);
+    },
     start: async () => {
       if (container.settings.serverDevMode) {
         await app.register(middie);

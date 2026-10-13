@@ -111,12 +111,7 @@ function parseLine(
   };
 }
 
-export function createLogManager({
-  processManager,
-  logFileReader,
-  pm2Client,
-  settings,
-}: IContainer) {
+export function createLogManager({ processManager, pm2Daemon, settings }: IContainer) {
   let liveSequence = 0;
   const daemonId = settings?.runtimeDaemonId || 'local';
 
@@ -133,11 +128,7 @@ export function createLogManager({
       const sharedFile = Boolean(detail.outLogPath) && detail.outLogPath === detail.errLogPath;
 
       if (sharedFile) {
-        const page = await logFileReader.readPreviousLines(
-          detail.outLogPath,
-          cursor.shared || null,
-          limit
-        );
+        const page = await pm2Daemon.readLogLines(detail.outLogPath, cursor.shared || null, limit);
         return {
           entries: page.lines.map((line, index) =>
             parseLine(line, daemonId, pmId, detail.name, 'shared', index)
@@ -162,11 +153,7 @@ export function createLogManager({
           };
         }
         const path = channel === 'out' ? detail.outLogPath : detail.errLogPath;
-        const page = await logFileReader.readPreviousLines(
-          path,
-          cursor[channel] || null,
-          channelLimit
-        );
+        const page = await pm2Daemon.readLogLines(path, cursor[channel] || null, channelLimit);
         return {
           ...page,
           entries: page.lines.map((line, index) =>
@@ -224,7 +211,7 @@ export function createLogManager({
 
     stream = (pmId: number, view: ILogView) =>
       observable<ILogStreamEvent>(emit => {
-        const removeLog = pm2Client.onLog((event: IPM2LogEvent) => {
+        const removeLog = pm2Daemon.onLog((event: IPM2LogEvent) => {
           if (event.packet.process.pm_id !== pmId) {
             return;
           }
@@ -251,7 +238,7 @@ export function createLogManager({
             });
           }
         });
-        const removeStatus = pm2Client.onDaemonStatus(connected => {
+        const removeStatus = pm2Daemon.onDaemonStatus(connected => {
           emit.next({
             type: 'daemon-status',
             connected,

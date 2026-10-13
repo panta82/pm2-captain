@@ -197,21 +197,25 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
     return false;
   };
 
+  const requestRunningCaptain = async (path: string, body?: unknown) => {
+    const launchToken = settings.noAuth ? '' : await ensureToken();
+    return fetch(`${settings.baseURL}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(launchToken ? { authorization: `Bearer ${launchToken}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(5_000),
+    });
+  };
+
   const handoffRequestedDaemon = async () => {
     const daemon = requestedDaemonInput(settings);
     if (!daemon) {
       return;
     }
-    const launchToken = settings.noAuth ? '' : await ensureToken();
-    const response = await fetch(`${settings.baseURL}/launch/daemon`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(launchToken ? { authorization: `Bearer ${launchToken}` } : {}),
-      },
-      body: JSON.stringify(daemon),
-      signal: AbortSignal.timeout(5_000),
-    });
+    const response = await requestRunningCaptain('/launch/daemon', daemon);
     if (!response.ok) {
       if (response.status === 401) {
         throw new Error('The running PM2 Captain uses another launch token. Use another --port.');
@@ -279,16 +283,21 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         return false;
       }
       let isExistingCaptain = false;
+      let isExistingFake = false;
       try {
         const response = await fetch(`${settings.baseURL}/health`, {
           signal: AbortSignal.timeout(1_000),
         });
         const health = await response.json();
-        isExistingCaptain =
+        if (
           typeof health === 'object' &&
           health !== null &&
           'name' in health &&
-          health.name === 'pm2-captain';
+          health.name === 'pm2-captain'
+        ) {
+          isExistingCaptain = true;
+          isExistingFake = 'fake' in health && health.fake === true;
+        }
       } catch {
         // The diagnostic below is more useful than the fetch error.
       }
@@ -299,6 +308,15 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         if (await waitForPortRelease()) {
           return false;
         }
+        // Fake and real daemons never share a Captain: asking for one must not
+        // quietly open the other.
+        if (isExistingFake !== Boolean(settings.fake)) {
+          throw new PortConflictError(
+            `Port ${settings.port} already hosts a PM2 Captain ${
+              isExistingFake ? 'in fake mode' : 'with real daemons'
+            }. Use --port <number>.`
+          );
+        }
         await handoffRequestedDaemon();
         await openBrowser(true);
         return true;
@@ -307,6 +325,12 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         `Port ${settings.port} is already in use by another application. Use --port <number>.`
       );
     };
+
+    /**
+     * Calls the Captain that already runs on this port, authenticated the way a
+     * command-line handoff is. A body makes it a POST.
+     */
+    requestRunningCaptain = requestRunningCaptain;
 
     authenticate = (candidate: string | undefined) => {
       if (settings.noAuth) {

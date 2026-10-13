@@ -36,12 +36,10 @@ function description(overrides: Record<string, unknown> = {}) {
 
 function setup(
   item = description(),
-  sshConnection = {
-    isRemote: false,
-    remoteInfo: null as null | { username: string; hostname: string },
-  }
+  daemon = { isLocal: true, identity: { username: 'captain', hostname: 'laptop' } }
 ) {
-  const pm2Client = {
+  const pm2Daemon = {
+    ...daemon,
     list: vi.fn().mockResolvedValue([item]),
     describe: vi.fn().mockResolvedValue([item]),
     startProcess: vi.fn().mockResolvedValue(undefined),
@@ -49,11 +47,10 @@ function setup(
     restartProcess: vi.fn().mockResolvedValue(undefined),
   };
   const manager = createProcessManager({
-    pm2Client,
+    pm2Daemon,
     log: { info: vi.fn(), error: vi.fn() },
-    sshConnection,
   } as never);
-  return { manager, pm2Client };
+  return { manager, pm2Daemon };
 }
 
 describe('processManager', () => {
@@ -122,18 +119,18 @@ describe('processManager', () => {
   it('rejects stopping Captain itself before invoking PM2', async () => {
     const item = description();
     item.pid = process.pid;
-    const { manager, pm2Client } = setup(item);
+    const { manager, pm2Daemon } = setup(item);
 
     await expect(manager.action(4, 'stop')).rejects.toThrow('PM2 Captain cannot stop itself');
-    expect(pm2Client.stopProcess).not.toHaveBeenCalled();
+    expect(pm2Daemon.stopProcess).not.toHaveBeenCalled();
   });
 
   it('uses the remote daemon identity without treating a matching PID as Captain', async () => {
     const item = description();
     item.pid = process.pid;
     const { manager } = setup(item, {
-      isRemote: true,
-      remoteInfo: { username: 'deploy', hostname: 'remote-box' },
+      isLocal: false,
+      identity: { username: 'deploy', hostname: 'remote-box' },
     });
 
     const result = await manager.list();
@@ -144,33 +141,33 @@ describe('processManager', () => {
 
   it('serializes conflicting lifecycle actions for one PM2 id', async () => {
     let release!: () => void;
-    const { manager, pm2Client } = setup();
-    pm2Client.restartProcess.mockImplementation(
+    const { manager, pm2Daemon } = setup();
+    pm2Daemon.restartProcess.mockImplementation(
       () => new Promise<void>(resolve => (release = resolve))
     );
 
     const restart = manager.action(4, 'restart');
-    await vi.waitFor(() => expect(pm2Client.restartProcess).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(pm2Daemon.restartProcess).toHaveBeenCalledOnce());
     const stop = manager.action(4, 'stop');
     await Promise.resolve();
-    expect(pm2Client.stopProcess).not.toHaveBeenCalled();
+    expect(pm2Daemon.stopProcess).not.toHaveBeenCalled();
     release();
     await Promise.all([restart, stop]);
-    expect(pm2Client.stopProcess).toHaveBeenCalledOnce();
+    expect(pm2Daemon.stopProcess).toHaveBeenCalledOnce();
   });
 
   it('accepts a Captain self-restart before scheduling the PM2 action', async () => {
     vi.useFakeTimers();
     const item = description();
     item.pid = process.pid;
-    const { manager, pm2Client } = setup(item);
+    const { manager, pm2Daemon } = setup(item);
 
     const result = await manager.action(4, 'restart');
 
     expect(result).toEqual({ accepted: true, reconnecting: true });
-    expect(pm2Client.restartProcess).not.toHaveBeenCalled();
+    expect(pm2Daemon.restartProcess).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(350);
-    expect(pm2Client.restartProcess).toHaveBeenCalledWith(4);
+    expect(pm2Daemon.restartProcess).toHaveBeenCalledWith(4);
     vi.useRealTimers();
   });
 });

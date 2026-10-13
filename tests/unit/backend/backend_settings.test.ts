@@ -72,6 +72,49 @@ describe('backend settings', () => {
     expect(settings.sshArgs).toEqual(['-p', '2222', 'captain@example.com']);
   });
 
+  it('stays out of fake mode unless asked', () => {
+    process.argv = ['node', 'pm2-captain'];
+    vi.stubEnv('PM2_CAPTAIN_FAKE', '');
+    vi.stubEnv('PM2_CAPTAIN_PORT', '');
+
+    expect(loadBackendSettings()).toMatchObject({ fake: null, fakeCommand: null, port: 3212 });
+  });
+
+  it.each([
+    [['--fake'], '', 'basic', 3213],
+    [['--fake', 'busy'], '', 'busy', 3213],
+    [['--fake', './scenario.json', '--port', '4000'], '', './scenario.json', 4000],
+    // The scenario is optional, so what follows --fake can be something else.
+    [['--fake', '--no-open'], '', 'basic', 3213],
+    [['--fake', 'ssh', 'deploy@example.com'], '', 'basic', 3213],
+    [[], 'edge', 'edge', 3213],
+    [['--fake', 'busy'], 'edge', 'busy', 3213],
+  ])('enters fake mode for %j with PM2_CAPTAIN_FAKE=%j', (args, environment, scenario, port) => {
+    process.argv = ['node', 'pm2-captain', ...args];
+    vi.stubEnv('PM2_CAPTAIN_FAKE', environment);
+    vi.stubEnv('PM2_CAPTAIN_PORT', '');
+
+    expect(loadBackendSettings()).toMatchObject({ fake: { scenario }, port });
+  });
+
+  it('passes every argument after the fake subcommand on, and targets the fake port', () => {
+    process.argv = ['node', 'pm2-captain', 'fake', 'process.set', 'local', 'api', '--', '--fake'];
+    vi.stubEnv('PM2_CAPTAIN_FAKE', '');
+    vi.stubEnv('PM2_CAPTAIN_PORT', '');
+
+    expect(loadBackendSettings()).toMatchObject({
+      fake: null,
+      fakeCommand: ['process.set', 'local', 'api', '--', '--fake'],
+      port: 3213,
+    });
+  });
+
+  it('requires something for the fake subcommand to do', () => {
+    process.argv = ['node', 'pm2-captain', 'fake'];
+
+    expect(() => loadBackendSettings()).toThrow('requires something to do');
+  });
+
   it('requires an SSH destination', () => {
     process.argv = ['node', 'pm2-captain', 'ssh'];
     vi.stubEnv('PM2_HOME', '/tmp/pm2-captain-settings-test');

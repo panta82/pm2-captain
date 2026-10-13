@@ -39,8 +39,7 @@ describe('logManager', () => {
     });
     const manager = createLogManager({
       processManager: { detail: vi.fn().mockResolvedValue(detail) },
-      logFileReader: { readPreviousLines },
-      pm2Client: { onLog: vi.fn(), onDaemonStatus: vi.fn() },
+      pm2Daemon: { readLogLines: readPreviousLines, onLog: vi.fn(), onDaemonStatus: vi.fn() },
     } as never);
 
     const newest = await manager.page(1, 'combined', null, 10);
@@ -57,8 +56,7 @@ describe('logManager', () => {
   it('rejects malformed opaque cursors', async () => {
     const manager = createLogManager({
       processManager: { detail: vi.fn().mockResolvedValue(detail) },
-      logFileReader: { readPreviousLines: vi.fn() },
-      pm2Client: { onLog: vi.fn(), onDaemonStatus: vi.fn() },
+      pm2Daemon: { readLogLines: vi.fn(), onLog: vi.fn(), onDaemonStatus: vi.fn() },
     } as never);
     const malformed = Buffer.from(JSON.stringify({ out: { inode: 4, offset: -1 } })).toString(
       'base64url'

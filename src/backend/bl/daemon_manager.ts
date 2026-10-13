@@ -74,6 +74,12 @@ const REMOTE_PM2_HOME_PATTERN = /^(~|~\/[^:\0]*|\/[^:\0]*)$/;
 
 const DEFAULT_LOCAL_PM2_HOME = libPath.join(libOs.homedir(), '.pm2');
 
+// The status listener changes the status while a call is pending. A plain
+// comparison would let the compiler assume it stays what it was before the call.
+function isReconnecting(runtime: IDaemonRuntime) {
+  return runtime.status === 'reconnecting';
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to connect to the PM2 daemon.';
 }
@@ -108,7 +114,13 @@ function compactHomePath(path: string) {
   return path === home ? '~' : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-export function createDaemonManager({ settings, daemonStore, pm2HomeFinder, log }: IContainer) {
+export function createDaemonManager({
+  settings,
+  daemonStore,
+  pm2HomeFinder,
+  log,
+  container: appContainer,
+}: IContainer) {
   const runtimes = new Map<string, IDaemonRuntime>();
   // Runtimes replaced by an edit finish disconnecting in the background.
   const retiringRuntimes = new Set<Promise<void>>();
@@ -130,20 +142,26 @@ export function createDaemonManager({ settings, daemonStore, pm2HomeFinder, log 
     runtimeDaemonId: config.daemonId,
   });
 
-  const createRuntime = (config: IDaemonConfig): IDaemonRuntime => ({
-    config,
-    container: createDaemonContainer(makeDaemonSettings(config)),
-    status: 'offline',
-    error: null,
-    hostname: config.kind === 'local' ? libOs.hostname() : config.lastKnownHostname || null,
-    username:
-      config.kind === 'local' ? libOs.userInfo().username : config.lastKnownUsername || null,
-    lastSeenAt: null,
-    processes: [],
-    startPromise: null,
-    removeStatusListener: null,
-    isRemoved: false,
-  });
+  const createRuntime = (config: IDaemonConfig): IDaemonRuntime => {
+    const container = createDaemonContainer(makeDaemonSettings(config), appContainer);
+    // A local daemon is known before it connects. A remote one shows what was
+    // remembered from its last connection.
+    const identity = container.pm2Daemon.identity;
+    const remembered = config.kind === 'ssh' ? config : null;
+    return {
+      config,
+      container,
+      status: 'offline',
+      error: null,
+      hostname: identity?.hostname || remembered?.lastKnownHostname || null,
+      username: identity?.username || remembered?.lastKnownUsername || null,
+      lastSeenAt: null,
+      processes: [],
+      startPromise: null,
+      removeStatusListener: null,
+      isRemoved: false,
+    };
+  };
 
   const activeRuntimes = () => Array.from(runtimes.values()).filter(runtime => !runtime.isRemoved);
 
@@ -220,13 +238,15 @@ export function createDaemonManager({ settings, daemonStore, pm2HomeFinder, log 
           await runtime.container.app.dispose();
           return;
         }
-        const remoteInfo = runtime.container.sshConnection.remoteInfo;
-        runtime.hostname = remoteInfo?.hostname || libOs.hostname();
-        runtime.username = remoteInfo?.username || libOs.userInfo().username;
+        const identity = runtime.container.pm2Daemon.identity;
+        if (identity) {
+          runtime.hostname = identity.hostname;
+          runtime.username = identity.username;
+        }
         runtime.status = 'online';
         runtime.error = null;
         runtime.lastSeenAt = Date.now();
-        runtime.removeStatusListener = runtime.container.pm2Client.onDaemonStatus(connected => {
+        runtime.removeStatusListener = runtime.container.pm2Daemon.onDaemonStatus(connected => {
           runtime.status = connected ? 'online' : 'reconnecting';
           if (connected) {
             runtime.error = null;
@@ -355,12 +375,17 @@ export function createDaemonManager({ settings, daemonStore, pm2HomeFinder, log 
         Array.from(runtimes.values(), async runtime => {
           // A reconnecting daemon keeps its last known processes until the PM2
           // client reports the daemon again.
-          if (runtime.container.app.state.stage !== 'active' || runtime.status === 'reconnecting') {
+          if (runtime.container.app.state.stage !== 'active' || isReconnecting(runtime)) {
             return;
           }
           try {
             await refreshRuntime(runtime);
           } catch (error) {
+            // The PM2 client fails its pending calls when it loses the daemon,
+            // right after reporting the loss. That report stands.
+            if (isReconnecting(runtime)) {
+              return;
+            }
             runtime.status = 'error';
             runtime.error = errorMessage(error);
           }

@@ -20,7 +20,7 @@ interface IFakeContainer {
   app: {
     dispose: ReturnType<typeof vi.fn>;
   };
-  pm2Client: {
+  pm2Daemon: {
     onDaemonStatus: ReturnType<typeof vi.fn>;
   };
   processManager: {
@@ -33,7 +33,9 @@ const mocked = vi.hoisted(() => ({
   unavailableDaemonIds: new Set<string>(),
   createDaemonContainer: vi.fn((settings: IFakeSettings) => {
     const state = { stage: 'idle' };
-    const remoteInfo = settings.sshArgs ? { hostname: 'remote', username: 'deploy' } : null;
+    const identity = settings.sshArgs
+      ? { hostname: 'remote', username: 'deploy' }
+      : { hostname: 'laptop', username: 'captain' };
     const container = {
       settings,
       app: {
@@ -54,12 +56,10 @@ const mocked = vi.hoisted(() => ({
           return true;
         }),
       },
-      sshConnection: { remoteInfo },
-      pm2Client: { onDaemonStatus: vi.fn(() => vi.fn()) },
+      pm2Daemon: { identity, onDaemonStatus: vi.fn(() => vi.fn()) },
       processManager: {
         list: vi.fn(async () => ({
-          hostname: remoteInfo?.hostname || 'laptop',
-          username: remoteInfo?.username || 'captain',
+          ...identity,
           processes: [
             {
               daemonId: settings.runtimeDaemonId,
@@ -244,7 +244,7 @@ describe('daemonManager', () => {
     const { manager } = await startManager();
     await manager.listProcesses();
     const [first] = mocked.containers;
-    const reportDaemonStatus = first.pm2Client.onDaemonStatus.mock.calls[0][0];
+    const reportDaemonStatus = first.pm2Daemon.onDaemonStatus.mock.calls[0][0];
 
     reportDaemonStatus(false);
     const result = await manager.listProcesses();
@@ -252,6 +252,21 @@ describe('daemonManager', () => {
     expect(result.daemons[0]).toMatchObject({ status: 'reconnecting' });
     expect(result.processes.map(process => process.daemonId)).toContain(storedDaemons[0].daemonId);
     expect(first.processManager.list).toHaveBeenCalledOnce();
+  });
+
+  it('stays reconnecting when the daemon is lost while its processes are being listed', async () => {
+    const { manager } = await startManager();
+    const [first] = mocked.containers;
+    const reportDaemonStatus = first.pm2Daemon.onDaemonStatus.mock.calls[0][0];
+    // The PM2 client reports the loss first, then fails the calls it had pending.
+    first.processManager.list.mockImplementationOnce(async () => {
+      reportDaemonStatus(false);
+      throw new Error('Not connected to the PM2 daemon.');
+    });
+
+    const result = await manager.listProcesses();
+
+    expect(result.daemons[0]).toMatchObject({ status: 'reconnecting', error: null });
   });
 
   it('treats each PM2 location as its own daemon', async () => {

@@ -89,6 +89,8 @@ export function createPm2HomeFinder({ settings, log }: IContainer) {
   })();
 }
 
+export type IPm2HomeFinder = ReturnType<typeof createPm2HomeFinder>;
+
 export default define({
   createPm2HomeFinder,
 });

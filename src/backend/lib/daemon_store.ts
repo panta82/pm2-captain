@@ -83,6 +83,8 @@ export function createDaemonStore({ settings }: IContainer) {
   })();
 }
 
+export type IDaemonStore = ReturnType<typeof createDaemonStore>;
+
 export default define({
   createDaemonStore,
 });

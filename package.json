@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "dev": "cross-env NODE_ENV=development SERVER_DEV_MODE=true DEBUG=true tsx watch src/backend/app.ts",
+    "dev:fake": "cross-env NODE_ENV=development SERVER_DEV_MODE=true DEBUG=true tsx watch src/backend/app.ts --fake",
     "start": "node dist/backend/app.js",
     "build": "bash support/build.sh",
     "build:frontend": "vite build",
