@@ -214,6 +214,8 @@ const router = createRouter({
   routeTree,
   defaultNotFoundComponent: NotFoundPage,
   defaultErrorComponent: ErrorPage,
+  // A selection of processes is a comma-separated `$pmId`; keep it readable in the URL.
+  pathParamsAllowedCharacters: [','],
 });
 
 declare module '@tanstack/react-router' {

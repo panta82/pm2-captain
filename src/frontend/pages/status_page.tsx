@@ -8,12 +8,13 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ChevronDown, ChevronUp, Eye, LoaderCircle, Plus, RotateCw, Server } from 'lucide-react';
-import { startTransition, useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useDaemonSelection } from '@/lib/daemon_selection';
 import { useFilteredProcesses, useProcessListFilter } from '@/lib/process_list_filter';
-import { processDetailTo } from '@/lib/process_tab';
+import { formatPmIds, selectRange } from '@/lib/process_selection';
+import { processDetailTo, selectionDetailTo } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
@@ -146,6 +147,9 @@ export function StatusPage() {
   const { selectedDaemonId } = useDaemonSelection();
   const isDesktopTable = useIsDesktopTable();
   const [sorting, setSorting] = useState<SortingState>([]);
+  // Rows picked with Ctrl+click or Shift+click. They open together once the key is let go.
+  const [pickedIds, setPickedIds] = useState<number[]>([]);
+  const pickAnchorRef = useRef<number | null>(null);
   const query = trpc.processes.list.useQuery(undefined, {
     refetchInterval: 2_000,
   });
@@ -291,6 +295,57 @@ export function StatusPage() {
     getSortedRowModel: sortedRowModel,
   });
 
+  useEffect(() => {
+    if (!pickedIds.length || !selectedDaemonId) {
+      return;
+    }
+    const openPicked = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+      }
+      void navigate({
+        to: selectionDetailTo(pickedIds.length),
+        params: { daemonId: selectedDaemonId, pmId: formatPmIds(pickedIds) },
+      });
+    };
+    // A key that is let go in another window never reports it here.
+    const dropPicked = () => {
+      pickAnchorRef.current = null;
+      setPickedIds([]);
+    };
+    window.addEventListener('keyup', openPicked);
+    window.addEventListener('blur', dropPicked);
+    return () => {
+      window.removeEventListener('keyup', openPicked);
+      window.removeEventListener('blur', dropPicked);
+    };
+  }, [navigate, pickedIds, selectedDaemonId]);
+
+  // PM2 IDs repeat across daemons, so rows picked on one daemon mean nothing on the next.
+  useEffect(() => {
+    pickAnchorRef.current = null;
+    setPickedIds([]);
+  }, [selectedDaemonId]);
+
+  const pickRow = (event: MouseEvent, pmId: number) => {
+    const isAdding = event.ctrlKey || event.metaKey;
+    if (event.shiftKey) {
+      const anchorId = pickAnchorRef.current ?? pmId;
+      pickAnchorRef.current = anchorId;
+      const range = selectRange(
+        table.getRowModel().rows.map(row => row.original.pmId),
+        anchorId,
+        pmId
+      );
+      setPickedIds(current => (isAdding ? [...new Set([...current, ...range])] : range));
+    } else {
+      pickAnchorRef.current = pmId;
+      setPickedIds(current =>
+        current.includes(pmId) ? current.filter(id => id !== pmId) : [...current, pmId]
+      );
+    }
+  };
+
   if (query.isLoading) {
     return (
       <div data-component="StatusPage" className="space-y-px p-4">
@@ -411,16 +466,29 @@ export function StatusPage() {
                   <tr
                     key={row.id}
                     tabIndex={0}
-                    className="h-[54px] cursor-pointer border-b border-line/70 hover:bg-panel focus:bg-panel focus:outline-none"
-                    onClick={() =>
-                      navigate({
+                    className={cn(
+                      'h-[54px] cursor-pointer border-b border-line/70 hover:bg-panel focus:bg-panel focus:outline-none',
+                      pickedIds.includes(row.original.pmId) && 'bg-panel-hover hover:bg-panel-hover'
+                    )}
+                    // Shift+click would otherwise select the text between two rows.
+                    onMouseDown={event => {
+                      if (event.shiftKey) {
+                        event.preventDefault();
+                      }
+                    }}
+                    onClick={event => {
+                      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                        pickRow(event, row.original.pmId);
+                        return;
+                      }
+                      void navigate({
                         to: processDetailTo(),
                         params: {
                           daemonId: row.original.daemonId,
                           pmId: String(row.original.pmId),
                         },
-                      })
-                    }
+                      });
+                    }}
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
                         navigate({

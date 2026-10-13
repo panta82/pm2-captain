@@ -1,68 +1,68 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import {
-  type FocusEvent,
-  type KeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { Check } from 'lucide-react';
+import { type KeyboardEvent, useEffect, useRef } from 'react';
 
-import { processDetailTo } from '@/lib/process_tab';
+import { formatPmIds, selectRange, toggleSelection } from '@/lib/process_selection';
+import { processDetailTo, selectionDetailTo } from '@/lib/process_tab';
 import { cn } from '@/lib/utils';
 
 import { Highlighted } from '@/components/highlighted';
 
 import type { IProcessSummary } from '@shared/contracts';
 
-function NavKeysHint({ className }: { className?: string }) {
-  return (
-    <svg
-      data-component="NavKeysHint"
-      viewBox="0 0 12 16"
-      width={12}
-      height={16}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-      className={className}
-    >
-      <path d="M6 1.5 10.5 7H1.5L6 1.5Z" fill="currentColor" strokeLinejoin="round" />
-      <path d="M6 14.5 1.5 9h9L6 14.5Z" fill="currentColor" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function ProcessNav({
   processes,
   highlight = null,
   selectedDaemonId,
-  selectedId,
+  selectedIds,
   className,
   itemClassName,
   selectedItemClassName,
   idleItemClassName,
   onItemClick,
-  leading,
   autoFocus = false,
 }: {
   processes: IProcessSummary[];
   highlight?: RegExp | null;
   selectedDaemonId: string;
-  selectedId: number;
+  /** One process, or several after Ctrl+click and Shift+click. */
+  selectedIds: number[];
   className?: string;
   itemClassName?: string;
   selectedItemClassName?: string;
   idleItemClassName?: string;
   onItemClick?: () => void;
-  leading?: (process: IProcessSummary, isSelected: boolean) => ReactNode;
   autoFocus?: boolean;
 }) {
   const navigate = useNavigate();
   const navRef = useRef<HTMLElement>(null);
   const keepFocusRef = useRef(false);
   const didAutoFocusRef = useRef(false);
-  const [isFocused, setIsFocused] = useState(false);
+  const isMulti = selectedIds.length > 1;
+  const selectionKey = formatPmIds(selectedIds);
+  // The cursor is where the arrow keys move from, the anchor where a Shift range
+  // starts. A selection that came from the URL has neither, so they fall back to
+  // a process that is in it.
+  const cursorRef = useRef<number | null>(null);
+  const anchorRef = useRef<number | null>(null);
+  const getCursor = () =>
+    cursorRef.current !== null && selectedIds.includes(cursorRef.current)
+      ? cursorRef.current
+      : selectedIds[selectedIds.length - 1];
+  const getAnchor = () =>
+    anchorRef.current !== null && selectedIds.includes(anchorRef.current)
+      ? anchorRef.current
+      : getCursor();
+
+  const openSelection = (pmIds: number[], cursorId: number, anchorId = getAnchor()) => {
+    cursorRef.current = cursorId;
+    anchorRef.current = anchorId;
+    keepFocusRef.current = true;
+    void navigate({
+      to: selectionDetailTo(pmIds.length),
+      params: { daemonId: selectedDaemonId, pmId: formatPmIds(pmIds) },
+    });
+  };
 
   useEffect(() => {
     if (!autoFocus || didAutoFocusRef.current) {
@@ -78,28 +78,37 @@ export function ProcessNav({
     }
     keepFocusRef.current = false;
     navRef.current?.focus();
-    navRef.current
-      ?.querySelector<HTMLElement>('[aria-current="page"]')
-      ?.scrollIntoView({ block: 'nearest' });
-  }, [selectedDaemonId, selectedId]);
-
-  const handleFocus = () => {
-    setIsFocused(true);
-  };
-
-  const handleBlur = (event: FocusEvent<HTMLElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setIsFocused(false);
-    }
-  };
+    const cursorIndex = processes.findIndex(process => process.pmId === cursorRef.current);
+    navRef.current?.children[cursorIndex]?.scrollIntoView({ block: 'nearest' });
+    // Only a changed selection moves the focus; the process list itself refreshes every 2 s.
+  }, [selectedDaemonId, selectionKey]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      void navigate({ to: '/' });
+      // The first Escape narrows a selection to one process, the next one leaves.
+      if (isMulti) {
+        openSelection([getCursor()], getCursor(), getCursor());
+      } else {
+        void navigate({ to: '/' });
+      }
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      if (processes.length) {
+        openSelection(
+          processes.map(process => process.pmId),
+          getCursor()
+        );
+      }
       return;
     }
     if (event.key === 'Enter') {
+      // Enter on a check box toggles it, like Space does.
+      if (event.target instanceof HTMLButtonElement) {
+        return;
+      }
       event.preventDefault();
       onItemClick?.();
       return;
@@ -111,8 +120,9 @@ export function ProcessNav({
     if (!processes.length) {
       return;
     }
+    const cursorId = getCursor();
     const currentIndex = processes.findIndex(
-      process => process.daemonId === selectedDaemonId && process.pmId === selectedId
+      process => process.daemonId === selectedDaemonId && process.pmId === cursorId
     );
     // A filter can hide the open process; the arrows then enter the list at the top.
     const nextIndex =
@@ -124,13 +134,15 @@ export function ProcessNav({
     if (nextIndex === currentIndex) {
       return;
     }
-    const next = processes[nextIndex];
-    keepFocusRef.current = true;
-    void navigate({
-      to: processDetailTo(),
-      params: { daemonId: next.daemonId, pmId: String(next.pmId) },
-    });
+    const nextId = processes[nextIndex].pmId;
+    if (event.shiftKey) {
+      openSelection(selectRange(orderedIds(), getAnchor(), nextId), nextId);
+    } else {
+      openSelection([nextId], nextId, nextId);
+    }
   };
+
+  const orderedIds = () => processes.map(process => process.pmId);
 
   return (
     <nav
@@ -139,44 +151,92 @@ export function ProcessNav({
       aria-label="Processes"
       tabIndex={0}
       className={cn('outline-none', className)}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
+      // Shift+click would otherwise select the text between two processes.
+      onMouseDown={event => {
+        if (event.shiftKey) {
+          event.preventDefault();
+        }
+      }}
       onKeyDown={handleKeyDown}
     >
       {processes.map(process => {
-        const isSelected = process.daemonId === selectedDaemonId && process.pmId === selectedId;
+        const isSelected =
+          process.daemonId === selectedDaemonId && selectedIds.includes(process.pmId);
         return (
-          <Link
+          <div
             key={`${process.daemonId}:${process.pmId}`}
-            to={processDetailTo()}
-            params={{ daemonId: process.daemonId, pmId: String(process.pmId) }}
-            onClick={onItemClick}
             className={cn(itemClassName, isSelected ? selectedItemClassName : idleItemClassName)}
           >
-            {leading?.(process, isSelected)}
-            <i
-              className={cn(
-                'size-2 shrink-0 rounded-full',
-                process.status === 'online'
-                  ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                  : 'border border-muted'
-              )}
-            />
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="truncate font-semibold">
-                <Highlighted text={process.name} regex={highlight} />
+            <Link
+              to={processDetailTo()}
+              params={{ daemonId: process.daemonId, pmId: String(process.pmId) }}
+              onClick={event => {
+                if (event.shiftKey) {
+                  event.preventDefault();
+                  const range = selectRange(orderedIds(), getAnchor(), process.pmId);
+                  openSelection(
+                    event.ctrlKey || event.metaKey ? [...selectedIds, ...range] : range,
+                    process.pmId
+                  );
+                } else if (event.ctrlKey || event.metaKey) {
+                  event.preventDefault();
+                  openSelection(
+                    toggleSelection(selectedIds, process.pmId),
+                    process.pmId,
+                    process.pmId
+                  );
+                } else {
+                  cursorRef.current = process.pmId;
+                  anchorRef.current = process.pmId;
+                  onItemClick?.();
+                }
+              }}
+              className="flex h-full min-w-0 flex-1 items-center gap-3 pr-3 pl-5"
+            >
+              <i
+                className={cn(
+                  'size-2 shrink-0 rounded-full',
+                  process.status === 'online'
+                    ? 'bg-online shadow-[0_0_9px_#35D07F]'
+                    : 'border border-muted'
+                )}
+              />
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="truncate font-semibold">
+                  <Highlighted text={process.name} regex={highlight} />
+                </span>
+                {process.isCaptain ? (
+                  <img
+                    src="/pm2-captain-logo-on-dark.png"
+                    alt="Captain"
+                    title="This is Captain"
+                    className="size-3.5 shrink-0 object-contain"
+                  />
+                ) : null}
               </span>
-              {process.isCaptain ? (
-                <img
-                  src="/pm2-captain-logo-on-dark.png"
-                  alt="Captain"
-                  title="This is Captain"
-                  className="size-3.5 shrink-0 object-contain"
-                />
-              ) : null}
-            </span>
-            {isSelected && isFocused ? <NavKeysHint className="shrink-0 text-cyan/40" /> : null}
-          </Link>
+            </Link>
+            {/* Does what Ctrl+click does, also where there is no Ctrl key. */}
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isSelected}
+              aria-label={`Select ${process.name}`}
+              className={cn(
+                'mr-5 grid size-[18px] shrink-0 place-items-center rounded-[4px] border border-line hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan',
+                // A well with a check in it, not a filled accent: the row is already lit.
+                isSelected && 'bg-surface-control text-control-muted'
+              )}
+              onClick={() =>
+                openSelection(
+                  toggleSelection(selectedIds, process.pmId),
+                  process.pmId,
+                  process.pmId
+                )
+              }
+            >
+              {isSelected ? <Check className="size-3" strokeWidth={2} /> : null}
+            </button>
+          </div>
         );
       })}
     </nav>

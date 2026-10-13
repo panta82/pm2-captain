@@ -19,6 +19,14 @@ export function setProcessTab(tab: ProcessTab): void {
   }
 }
 
+/**
+ * The route for a selection of processes. Several processes have no Logs tab,
+ * so a remembered Logs tab opens Info for them.
+ */
+export function selectionDetailTo(selectionSize: number) {
+  return processDetailTo(selectionSize > 1 && getProcessTab() === 'logs' ? 'info' : undefined);
+}
+
 export function processDetailTo(
   tab: ProcessTab = getProcessTab()
 ):

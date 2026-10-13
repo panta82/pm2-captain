@@ -1,7 +1,14 @@
 import { useParams } from '@tanstack/react-router';
+import { Check, LoaderCircle, TriangleAlert } from 'lucide-react';
 
+import { useBulkAction } from '@/lib/bulk_action';
+import { parsePmIds } from '@/lib/process_selection';
 import { trpc } from '@/lib/trpc';
 import { compactPath, formatBytes, formatDuration } from '@/lib/utils';
+
+import { ProcessMatrix, ProcessMatrixError } from '@/components/process_matrix';
+
+import type { IProcessDetail } from '@shared/contracts';
 
 function Metric({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
@@ -38,16 +45,143 @@ function DetailPanel({
   );
 }
 
+/** The Info tab of a selection: the same values as for one process, one column each. */
+function InfoMatrix({ processes }: { processes: IProcessDetail[] }) {
+  const { progress } = useBulkAction();
+  const text = (value: string | number | null) =>
+    value === null || value === '' ? null : String(value);
+  const row = (label: string, pick: (process: IProcessDetail) => string | number | null) => ({
+    label,
+    values: processes.map(process => text(pick(process))),
+  });
+  // Paths are compared as they are and shown shortened: two home directories
+  // both shorten to "~", which would hide that they differ.
+  const pathRow = (label: string, pick: (process: IProcessDetail) => string | null) => ({
+    ...row(label, pick),
+    cells: processes.map(process => compactPath(pick(process))),
+  });
+
+  // While a bulk action runs, the status row follows each process through it.
+  const statusCells = processes.map(process => {
+    const entry = progress.get(process.pmId);
+    if (entry?.state === 'running') {
+      return (
+        <span className="flex items-center gap-1.5 text-cyan">
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          {{ start: 'starting', restart: 'restarting', stop: 'stopping' }[entry.action]}…
+        </span>
+      );
+    }
+    if (entry?.state === 'done') {
+      return (
+        <span className="flex items-center gap-1.5 text-online">
+          <Check className="size-3.5 shrink-0" />
+          {{ start: 'started', restart: 'restarted', stop: 'stopped' }[entry.action]}
+        </span>
+      );
+    }
+    if (entry?.state === 'failed') {
+      return (
+        <span className="flex items-center gap-1.5 text-danger" title={entry.message}>
+          <TriangleAlert className="size-3.5 shrink-0" />
+          <span className="truncate">{entry.message}</span>
+        </span>
+      );
+    }
+    return (
+      <span className={process.status === 'online' ? 'text-online' : 'text-danger'}>
+        {process.status}
+      </span>
+    );
+  });
+
+  return (
+    <ProcessMatrix
+      processes={processes}
+      groups={[
+        {
+          title: 'EXECUTION',
+          isCompared: false,
+          rows: [
+            { ...row('status', process => process.status), cells: statusCells },
+            {
+              ...row('cpu', process =>
+                process.cpu === null ? null : `${process.cpu.toFixed(1)}%`
+              ),
+              cells: processes.map(process => (
+                <span className="text-cyan">
+                  {process.cpu === null ? '—' : `${process.cpu.toFixed(1)}%`}
+                </span>
+              )),
+            },
+            row('memory', process => formatBytes(process.memory)),
+            row('uptime', process => formatDuration(process.uptime)),
+            row('restarts', process => process.restarts),
+            row('unstable restarts', process => process.unstableRestarts),
+            row('pid', process => process.pid),
+            row('exit code', process => process.exitCode),
+            row('created', process =>
+              process.createdAt ? new Date(process.createdAt).toLocaleString() : null
+            ),
+            row('id', process => process.pmId),
+          ],
+        },
+        {
+          title: 'CONFIGURATION',
+          isCompared: true,
+          rows: [
+            row('namespace', process => process.namespace),
+            row('version', process => process.version),
+            row('mode', process => process.mode),
+            row('instances', process => process.instances),
+            row('node', process => process.nodeVersion),
+            pathRow('interpreter', process => process.interpreter),
+            pathRow('script', process => process.script),
+            {
+              label: 'args',
+              // Compared as a list: ["a b"] and ["a", "b"] read the same once joined.
+              values: processes.map(process =>
+                process.args.length ? JSON.stringify(process.args) : null
+              ),
+              cells: processes.map(process => process.args.join(' ') || '—'),
+            },
+            pathRow('cwd', process => process.cwd),
+            row('watch', process => (process.watching ? '✓' : '×')),
+            row('cron restart', process => process.cronRestart),
+          ],
+        },
+        {
+          title: 'LOG FILES',
+          // Every process writes its own files, so a difference here says nothing.
+          isCompared: false,
+          rows: [
+            pathRow('stdout', process => process.outLogPath),
+            pathRow('stderr', process => process.errLogPath),
+          ],
+        },
+      ]}
+    />
+  );
+}
+
 export function InfoPage() {
   const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
-  const detail = trpc.processes.detail.useQuery(
-    { daemonId, pmId: Number(pmId) },
-    { refetchInterval: 2_000 }
+  const details = trpc.useQueries(t =>
+    parsePmIds(pmId).map(id =>
+      t.processes.detail({ daemonId, pmId: id }, { refetchInterval: 2_000 })
+    )
   );
-  if (!detail.data) {
+  const processes = details.flatMap(detail => (detail.data ? [detail.data] : []));
+  if (details.length > 1 && processes.length < details.length) {
+    return <ProcessMatrixError details={details} />;
+  }
+  if (!processes.length) {
     return null;
   }
-  const process = detail.data;
+  if (processes.length > 1) {
+    return <InfoMatrix processes={processes} />;
+  }
+  const process = processes[0];
 
   return (
     <div data-component="InfoPage" className="flex-1 overflow-auto p-4 sm:p-7">

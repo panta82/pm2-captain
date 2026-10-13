@@ -2,14 +2,18 @@ import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/
 import { Menu, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { BulkActionProvider } from '@/lib/bulk_action';
 import { useFilteredProcesses } from '@/lib/process_list_filter';
-import { setProcessTab } from '@/lib/process_tab';
+import { formatPmIds, parsePmIds } from '@/lib/process_selection';
+import { processDetailTo, setProcessTab } from '@/lib/process_tab';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
 import { AppHeader } from '@/components/app_header';
+import { BulkProcessActions } from '@/components/bulk_process_actions';
 import { ErrorPanel } from '@/components/error_panel';
 import { ProcessActions } from '@/components/process_actions';
+import { ProcessCounts } from '@/components/process_counts';
 import { ProcessFilterField } from '@/components/process_filter_field';
 import { ProcessNav } from '@/components/process_nav';
 import { ResizableSidebar } from '@/components/resizable_sidebar';
@@ -18,7 +22,10 @@ import { Button, Skeleton } from '@/components/ui';
 
 export function ProcessLayout() {
   const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
-  const numericId = Number(pmId);
+  // The parameter holds one PM2 ID, or several once more processes are selected.
+  const pmIds = useMemo(() => parsePmIds(pmId), [pmId]);
+  const isMulti = pmIds.length > 1;
+  const numericId = pmIds[0] ?? 0;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: state => state.location.pathname });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -26,12 +33,17 @@ export function ProcessLayout() {
   const detail = trpc.processes.detail.useQuery(
     { daemonId, pmId: numericId },
     {
+      enabled: pmIds.length === 1,
       refetchInterval: query => (query.state.error ? false : 2_000),
       retry: (failureCount, error) => error.data?.code !== 'NOT_FOUND' && failureCount < 2,
     }
   );
 
   useEffect(() => {
+    // A selection is moved off the Logs tab; that must not replace the remembered tab.
+    if (isMulti) {
+      return;
+    }
     if (pathname.endsWith('/logs')) {
       setProcessTab('logs');
     } else if (pathname.endsWith('/env')) {
@@ -39,13 +51,14 @@ export function ProcessLayout() {
     } else if (pathname.endsWith('/info')) {
       setProcessTab('info');
     }
-  }, [pathname]);
+  }, [isMulti, pathname]);
 
   useEffect(() => {
-    if (detail.error?.data?.code === 'NOT_FOUND') {
+    // For a selection the list decides: a process that is gone only leaves the selection.
+    if (!isMulti && detail.error?.data?.code === 'NOT_FOUND') {
       void navigate({ to: '/', replace: true });
     }
-  }, [detail.error, navigate]);
+  }, [detail.error, isMulti, navigate]);
 
   const listProcess = list.data?.processes.find(
     process => process.daemonId === daemonId && process.pmId === numericId
@@ -56,6 +69,45 @@ export function ProcessLayout() {
     () => (list.data?.processes || []).filter(process => process.daemonId === daemonId),
     [list.data?.processes, daemonId]
   );
+  const selectedProcesses = useMemo(
+    () => daemonProcesses.filter(process => pmIds.includes(process.pmId)),
+    [daemonProcesses, pmIds]
+  );
+  const isListLoaded = Boolean(list.data);
+  const isSelectionOnLogs = isMulti && pathname.endsWith('/logs');
+
+  useEffect(() => {
+    if (!pmIds.length) {
+      void navigate({ to: '/', replace: true });
+      return;
+    }
+    if (!isMulti || !isListLoaded) {
+      return;
+    }
+    if (!selectedProcesses.length) {
+      void navigate({ to: '/', replace: true });
+      return;
+    }
+    // A process that left the PM2 list leaves the selection too, and several
+    // processes have no Logs tab to be on.
+    if (selectedProcesses.length < pmIds.length || isSelectionOnLogs) {
+      void navigate({
+        to: processDetailTo(pathname.endsWith('/env') ? 'env' : 'info'),
+        params: { daemonId, pmId: formatPmIds(selectedProcesses.map(process => process.pmId)) },
+        replace: true,
+      });
+    }
+  }, [
+    daemonId,
+    isListLoaded,
+    isMulti,
+    isSelectionOnLogs,
+    navigate,
+    pathname,
+    pmIds,
+    selectedProcesses,
+  ]);
+
   const filtered = useFilteredProcesses(daemonProcesses);
   const listNotice =
     filtered.error || (filtered.processes.length ? null : 'No processes match the filter.');
@@ -65,7 +117,11 @@ export function ProcessLayout() {
     </p>
   ) : null;
 
-  if (list.isLoading && !list.data) {
+  if (
+    (list.isLoading && !list.data) ||
+    isSelectionOnLogs ||
+    (isMulti && !selectedProcesses.length && list.data)
+  ) {
     return (
       <div data-component="ProcessLayout" className="m-6 h-72">
         <Skeleton className="h-full" />
@@ -88,7 +144,7 @@ export function ProcessLayout() {
     );
   }
 
-  if (!process && !detail.isLoading) {
+  if (!isMulti && !process && !detail.isLoading) {
     const isDaemonUnavailable = detail.error?.data?.code === 'PRECONDITION_FAILED';
     return (
       <div data-component="ProcessLayout" className="flex min-h-0 flex-1 flex-col">
@@ -113,189 +169,221 @@ export function ProcessLayout() {
     );
   }
 
+  const isDaemonAvailable = selectedDaemon?.status === 'online';
+
   return (
-    <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
-      <ResizableSidebar className="hidden min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-r border-line bg-surface-plane lg:flex">
-        <AppHeader data={list.data} loading={false} failed={false} sidebar />
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex h-detail-toolbar shrink-0 items-center border-b border-line bg-surface-control px-3">
-            <ProcessFilterField />
-          </div>
-          {listNoticeElement}
-          <ProcessNav
-            processes={filtered.processes}
-            highlight={filtered.highlight}
-            selectedDaemonId={daemonId}
-            selectedId={numericId}
-            autoFocus
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
-            itemClassName="relative mx-2 flex h-12 items-center gap-3 rounded-lg px-3 text-sm"
-            selectedItemClassName="border border-primary/50 bg-panel-hover text-white"
-            idleItemClassName="border border-transparent text-white/90 hover:bg-panel"
-            leading={(_process, isSelected) =>
-              isSelected ? (
-                <i className="absolute -left-[9px] h-7 w-1 rounded-r bg-primary" />
-              ) : null
-            }
-          />
-        </div>
-      </ResizableSidebar>
-      {mobileMenuOpen ? (
-        <div className="fixed inset-0 z-40 flex lg:hidden">
-          <button
-            className="absolute inset-0 bg-black/70"
-            aria-label="Close process menu"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div className="relative h-full w-[min(82vw,320px)] overflow-y-auto border-r border-line bg-surface-plane p-3">
-            <div className="mb-3 flex items-center justify-between px-2">
-              <span className="text-sm font-semibold">Processes</span>
-              <Button
-                variant="ghost"
-                className="size-9 p-0"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <X className="size-4" />
-              </Button>
+    <BulkActionProvider daemonId={daemonId}>
+      <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
+        <ResizableSidebar className="hidden min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-r border-line bg-surface-plane lg:flex">
+          <AppHeader data={list.data} loading={false} failed={false} sidebar />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex h-detail-toolbar shrink-0 items-center border-b border-line bg-surface-control px-3">
+              <ProcessFilterField />
             </div>
-            <ProcessFilterField className="mb-3" />
             {listNoticeElement}
             <ProcessNav
               processes={filtered.processes}
               highlight={filtered.highlight}
               selectedDaemonId={daemonId}
-              selectedId={numericId}
+              selectedIds={pmIds}
               autoFocus
-              onItemClick={() => setMobileMenuOpen(false)}
-              itemClassName="mb-1 flex h-11 items-center gap-3 rounded-lg px-3 text-sm"
-              selectedItemClassName="bg-panel-hover text-white"
-              idleItemClassName="text-muted"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
+              itemClassName="flex h-12 items-center text-sm"
+              selectedItemClassName="bg-panel-hover text-white hover:brightness-110 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.07),inset_0_-1px_0_rgb(0_0_0_/_0.4)]"
+              idleItemClassName="text-white/90 hover:bg-panel"
             />
           </div>
-        </div>
-      ) : null}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="lg:hidden">
-          <AppHeader data={list.data} loading={false} failed={false} />
-        </div>
-        <section className="flex h-auto shrink-0 flex-col border-b border-line bg-surface-menu px-4 sm:px-7 lg:h-16 lg:justify-end">
-          <div className="flex flex-col gap-2 py-3 sm:grid sm:min-h-16 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end sm:gap-x-3 sm:py-0 lg:min-h-0 lg:h-full">
-            <div className="flex min-w-0 items-center gap-3 sm:self-center">
-              <Button
-                variant="ghost"
-                className="size-9 shrink-0 p-0 lg:hidden"
-                onClick={() => setMobileMenuOpen(true)}
-              >
-                <Menu className="size-4" />
-              </Button>
-              {process ? (
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <i
-                    className={cn(
-                      'size-2 shrink-0 self-center rounded-full',
-                      process.status === 'online'
-                        ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                        : 'border border-muted'
-                    )}
-                  />
-                  <h1 className="min-w-0 text-md font-bold text-white sm:text-xl">
-                    <TruncatedText text={process.name} />
-                  </h1>
-                </div>
-              ) : (
-                <Skeleton className="h-7 w-48" />
-              )}
-              <Button
-                variant="ghost"
-                className="size-10 shrink-0 p-0 sm:hidden"
-                aria-label="Close process"
-                onClick={() => navigate({ to: '/' })}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-
-            <div className="flex items-center justify-center gap-2 sm:col-start-3 sm:justify-end sm:self-center">
-              {process ? (
-                <>
-                  <div className="sm:hidden">
-                    <ProcessActions
-                      process={process}
-                      compact
-                      daemonAvailable={selectedDaemon?.status === 'online'}
-                    />
-                  </div>
-                  <div className="hidden sm:block">
-                    <ProcessActions
-                      process={process}
-                      daemonAvailable={selectedDaemon?.status === 'online'}
-                    />
-                  </div>
-                </>
-              ) : null}
-              <Button
-                variant="ghost"
-                className="hidden size-10 p-0 sm:inline-flex"
-                aria-label="Close process"
-                onClick={() => navigate({ to: '/' })}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-
-            <nav className="flex justify-center sm:col-start-2 sm:row-start-1">
-              {/* The active tab is a cut-out onto whatever lies under the header. */}
-              <div
-                className={cn(
-                  'relative top-px flex overflow-hidden rounded-t-lg border border-b-0 border-line',
-                  pathname.endsWith('/logs') ? 'bg-surface-control' : 'bg-surface-plane'
-                )}
-              >
-                <Link
-                  to="/daemons/$daemonId/processes/$pmId/info"
-                  params={{ daemonId, pmId }}
-                  onClick={() => setProcessTab('info')}
-                  activeProps={{ className: 'border-b-transparent text-cyan' }}
-                  inactiveProps={{
-                    className:
-                      'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
-                  }}
-                  className="border-b px-5 py-2.5 text-sm font-semibold"
+        </ResizableSidebar>
+        {mobileMenuOpen ? (
+          <div className="fixed inset-0 z-40 flex lg:hidden">
+            <button
+              className="absolute inset-0 bg-black/70"
+              aria-label="Close process menu"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <div className="relative h-full w-[min(82vw,320px)] overflow-y-auto border-r border-line bg-surface-plane p-3">
+              <div className="mb-3 flex items-center justify-between px-2">
+                <span className="text-sm font-semibold">Processes</span>
+                <Button
+                  variant="ghost"
+                  className="size-9 p-0"
+                  onClick={() => setMobileMenuOpen(false)}
                 >
-                  Info
-                </Link>
-                <Link
-                  to="/daemons/$daemonId/processes/$pmId/env"
-                  params={{ daemonId, pmId }}
-                  onClick={() => setProcessTab('env')}
-                  activeProps={{ className: 'border-b-transparent text-cyan' }}
-                  inactiveProps={{
-                    className:
-                      'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
-                  }}
-                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
-                >
-                  Env
-                </Link>
-                <Link
-                  to="/daemons/$daemonId/processes/$pmId/logs"
-                  params={{ daemonId, pmId }}
-                  onClick={() => setProcessTab('logs')}
-                  activeProps={{ className: 'border-b-transparent text-cyan' }}
-                  inactiveProps={{
-                    className:
-                      'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
-                  }}
-                  className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
-                >
-                  Logs
-                </Link>
+                  <X className="size-4" />
+                </Button>
               </div>
-            </nav>
+              <ProcessFilterField className="mb-3" />
+              {listNoticeElement}
+              <ProcessNav
+                processes={filtered.processes}
+                highlight={filtered.highlight}
+                selectedDaemonId={daemonId}
+                selectedIds={pmIds}
+                autoFocus
+                onItemClick={() => setMobileMenuOpen(false)}
+                itemClassName="mb-1 flex h-11 items-center rounded-lg text-sm"
+                selectedItemClassName="bg-panel-hover text-white"
+                idleItemClassName="text-muted"
+              />
+            </div>
           </div>
-        </section>
-        <Outlet />
-      </main>
-    </div>
+        ) : null}
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="lg:hidden">
+            <AppHeader data={list.data} loading={false} failed={false} />
+          </div>
+          <section className="flex h-auto shrink-0 flex-col border-b border-line bg-surface-menu px-4 sm:px-7 lg:h-16 lg:justify-end">
+            <div
+              className={cn(
+                'flex flex-col gap-2 py-3 sm:grid sm:min-h-16 sm:items-end sm:gap-x-3 sm:py-0 lg:h-full lg:min-h-0',
+                // Below xl the three buttons of a selection leave no room to center the tabs.
+                isMulti
+                  ? 'sm:grid-cols-[minmax(0,1fr)_auto_auto] xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]'
+                  : 'sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]'
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-3 sm:self-center">
+                <Button
+                  variant="ghost"
+                  className="size-9 shrink-0 p-0 lg:hidden"
+                  onClick={() => setMobileMenuOpen(true)}
+                >
+                  <Menu className="size-4" />
+                </Button>
+                {isMulti ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-4">
+                    <h1 className="min-w-0 truncate text-md font-bold text-white sm:text-xl">
+                      {selectedProcesses.length} processes
+                    </h1>
+                    <ProcessCounts processes={selectedProcesses} className="shrink-0" />
+                  </div>
+                ) : process ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <i
+                      className={cn(
+                        'size-2 shrink-0 self-center rounded-full',
+                        process.status === 'online'
+                          ? 'bg-online shadow-[0_0_9px_#35D07F]'
+                          : 'border border-muted'
+                      )}
+                    />
+                    <h1 className="min-w-0 text-md font-bold text-white sm:text-xl">
+                      <TruncatedText text={process.name} />
+                    </h1>
+                  </div>
+                ) : (
+                  <Skeleton className="h-7 w-48" />
+                )}
+                <Button
+                  variant="ghost"
+                  className="size-10 shrink-0 p-0 sm:hidden"
+                  aria-label={isMulti ? 'Close selection' : 'Close process'}
+                  onClick={() => navigate({ to: '/' })}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 sm:col-start-3 sm:justify-end sm:self-center">
+                {isMulti ? (
+                  <>
+                    {/* Three counted buttons need more room than the two of one process. */}
+                    <div className="2xl:hidden">
+                      <BulkProcessActions
+                        processes={selectedProcesses}
+                        compact
+                        daemonAvailable={isDaemonAvailable}
+                      />
+                    </div>
+                    <div className="hidden 2xl:block">
+                      <BulkProcessActions
+                        processes={selectedProcesses}
+                        daemonAvailable={isDaemonAvailable}
+                      />
+                    </div>
+                  </>
+                ) : process ? (
+                  <>
+                    <div className="sm:hidden">
+                      <ProcessActions
+                        process={process}
+                        compact
+                        daemonAvailable={isDaemonAvailable}
+                      />
+                    </div>
+                    <div className="hidden sm:block">
+                      <ProcessActions process={process} daemonAvailable={isDaemonAvailable} />
+                    </div>
+                  </>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  className="hidden size-10 p-0 sm:inline-flex"
+                  aria-label={isMulti ? 'Close selection' : 'Close process'}
+                  onClick={() => navigate({ to: '/' })}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+
+              <nav className="flex justify-center sm:col-start-2 sm:row-start-1">
+                {/* The active tab is a cut-out onto whatever lies under the header. */}
+                <div
+                  className={cn(
+                    'relative top-px flex overflow-hidden rounded-t-lg border border-b-0 border-line',
+                    pathname.endsWith('/logs') || isMulti
+                      ? 'bg-surface-control'
+                      : 'bg-surface-plane'
+                  )}
+                >
+                  <Link
+                    to="/daemons/$daemonId/processes/$pmId/info"
+                    params={{ daemonId, pmId }}
+                    onClick={() => setProcessTab('info')}
+                    activeProps={{ className: 'border-b-transparent text-cyan' }}
+                    inactiveProps={{
+                      className:
+                        'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
+                    }}
+                    className="border-b px-5 py-2.5 text-sm font-semibold"
+                  >
+                    Info
+                  </Link>
+                  <Link
+                    to="/daemons/$daemonId/processes/$pmId/env"
+                    params={{ daemonId, pmId }}
+                    onClick={() => setProcessTab('env')}
+                    activeProps={{ className: 'border-b-transparent text-cyan' }}
+                    inactiveProps={{
+                      className:
+                        'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
+                    }}
+                    className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                  >
+                    Env
+                  </Link>
+                  {isMulti ? null : (
+                    <Link
+                      to="/daemons/$daemonId/processes/$pmId/logs"
+                      params={{ daemonId, pmId }}
+                      onClick={() => setProcessTab('logs')}
+                      activeProps={{ className: 'border-b-transparent text-cyan' }}
+                      inactiveProps={{
+                        className:
+                          'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
+                      }}
+                      className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                    >
+                      Logs
+                    </Link>
+                  )}
+                </div>
+              </nav>
+            </div>
+          </section>
+          <Outlet />
+        </main>
+      </div>
+    </BulkActionProvider>
   );
 }
