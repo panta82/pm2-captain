@@ -331,6 +331,13 @@ Browser tests use the `fake` fixture from `tests/support/fake_fixture.ts`, which
 
 ## Version history
 
+#### `1.4.0` (2026-10-14)
+
+- You can now select multiple processes, to perform actions on or compare their values
+- Improve the process sidebar layout and performance
+- Detect lost PM2 daemon connections and reconnect automatically.
+- Add `--fake` mode with simulated daemons, processes, and logs for demos and testing.
+
 #### `1.3.1` (2026-10-10)
 
 - Try to smartly detect whether to open a new browser tab, or reuse an existing one. User can pass `--open` to always open a new tab, or `--no-open` to never open one.
