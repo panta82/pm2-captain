@@ -9,6 +9,10 @@ The equivalent of:
 - `pm2 info <id>`
 - `pm2 env <id>`
 
+https://github.com/user-attachments/assets/92ec64b2-b492-4c91-9b58-eef7a8a28686
+
+Process list, Info, Env, live logs, and multi-process comparison, shown with simulated data.
+
 ## How to use
 
 ### 1. Run locally on your computer
