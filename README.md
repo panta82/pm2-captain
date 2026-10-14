@@ -9,7 +9,7 @@ The equivalent of:
 - `pm2 info <id>`
 - `pm2 env <id>`
 
-https://github.com/user-attachments/assets/92ec64b2-b492-4c91-9b58-eef7a8a28686
+https://github.com/user-attachments/assets/b92df2ab-5e63-4cfb-b746-7e03f4800092
 
 Process list, Info, Env, live logs, and multi-process comparison, shown with simulated data.
 
