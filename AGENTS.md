@@ -15,19 +15,14 @@ The entire app is a single Node.js process:
 
 Requires Node.js 22 or newer. Settings live under `~/.config/pm2-captain` (or `$XDG_CONFIG_HOME/pm2-captain`).
 
-### Try to cherry-pick new functionality from existing TalentKit projects
-
-The dependency injection framework, application lifecycle, targeted logger, settings shape, and backend organization are deliberately derived from AuthoredUp and similar apps.
-
-If you need something new, look in the local environment first for checkouts of these projects, and try to grab the code from there. That help us back-propagate eventual fixes easier across projects.
-
 ### Layer boundaries
 
-- `src/backend/framework/`: portable framework code. Nothing here may reference files outside this directory, so any piece can be moved to another project.
-- `src/backend/lib/`: generic services and low-level wrappers around external systems (PM2, SSH/SFTP, files). No Captain policy.
-- `src/backend/bl/`: Captain's business rules for daemons, processes, logs, and the launcher.
-- `src/backend/web/`: HTTP, session, and thin tRPC routes. They validate input, map typed domain errors to tRPC errors, and delegate every decision to `bl/`.
-- `src/shared/`: JSON/transport-safe types used by both backend and frontend.
+- `src/backend/framework/`: portable framework code. Can only reference itself. The idea is that stuff from here can be copied into any project - it's fully generic.
+- `src/backend/lib/`: generic services and low-level wrappers around external systems (PM2, SSH/SFTP, files).
+- `src/backend/bl/`: project-specific business logic for daemons, processes, logs, and the launcher.
+- `src/backend/web/`: the web layer - HTTP, session, and thin tRPC routes. Business logic is delegated to `bl/`.
+- `src/shared/`: JSON/transport-safe types used by both backend and frontend. Can be referenced by anyone.
+- `src/frontend/`: React UI, Vite config, and static assets. Separate from backend, other than shared types.
 
 ### Services
 

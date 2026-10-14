@@ -8,3 +8,5 @@ test-results/
 .playwright-cli/
 *.log
 paseo.json
+scratch/*
+scratch/**/*

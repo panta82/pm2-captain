@@ -32,17 +32,20 @@ export function formatDuration(milliseconds: number | null): string {
     .join(' ');
 }
 
+// Constructing a locale formatter for every visible log row is expensive.
+const TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour12: false,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  fractionalSecondDigits: 3,
+});
+
 export function formatTimestamp(timestamp: number | null): string {
   if (timestamp === null) {
     return '';
   }
-  return new Date(timestamp).toLocaleTimeString(undefined, {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
+  return TIMESTAMP_FORMATTER.format(timestamp);
 }
 
 export function compactPath(path: string | null): string {

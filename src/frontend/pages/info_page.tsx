@@ -1,8 +1,7 @@
-import { useParams } from '@tanstack/react-router';
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react';
 
 import { useBulkAction } from '@/lib/bulk_action';
-import { parsePmIds } from '@/lib/process_selection';
+import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
 import { compactPath, formatBytes, formatDuration } from '@/lib/utils';
 
@@ -165,11 +164,13 @@ function InfoMatrix({ processes }: { processes: IProcessDetail[] }) {
 }
 
 export function InfoPage() {
-  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
+  // Selecting only these keeps a tab change from re-rendering this tab.
+  const { daemonId, pmIds } = processRouteApi.useParams({
+    select: ({ daemonId, pmIds }) => ({ daemonId, pmIds }),
+    structuralSharing: true,
+  });
   const details = trpc.useQueries(t =>
-    parsePmIds(pmId).map(id =>
-      t.processes.detail({ daemonId, pmId: id }, { refetchInterval: 2_000 })
-    )
+    pmIds.map(id => t.processes.detail({ daemonId, pmId: id }, { refetchInterval: 2_000 }))
   );
   const processes = details.flatMap(detail => (detail.data ? [detail.data] : []));
   if (details.length > 1 && processes.length < details.length) {

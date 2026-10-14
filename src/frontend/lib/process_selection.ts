@@ -1,7 +1,7 @@
 import type { IProcessAction, IProcessSummary } from '@shared/contracts';
 
 /**
- * Reads the `$pmId` route parameter, which holds one PM2 ID or a comma-separated
+ * Reads the `$pmIds` route parameter, which holds one PM2 ID or a comma-separated
  * selection of them. Anything else yields an empty list.
  */
 export function parsePmIds(param: string): number[] {

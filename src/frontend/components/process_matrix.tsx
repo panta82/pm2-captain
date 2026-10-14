@@ -2,8 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
-import { formatPmIds } from '@/lib/process_selection';
-import { selectionDetailTo } from '@/lib/process_tab';
+import { processLink } from '@/lib/process_route';
 import { cn } from '@/lib/utils';
 import { type IValueDiff, diffValues } from '@/lib/value_diff';
 
@@ -56,13 +55,12 @@ export function ProcessMatrix({
   };
 
   const openSelection = (selection: IProcessSummary[]) => {
-    void navigate({
-      to: selectionDetailTo(selection.length),
-      params: {
-        daemonId: selection[0].daemonId,
-        pmId: formatPmIds(selection.map(process => process.pmId)),
-      },
-    });
+    void navigate(
+      processLink(
+        selection[0].daemonId,
+        selection.map(process => process.pmId)
+      )
+    );
   };
 
   const visibleGroups = groups

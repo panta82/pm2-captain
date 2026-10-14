@@ -106,8 +106,10 @@ test('shows given log lines from history, live, and after a rotation', async ({ 
     channel: 'err',
     lines: ['a very particular failure'],
   });
-  await expect(page.getByText('a very particular failure')).toBeVisible();
   await expect(loaded).toHaveText('501');
+  // Reading older history must not jump to the newest virtual row.
+  await scroller.evaluate(element => (element.scrollTop = element.scrollHeight));
+  await expect(page.getByText('a very particular failure')).toBeVisible();
 
   await fake.send({ type: 'log.rotate', daemon: 'local', process: 'api', channel: 'out' });
   await scroller.evaluate(element => (element.scrollTop = 0));

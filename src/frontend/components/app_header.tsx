@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { LoaderCircle, ShieldCheck } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, memo } from 'react';
 
 import { useDaemonSelection } from '@/lib/daemon_selection';
 import { cn } from '@/lib/utils';
@@ -10,7 +10,7 @@ import type { IProcessListResult } from '@shared/contracts';
 import { DaemonPicker } from './daemon_picker';
 import { ProcessCounts } from './process_counts';
 
-export function AppHeader({
+export const AppHeader = memo(function AppHeader({
   data,
   loading,
   failed,
@@ -103,4 +103,4 @@ export function AppHeader({
       ) : null}
     </header>
   );
-}
+});

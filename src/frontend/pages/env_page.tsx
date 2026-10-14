@@ -1,6 +1,6 @@
-import { useParams } from '@tanstack/react-router';
+import { memo } from 'react';
 
-import { parsePmIds } from '@/lib/process_selection';
+import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
 
 import { ProcessMatrix, ProcessMatrixError } from '@/components/process_matrix';
@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui';
 
 import type { IEnvironmentVariable } from '@shared/contracts';
 
-function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
+const EnvPanel = memo(function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
   return (
     <section data-component="EnvPanel" className="overflow-hidden rounded-xl border border-line">
       <h2 className="flex items-center gap-2 border-b border-line bg-panel px-5 py-3 font-mono text-xs font-semibold text-muted">
@@ -18,7 +18,10 @@ function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
       <dl className="divide-y divide-line/70 font-mono text-[13px]">
         {environment.map(variable => (
           <div
-            className="grid gap-1 px-5 py-3 sm:grid-cols-[minmax(180px,0.4fr)_minmax(0,1fr)] sm:gap-6"
+            // Keep every value searchable/copyable without laying out offscreen
+            // rows each time this retained tab is shown. Measured heights survive
+            // later visits; the estimate applies only before a row is rendered.
+            className="grid gap-1 px-5 py-3 [contain-intrinsic-block-size:auto_44px] [content-visibility:auto] sm:grid-cols-[minmax(180px,0.4fr)_minmax(0,1fr)] sm:gap-6"
             key={variable.name}
           >
             <dt
@@ -35,12 +38,21 @@ function EnvPanel({ environment }: { environment: IEnvironmentVariable[] }) {
       </dl>
     </section>
   );
-}
+});
 
 export function EnvPage() {
-  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
+  // Selecting only these keeps a tab change from re-rendering this tab.
+  const { daemonId, pmIds } = processRouteApi.useParams({
+    select: ({ daemonId, pmIds }) => ({ daemonId, pmIds }),
+    structuralSharing: true,
+  });
   const details = trpc.useQueries(t =>
-    parsePmIds(pmId).map(id => t.processes.detail({ daemonId, pmId: id, includeEnvironment: true }))
+    pmIds.map(id =>
+      t.processes.detail(
+        { daemonId, pmId: id, includeEnvironment: true },
+        { staleTime: 30_000, refetchInterval: 30_000 }
+      )
+    )
   );
   const processes = details.flatMap(detail => (detail.data ? [detail.data] : []));
 

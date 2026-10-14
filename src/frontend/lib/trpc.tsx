@@ -14,7 +14,8 @@ export function APIProvider({ children }: PropsWithChildren) {
         defaultOptions: {
           queries: {
             retry: 2,
-            staleTime: 500,
+            // Process status polls every two seconds; navigation can reuse that snapshot.
+            staleTime: 2_000,
           },
         },
       })

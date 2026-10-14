@@ -4,16 +4,17 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
   useNavigate,
   useParams,
-  useRouterState,
 } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Toaster } from 'sonner';
 
 import { DaemonSelectionProvider } from '@/lib/daemon_selection';
 import { ProcessListFilterProvider } from '@/lib/process_list_filter';
-import { processDetailTo } from '@/lib/process_tab';
+import { isProcessTab, processLink } from '@/lib/process_route';
+import { formatPmIds, parsePmIds } from '@/lib/process_selection';
 import { trpc } from '@/lib/trpc';
 
 import { AppHeader } from '@/components/app_header';
@@ -21,10 +22,7 @@ import { DaemonManagerProvider } from '@/components/daemon_manager';
 import { ProcessFilterField } from '@/components/process_filter_field';
 import { RestartOverlay } from '@/components/restart_overlay';
 
-import { EnvPage } from '@/pages/env_page';
 import { ErrorPage } from '@/pages/error_page';
-import { InfoPage } from '@/pages/info_page';
-import { LogsPage } from '@/pages/logs_page';
 import { NotFoundPage } from '@/pages/not_found_page';
 import { ProcessLayout } from '@/pages/process_layout';
 import { StatusPage } from '@/pages/status_page';
@@ -43,19 +41,25 @@ function RootLayout() {
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
   const utils = trpc.useUtils();
   const navigate = useNavigate();
-  const { daemonId: routeDaemonId, pmId: routePmId } = useParams({ strict: false });
-  const processDetailOpen = useRouterState({
-    select: state => state.location.pathname.startsWith('/daemons/'),
+  const routeDaemonId = useParams({ strict: false, select: params => params.daemonId });
+  const routePmIds = useParams({
+    strict: false,
+    select: params => params.pmIds,
+    structuralSharing: true,
   });
+  const routeTab = useParams({ strict: false, select: params => params.tab });
+  const processDetailOpen = routeTab !== undefined;
   // The logs page already holds a stream that reports this tab's presence.
-  const isLogsPageOpen = useRouterState({
-    select: state => state.location.pathname.endsWith('/logs'),
-  });
+  const isLogsPageOpen = routeTab === 'logs';
   trpc.session.presence.useSubscription(undefined, { enabled: !isLogsPageOpen });
   const [search, setSearch] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
   const [storedDaemonId, setStoredDaemonId] = useState(loadSelectedDaemonId);
+  const processListFilter = useMemo(
+    () => ({ search, caseSensitive, regex, setSearch, setCaseSensitive, setRegex }),
+    [search, caseSensitive, regex]
+  );
 
   const storeDaemonId = useCallback((daemonId: string) => {
     setStoredDaemonId(daemonId);
@@ -104,18 +108,18 @@ function RootLayout() {
       // process on the new daemon, or its first one, rather than mixing daemons.
       const processes = utils.processes.list.getData()?.processes || [];
       const currentName = processes.find(
-        process => process.daemonId === routeDaemonId && String(process.pmId) === routePmId
+        process => process.daemonId === routeDaemonId && process.pmId === routePmIds?.[0]
       )?.name;
       const daemonProcesses = processes.filter(process => process.daemonId === daemonId);
       const target =
         daemonProcesses.find(process => process.name === currentName) ?? daemonProcesses[0];
       if (target) {
-        void navigate({ to: processDetailTo(), params: { daemonId, pmId: String(target.pmId) } });
+        void navigate(processLink(daemonId, [target.pmId]));
       } else {
         void navigate({ to: '/' });
       }
     },
-    [navigate, routeDaemonId, routePmId, storeDaemonId, utils]
+    [navigate, routeDaemonId, routePmIds, storeDaemonId, utils]
   );
 
   const daemonSelection = useMemo(
@@ -132,16 +136,7 @@ function RootLayout() {
 
   return (
     <DaemonSelectionProvider value={daemonSelection}>
-      <ProcessListFilterProvider
-        value={{
-          search,
-          caseSensitive,
-          regex,
-          setSearch,
-          setCaseSensitive,
-          setRegex,
-        }}
-      >
+      <ProcessListFilterProvider value={processListFilter}>
         <DaemonManagerProvider>
           <div
             data-component="RootLayout"
@@ -187,34 +182,52 @@ const statusRoute = createRoute({
 });
 const processRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: 'daemons/$daemonId/processes/$pmId',
+  path: 'daemons/$daemonId/processes/$pmIds',
+  params: {
+    // A malformed selection matches no route, so it shows the not-found page.
+    parse: ({ daemonId, pmIds }) => {
+      const parsedPmIds = parsePmIds(pmIds);
+      return parsedPmIds.length ? { daemonId, pmIds: parsedPmIds } : false;
+    },
+    stringify: ({ daemonId, pmIds }) => ({ daemonId, pmIds: formatPmIds(pmIds) }),
+  },
+});
+const processIndexRoute = createRoute({
+  getParentRoute: () => processRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    throw redirect({ ...processLink(params.daemonId, params.pmIds), replace: true });
+  },
+});
+// ProcessLayout owns the retained tab trees, so switching tabs only changes a parameter.
+const processTabRoute = createRoute({
+  getParentRoute: () => processRoute,
+  path: '$tab',
+  params: {
+    parse: ({ tab }) => (isProcessTab(tab) ? { tab } : false),
+  },
+  beforeLoad: ({ params, location }) => {
+    // One selection has one address, so a tab link can tell that it is active,
+    // and several processes have no Logs tab. Only the two plain trailing
+    // segments are compared, so encoding elsewhere cannot cause a redirect loop.
+    const link = processLink(params.daemonId, params.pmIds, params.tab);
+    const [pmIdsSegment, tabSegment] = location.pathname.split('/').slice(-2);
+    if (pmIdsSegment !== formatPmIds(params.pmIds) || tabSegment !== link.params.tab) {
+      throw redirect({ ...link, replace: true });
+    }
+  },
   component: ProcessLayout,
-});
-const infoRoute = createRoute({
-  getParentRoute: () => processRoute,
-  path: 'info',
-  component: InfoPage,
-});
-const envRoute = createRoute({
-  getParentRoute: () => processRoute,
-  path: 'env',
-  component: EnvPage,
-});
-const logsRoute = createRoute({
-  getParentRoute: () => processRoute,
-  path: 'logs',
-  component: LogsPage,
 });
 
 const routeTree = rootRoute.addChildren([
   statusRoute,
-  processRoute.addChildren([infoRoute, envRoute, logsRoute]),
+  processRoute.addChildren([processIndexRoute, processTabRoute]),
 ]);
 const router = createRouter({
   routeTree,
   defaultNotFoundComponent: NotFoundPage,
   defaultErrorComponent: ErrorPage,
-  // A selection of processes is a comma-separated `$pmId`; keep it readable in the URL.
+  // A selection of processes is a comma-separated `$pmIds`; keep it readable in the URL.
   pathParamsAllowedCharacters: [','],
 });
 

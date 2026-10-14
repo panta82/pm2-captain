@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 
 import {
   FAKE_LAUNCH_PATH,
+  downloadLogLines,
   expect,
   failOnPageError,
   logLines,
@@ -12,6 +13,62 @@ import {
 /** A log line stamped `second` seconds after a fixed moment. */
 const stamp = (second: number) => new Date(Date.UTC(2026, 0, 1, 10, 0, second)).toISOString();
 const line = (second: number, text: string) => `${stamp(second)} ${text}`;
+
+test('virtualizes wrapped rows without overlap after scrolling, resizing and toggling wrap', async ({
+  page,
+  fake,
+}, testInfo) => {
+  const expectNoPageError = failOnPageError(page);
+  await fake.send({
+    type: 'log.history',
+    daemon: 'local',
+    process: 'api',
+    lines: Array.from({ length: 400 }, (_, index) =>
+      line(
+        index,
+        index % 3 === 0 && index < 399
+          ? `long-${index} ${'payload '.repeat(250)}`
+          : `short-${index}`
+      )
+    ),
+  });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await openProcessTab(page, 'api', 'Logs');
+  await page.getByRole('button', { name: 'Out', exact: true }).click();
+  await expect(page.getByTitle('Loaded lines')).toHaveText('400');
+  const rows = page.locator('[data-component="LogRow"]');
+  const scroller = page.locator('[data-component="LogsPage"] .overflow-auto');
+  const expectMeasuredRows = async () => {
+    await expect.poll(() => rows.count()).toBeGreaterThan(0);
+    expect(await rows.count()).toBeLessThan(100);
+    await expect
+      .poll(() =>
+        rows.evaluateAll(elements => {
+          const boxes = elements.map(element => element.getBoundingClientRect());
+          return boxes.every((box, index) => index === 0 || box.top >= boxes[index - 1].bottom - 1);
+        })
+      )
+      .toBe(true);
+  };
+  await expect(page.getByText(line(399, 'short-399'), { exact: true })).toBeInViewport();
+  await expectMeasuredRows();
+  await scroller.evaluate(element => {
+    element.scrollTop = element.scrollHeight / 2;
+  });
+  await expectMeasuredRows();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectMeasuredRows();
+  await page.getByRole('button', { name: 'Wrap lines', exact: true }).click();
+  await expectMeasuredRows();
+  await page.getByRole('button', { name: 'Wrap lines', exact: true }).click();
+  await scroller.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(page.getByText(line(399, 'short-399'), { exact: true })).toBeInViewport();
+  await expectMeasuredRows();
+  await page.screenshot({ path: testInfo.outputPath('wrapped-logs-mobile.png') });
+  expectNoPageError();
+});
 
 test.beforeEach(async ({ fake }) => {
   // Only what a test writes may show up while it counts lines.
@@ -37,7 +94,7 @@ test('keeps the newest 20,000 lines of a flood and stays usable', async ({ page,
     repeat: 30_000,
   });
   await expect(loaded).toHaveText('20000', { timeout: 20_000 });
-  const lines = await logLines(page);
+  const lines = await downloadLogLines(page);
   expect([lines[0], lines.at(-1)]).toEqual(['flood line 10001', 'flood line 30000']);
 
   await page.getByRole('button', { name: 'Pause' }).click();
@@ -59,10 +116,6 @@ test('keeps following new lines once 20,000 are loaded', async ({ page, fake }) 
   await emit('line {n} past the limit', 30);
   const newest = page.getByText('line 30 past the limit', { exact: true });
   await expect(newest).toBeAttached();
-  test.fail(
-    true,
-    'Known bug: with wrapped lines, the view is pinned to the bottom only when the line count changes, and at the 20,000 line limit it no longer does.'
-  );
   await expect(newest).toBeInViewport({ timeout: 3_000 });
 });
 
@@ -86,7 +139,7 @@ test('says how many lines it dropped while paused', async ({ page, fake }) => {
 
   await resume.click();
   await expect(page.getByTitle('Loaded lines')).toHaveText('5000');
-  const lines = await logLines(page);
+  const lines = await downloadLogLines(page);
   expect([lines[0], lines.at(-1)]).toEqual(['paused line 1001', 'paused line 6000']);
 });
 

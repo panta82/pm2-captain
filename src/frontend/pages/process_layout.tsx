@@ -1,11 +1,11 @@
-import { Link, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { BulkActionProvider } from '@/lib/bulk_action';
 import { useFilteredProcesses } from '@/lib/process_list_filter';
-import { formatPmIds, parsePmIds } from '@/lib/process_selection';
-import { processDetailTo, setProcessTab } from '@/lib/process_tab';
+import { getProcessTab, processLink, processRouteApi, setProcessTab } from '@/lib/process_route';
+import { formatPmIds } from '@/lib/process_selection';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
@@ -16,18 +16,21 @@ import { ProcessActions } from '@/components/process_actions';
 import { ProcessCounts } from '@/components/process_counts';
 import { ProcessFilterField } from '@/components/process_filter_field';
 import { ProcessNav } from '@/components/process_nav';
+import { ProcessTabs } from '@/components/process_tabs';
 import { ResizableSidebar } from '@/components/resizable_sidebar';
 import { TruncatedText } from '@/components/truncated_text';
 import { Button, Skeleton } from '@/components/ui';
 
 export function ProcessLayout() {
-  const { daemonId, pmId } = useParams({ from: '/daemons/$daemonId/processes/$pmId' });
-  // The parameter holds one PM2 ID, or several once more processes are selected.
-  const pmIds = useMemo(() => parsePmIds(pmId), [pmId]);
+  // Structural sharing keeps `pmIds` stable while only the tab changes.
+  const { daemonId, pmIds, tab } = processRouteApi.useParams({ structuralSharing: true });
+  // The route guarantees at least one PM2 ID; several once more processes are selected.
   const isMulti = pmIds.length > 1;
   const numericId = pmIds[0] ?? 0;
+  const selectionKey = formatPmIds(pmIds);
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: state => state.location.pathname });
+  // A multi-selection can be on Info while the remembered single-process tab is Logs.
+  const sidebarTab = isMulti ? getProcessTab() : tab;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
   const detail = trpc.processes.detail.useQuery(
@@ -41,17 +44,10 @@ export function ProcessLayout() {
 
   useEffect(() => {
     // A selection is moved off the Logs tab; that must not replace the remembered tab.
-    if (isMulti) {
-      return;
+    if (!isMulti) {
+      setProcessTab(tab);
     }
-    if (pathname.endsWith('/logs')) {
-      setProcessTab('logs');
-    } else if (pathname.endsWith('/env')) {
-      setProcessTab('env');
-    } else if (pathname.endsWith('/info')) {
-      setProcessTab('info');
-    }
-  }, [isMulti, pathname]);
+  }, [isMulti, tab]);
 
   useEffect(() => {
     // For a selection the list decides: a process that is gone only leaves the selection.
@@ -74,13 +70,8 @@ export function ProcessLayout() {
     [daemonProcesses, pmIds]
   );
   const isListLoaded = Boolean(list.data);
-  const isSelectionOnLogs = isMulti && pathname.endsWith('/logs');
 
   useEffect(() => {
-    if (!pmIds.length) {
-      void navigate({ to: '/', replace: true });
-      return;
-    }
     if (!isMulti || !isListLoaded) {
       return;
     }
@@ -88,25 +79,18 @@ export function ProcessLayout() {
       void navigate({ to: '/', replace: true });
       return;
     }
-    // A process that left the PM2 list leaves the selection too, and several
-    // processes have no Logs tab to be on.
-    if (selectedProcesses.length < pmIds.length || isSelectionOnLogs) {
+    // A process that left the PM2 list leaves the selection too.
+    if (selectedProcesses.length < pmIds.length) {
       void navigate({
-        to: processDetailTo(pathname.endsWith('/env') ? 'env' : 'info'),
-        params: { daemonId, pmId: formatPmIds(selectedProcesses.map(process => process.pmId)) },
+        ...processLink(
+          daemonId,
+          selectedProcesses.map(process => process.pmId),
+          tab
+        ),
         replace: true,
       });
     }
-  }, [
-    daemonId,
-    isListLoaded,
-    isMulti,
-    isSelectionOnLogs,
-    navigate,
-    pathname,
-    pmIds,
-    selectedProcesses,
-  ]);
+  }, [daemonId, isListLoaded, isMulti, navigate, pmIds, selectedProcesses, tab]);
 
   const filtered = useFilteredProcesses(daemonProcesses);
   const listNotice =
@@ -117,11 +101,7 @@ export function ProcessLayout() {
     </p>
   ) : null;
 
-  if (
-    (list.isLoading && !list.data) ||
-    isSelectionOnLogs ||
-    (isMulti && !selectedProcesses.length && list.data)
-  ) {
+  if ((list.isLoading && !list.data) || (isMulti && !selectedProcesses.length && list.data)) {
     return (
       <div data-component="ProcessLayout" className="m-6 h-72">
         <Skeleton className="h-full" />
@@ -186,6 +166,7 @@ export function ProcessLayout() {
               highlight={filtered.highlight}
               selectedDaemonId={daemonId}
               selectedIds={pmIds}
+              tab={sidebarTab}
               autoFocus
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
               itemClassName="flex h-12 items-center text-sm"
@@ -219,6 +200,7 @@ export function ProcessLayout() {
                 highlight={filtered.highlight}
                 selectedDaemonId={daemonId}
                 selectedIds={pmIds}
+                tab={sidebarTab}
                 autoFocus
                 onItemClick={() => setMobileMenuOpen(false)}
                 itemClassName="mb-1 flex h-11 items-center rounded-lg text-sm"
@@ -331,14 +313,11 @@ export function ProcessLayout() {
                 <div
                   className={cn(
                     'relative top-px flex overflow-hidden rounded-t-lg border border-b-0 border-line',
-                    pathname.endsWith('/logs') || isMulti
-                      ? 'bg-surface-control'
-                      : 'bg-surface-plane'
+                    tab === 'logs' || isMulti ? 'bg-surface-control' : 'bg-surface-plane'
                   )}
                 >
                   <Link
-                    to="/daemons/$daemonId/processes/$pmId/info"
-                    params={{ daemonId, pmId }}
+                    {...processLink(daemonId, pmIds, 'info')}
                     onClick={() => setProcessTab('info')}
                     activeProps={{ className: 'border-b-transparent text-cyan' }}
                     inactiveProps={{
@@ -350,8 +329,7 @@ export function ProcessLayout() {
                     Info
                   </Link>
                   <Link
-                    to="/daemons/$daemonId/processes/$pmId/env"
-                    params={{ daemonId, pmId }}
+                    {...processLink(daemonId, pmIds, 'env')}
                     onClick={() => setProcessTab('env')}
                     activeProps={{ className: 'border-b-transparent text-cyan' }}
                     inactiveProps={{
@@ -364,8 +342,7 @@ export function ProcessLayout() {
                   </Link>
                   {isMulti ? null : (
                     <Link
-                      to="/daemons/$daemonId/processes/$pmId/logs"
-                      params={{ daemonId, pmId }}
+                      {...processLink(daemonId, pmIds, 'logs')}
                       onClick={() => setProcessTab('logs')}
                       activeProps={{ className: 'border-b-transparent text-cyan' }}
                       inactiveProps={{
@@ -381,7 +358,7 @@ export function ProcessLayout() {
               </nav>
             </div>
           </section>
-          <Outlet />
+          <ProcessTabs selectionKey={`${daemonId}:${selectionKey}`} tab={tab} />
         </main>
       </div>
     </BulkActionProvider>

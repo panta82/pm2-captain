@@ -13,8 +13,8 @@ import { toast } from 'sonner';
 
 import { useDaemonSelection } from '@/lib/daemon_selection';
 import { useFilteredProcesses, useProcessListFilter } from '@/lib/process_list_filter';
-import { formatPmIds, selectRange } from '@/lib/process_selection';
-import { processDetailTo, selectionDetailTo } from '@/lib/process_tab';
+import { processLink } from '@/lib/process_route';
+import { selectRange } from '@/lib/process_selection';
 import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
@@ -303,10 +303,7 @@ export function StatusPage() {
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
-      void navigate({
-        to: selectionDetailTo(pickedIds.length),
-        params: { daemonId: selectedDaemonId, pmId: formatPmIds(pickedIds) },
-      });
+      void navigate(processLink(selectedDaemonId, pickedIds));
     };
     // A key that is let go in another window never reports it here.
     const dropPicked = () => {
@@ -481,23 +478,11 @@ export function StatusPage() {
                         pickRow(event, row.original.pmId);
                         return;
                       }
-                      void navigate({
-                        to: processDetailTo(),
-                        params: {
-                          daemonId: row.original.daemonId,
-                          pmId: String(row.original.pmId),
-                        },
-                      });
+                      void navigate(processLink(row.original.daemonId, [row.original.pmId]));
                     }}
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
-                        navigate({
-                          to: processDetailTo(),
-                          params: {
-                            daemonId: row.original.daemonId,
-                            pmId: String(row.original.pmId),
-                          },
-                        });
+                        navigate(processLink(row.original.daemonId, [row.original.pmId]));
                       }
                     }}
                   >
@@ -529,12 +514,7 @@ export function StatusPage() {
               >
                 <button
                   className="block w-full text-left"
-                  onClick={() =>
-                    navigate({
-                      to: processDetailTo(),
-                      params: { daemonId: process.daemonId, pmId: String(process.pmId) },
-                    })
-                  }
+                  onClick={() => navigate(processLink(process.daemonId, [process.pmId]))}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-white">
@@ -571,12 +551,7 @@ export function StatusPage() {
                     <ProcessActions process={process} compact daemonAvailable={isDaemonAvailable} />
                     <button
                       aria-label={`Open ${process.name}`}
-                      onClick={() =>
-                        navigate({
-                          to: processDetailTo(),
-                          params: { daemonId: process.daemonId, pmId: String(process.pmId) },
-                        })
-                      }
+                      onClick={() => navigate(processLink(process.daemonId, [process.pmId]))}
                     >
                       <Eye className="size-4 text-cyan" />
                     </button>

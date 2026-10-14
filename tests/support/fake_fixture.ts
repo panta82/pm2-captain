@@ -1,4 +1,5 @@
 import { type Page, test as base, expect } from '@playwright/test';
+import { promises as fs } from 'node:fs';
 
 import type { IFakeCommandInput } from '../../src/backend/fake/fake_commands';
 import type { IFakeWorld } from '../../src/backend/fake/fake_world';
@@ -63,6 +64,18 @@ export const logLines = (page: Page) =>
   page
     .locator('[data-component="LogRow"]')
     .evaluateAll(rows => rows.map(row => row.lastElementChild?.textContent ?? ''));
+
+/** Reads all loaded lines through the export, including rows outside the virtual viewport. */
+export async function downloadLogLines(page: Page) {
+  const downloadStarted = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download filtered logs' }).click();
+  const download = await downloadStarted;
+  const content = await fs.readFile(await download.path(), 'utf8');
+  return content
+    .split('\n')
+    .slice(0, -1)
+    .map(line => line.replace(/^.*?\[(?:OUT|ERR|SHARED)\] /, ''));
+}
 
 /** Fails the test on an uncaught error in the page, which no assertion on the DOM would notice. */
 export function failOnPageError(page: Page) {
