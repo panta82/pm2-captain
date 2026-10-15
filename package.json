@@ -24,6 +24,8 @@
   },
   "files": [
     "dist",
+    "docs/development.md",
+    "docs/service_setup.md",
     "install.sh",
     "README.md",
     "LICENSE"
