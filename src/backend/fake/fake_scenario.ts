@@ -280,6 +280,30 @@ const BUILT_IN_SCENARIOS: Record<string, () => IFakeScenario> = {
       },
     ],
   }),
+
+  /**
+   * One process floods its log, with a full buffer of history from the start,
+   * for following, pausing, filtering and highlighting under load.
+   */
+  firehose: () => ({
+    daemons: [
+      {
+        key: 'local',
+        processes: [
+          {
+            name: 'firehose',
+            cpu: 64,
+            memory: 512 * MEGABYTE,
+            metricJitter: 0.3,
+            logRate: 1_000,
+            logErrorRatio: 0.05,
+            history: 20_000,
+          },
+          { name: 'api', cpu: 4.2, memory: 182 * MEGABYTE, logRate: 2, history: 300 },
+        ],
+      },
+    ],
+  }),
 };
 
 export const DEFAULT_FAKE_SCENARIO = 'basic';

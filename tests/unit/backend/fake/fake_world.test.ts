@@ -292,7 +292,7 @@ describe('fakeWorld', () => {
 
 describe('fake scenarios', () => {
   it('loads every built-in scenario', async () => {
-    for (const name of ['basic', 'busy', 'edge', 'multi']) {
+    for (const name of ['basic', 'busy', 'edge', 'multi', 'firehose']) {
       const { world } = await setup();
       await world.reset(name);
 

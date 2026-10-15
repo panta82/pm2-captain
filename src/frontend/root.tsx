@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Toaster } from 'sonner';
 
 import { DaemonSelectionProvider } from '@/lib/daemon_selection';
+import { LogSearchProvider } from '@/lib/log_search';
 import { ProcessListFilterProvider } from '@/lib/process_list_filter';
 import { isProcessTab, processLink } from '@/lib/process_route';
 import { formatPmIds, parsePmIds } from '@/lib/process_selection';
@@ -137,34 +138,36 @@ function RootLayout() {
   return (
     <DaemonSelectionProvider value={daemonSelection}>
       <ProcessListFilterProvider value={processListFilter}>
-        <DaemonManagerProvider>
-          <div
-            data-component="RootLayout"
-            className="flex h-svh min-h-0 flex-col overflow-hidden bg-surface-plane text-white"
-          >
-            {!processDetailOpen ? (
-              <AppHeader
-                data={list.data}
-                loading={list.isPending && !list.data}
-                failed={list.isError}
-                filter={<ProcessFilterField />}
+        <LogSearchProvider>
+          <DaemonManagerProvider>
+            <div
+              data-component="RootLayout"
+              className="flex h-svh min-h-0 flex-col overflow-hidden bg-surface-plane text-white"
+            >
+              {!processDetailOpen ? (
+                <AppHeader
+                  data={list.data}
+                  loading={list.isPending && !list.data}
+                  failed={list.isError}
+                  filter={<ProcessFilterField />}
+                />
+              ) : null}
+              <Outlet />
+              <RestartOverlay />
+              <Toaster
+                theme="dark"
+                position="bottom-left"
+                toastOptions={{
+                  style: {
+                    background: 'var(--color-panel)',
+                    border: '1px solid var(--color-line)',
+                    color: '#fff',
+                  },
+                }}
               />
-            ) : null}
-            <Outlet />
-            <RestartOverlay />
-            <Toaster
-              theme="dark"
-              position="bottom-left"
-              toastOptions={{
-                style: {
-                  background: 'var(--color-panel)',
-                  border: '1px solid var(--color-line)',
-                  color: '#fff',
-                },
-              }}
-            />
-          </div>
-        </DaemonManagerProvider>
+            </div>
+          </DaemonManagerProvider>
+        </LogSearchProvider>
       </ProcessListFilterProvider>
     </DaemonSelectionProvider>
   );

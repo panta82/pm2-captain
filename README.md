@@ -275,12 +275,13 @@ Fake mode never looks for PM2 on the computer, never runs SSH, and never reads o
 
 The built-in scenarios:
 
-| Scenario | What it shows                                                                           |
-| -------- | --------------------------------------------------------------------------------------- |
-| `basic`  | One local daemon with online, stopped and errored processes, and slowly generated logs. |
-| `busy`   | One crowded daemon: clusters, namespaces, moving CPU and memory, and fast logs.         |
-| `edge`   | Every process status, long names, shared and missing log files, odd log formats.        |
-| `multi`  | Local and SSH daemons, one unreachable, and one left out of the list to add by hand.    |
+| Scenario   | What it shows                                                                           |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `basic`    | One local daemon with online, stopped and errored processes, and slowly generated logs. |
+| `busy`     | One crowded daemon: clusters, namespaces, moving CPU and memory, and fast logs.         |
+| `edge`     | Every process status, long names, shared and missing log files, odd log formats.        |
+| `multi`    | Local and SSH daemons, one unreachable, and one left out of the list to add by hand.    |
+| `firehose` | One process writing 1,000 lines a second on top of 20,000 lines of history.             |
 
 A scenario can also be a JSON file; `FakeScenarioSchema` in `src/backend/fake/fake_scenario.ts` describes it.
 
@@ -330,6 +331,13 @@ curl -H "authorization: Bearer $(cat ~/.config/pm2-captain/launch-token)" \
 Browser tests use the `fake` fixture from `tests/support/fake_fixture.ts`, which resets the world before each test and sends commands as typed objects; `tests/e2e/fake.test.ts` shows it in use.
 
 ## Version history
+
+#### `1.5.0` (2026-10-15)
+
+- Redesign Log page header - line counter is now in the header, and the anchor button is now in the lower right corner
+- Allow adding multiple search fields in the Logs toolbar
+- Allow toggling between filter and highlight modes for the Log search bar
+- Fix the issue where the non-anchor mode would stop working after the log buffer got filled up
 
 #### `1.4.0` (2026-10-14)
 

@@ -39,6 +39,21 @@
   --height-detail-toolbar: 3.75rem;
 }
 
+/*
+ * Log search box colors, in the order they are handed out. Components pick them
+ * by name at runtime, so they are always emitted. Dark accent-ink reads on all.
+ */
+@theme static {
+  --color-mark-green: var(--color-highlight);
+  --color-mark-violet: #b98cff;
+  --color-mark-red: #ff6b6b;
+  --color-mark-orange: #ffa94d;
+  --color-mark-blue: #5cb8ff;
+  --color-mark-yellow: #ffe066;
+  --color-mark-pink: #ff8fd0;
+  --color-mark-teal: #3ee0c8;
+}
+
 :root {
   font-family: var(--font-sans);
   background: var(--color-surface-plane);

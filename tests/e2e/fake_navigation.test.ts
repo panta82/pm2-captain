@@ -5,6 +5,7 @@ import {
   failOnPageError,
   openProcessTab,
   test,
+  wheelLogsToEnd,
 } from '../support/fake_fixture';
 
 function createSignal() {
@@ -219,9 +220,7 @@ test('preserves older loaded pages and reading position until explicitly jumping
     element.scrollTop = 0;
   });
   await expect(page.getByTitle('Loaded lines')).toHaveText('900');
-  await scroller.evaluate(element => {
-    element.scrollTop = element.scrollHeight;
-  });
+  await wheelLogsToEnd(page);
   await expect(page.getByText('history 899', { exact: true })).toBeInViewport();
   await page.getByRole('link', { name: 'Info', exact: true }).click();
   const unchangedRefresh = page.waitForResponse(response => response.url().includes('logs.page'));
@@ -286,7 +285,10 @@ test('retries a failed catch-up on Resume to recover output missed while disconn
     await route.abort('failed');
   });
   try {
-    await page.getByRole('button', { name: 'Jump to latest', exact: true }).click();
+    // Leaving the tab stops the stream, so Resume has to catch up from the file.
+    await page.getByRole('link', { name: 'Info', exact: true }).click();
+    await page.getByRole('link', { name: 'Logs', exact: true }).click();
+    await resume.click();
     await held.promise;
     await fake.send({
       type: 'log.emit',

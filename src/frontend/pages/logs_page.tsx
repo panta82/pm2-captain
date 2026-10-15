@@ -1,5 +1,5 @@
 import { observeElementOffset, useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDownToLine, Download, Pause, Play, TextWrap } from 'lucide-react';
+import { Anchor, ArrowDown, Download, Pause, Play, Plus, TextWrap, X } from 'lucide-react';
 import {
   memo,
   useCallback,
@@ -12,12 +12,13 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
-import { useDebouncedSearch } from '@/lib/debounce';
+import { type IHighlightLayer, compileSearchTerms, getSearchColorStyle } from '@/lib/highlight';
+import { MAX_SEARCH_TERMS, useLogSearch } from '@/lib/log_search';
 import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
 import { cn, formatTimestamp } from '@/lib/utils';
 
-import { Highlighted, buildHighlightRegex } from '@/components/highlighted';
+import { Highlighted } from '@/components/highlighted';
 import { SearchFilter } from '@/components/search_filter';
 import { Button, ToggleGroup } from '@/components/ui';
 
@@ -25,7 +26,8 @@ import type { ILogEntry, ILogView } from '@shared/contracts';
 
 const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
-const SEARCH_DEBOUNCE_MS = 300; // quiet period before applying filter
+const CORNER_BUTTON_SIZE = 30; // the Following/Jump button; logs end above it
+const USER_SCROLL_WINDOW_MS = 500; // how long after wheel, touch or keys a scroll is the user's
 
 function hasSameLogEntries(previous: ILogEntry[], next: ILogEntry[]) {
   // History IDs change on every read. Compare snapshots, never deduplicate
@@ -61,7 +63,7 @@ function capitalize<T extends string>(str: T): Capitalize<T> {
 const LogRow = memo(function LogRow({
   entry,
   wrap,
-  highlight,
+  highlights,
   canJumpToContext,
   focused,
   onReveal,
@@ -72,7 +74,7 @@ const LogRow = memo(function LogRow({
 }: {
   entry: ILogEntry;
   wrap: boolean;
-  highlight: RegExp | null;
+  highlights: readonly IHighlightLayer[];
   canJumpToContext: boolean;
   focused: boolean;
   onReveal: (entryId: string) => void;
@@ -120,7 +122,7 @@ const LogRow = memo(function LogRow({
           entry.channel === 'err' && 'text-[#ff8c9e]'
         )}
       >
-        <Highlighted text={entry.text} regex={highlight} />
+        <Highlighted text={entry.text} regex={null} highlights={highlights} />
       </span>
     </div>
   );
@@ -136,13 +138,23 @@ export function LogsPage() {
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(paused);
   const isFollowingRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  // The virtualizer moves the view too (keeping lines in place, settling row
+  // heights), so a scroll event alone does not mean the user scrolled.
+  const userScrollUntilRef = useRef(0);
+  const isPointerDownRef = useRef(false);
+  // Mirrors the ref for rendering the corner button; scroll handlers read the ref.
+  const [isFollowing, setIsFollowing] = useState(true);
+  const setFollowing = useCallback((next: boolean) => {
+    isFollowingRef.current = next;
+    setIsFollowing(next);
+  }, []);
   const hasGapRef = useRef(false);
   const hasStreamUpdatesRef = useRef(false);
   const [isCatchingUp, setIsCatchingUp] = useState(false);
   const isCatchingUpRef = useRef(false);
   const lifetimeRef = useRef(0);
   const requestRef = useRef<AbortController | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
   const pageInput = useMemo(
     () => ({ daemonId, pmId: numericId, view, cursor: null, limit: 500 }),
     [daemonId, numericId, view]
@@ -170,19 +182,17 @@ export function LogsPage() {
   const [bufferedCount, setBufferedCount] = useState(0);
   const [dropped, setDropped] = useState(0);
   const [wrap, setWrap] = useState(true);
-  const {
-    draft: searchDraft,
-    value: search,
-    phase: searchPhase,
-    setDraft: setSearchDraft,
-  } = useDebouncedSearch(SEARCH_DEBOUNCE_MS);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [regex, setRegex] = useState(false);
-  // Keep toggle UI snappy; defer the expensive re-filter/highlight pass.
-  const deferredSearch = useDeferredValue(search);
-  const deferredCaseSensitive = useDeferredValue(caseSensitive);
-  const deferredRegex = useDeferredValue(regex);
+  const logSearch = useLogSearch(daemonId, numericId);
+  const { terms, getDraft, setDraft } = logSearch;
+  const searchBoxesRef = useRef<HTMLDivElement>(null);
+  const shouldFocusNewBoxRef = useRef(false);
+  // Keep the boxes snappy; defer the expensive re-filter/highlight pass.
+  const deferredTerms = useDeferredValue(terms);
+  const compiledSearch = useMemo(() => compileSearchTerms(deferredTerms), [deferredTerms]);
+  const isFiltered = compiledSearch.filters.length > 0;
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The corner button sits inside the scrollbars, so it needs their size.
+  const [scrollbarSize, setScrollbarSize] = useState({ width: 0, height: 0 });
   const bufferRef = useRef<ILogEntry[]>([]);
   const pendingJumpIdRef = useRef<string | null>(null);
   const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
@@ -203,10 +213,6 @@ export function LogsPage() {
       hasGapRef.current = true;
       requestRef.current?.abort();
       requestRef.current = null;
-      if (scrollFrameRef.current !== null) {
-        cancelAnimationFrame(scrollFrameRef.current);
-        scrollFrameRef.current = null;
-      }
     };
   }, [daemonId, numericId, view]);
 
@@ -228,8 +234,8 @@ export function LogsPage() {
     bufferRef.current = [];
     setBufferedCount(0);
     setDropped(0);
-    isFollowingRef.current = true;
-  }, [daemonId, numericId, view]);
+    setFollowing(true);
+  }, [daemonId, numericId, view, setFollowing]);
 
   useEffect(() => {
     if (
@@ -266,7 +272,11 @@ export function LogsPage() {
       onData(event) {
         if (event.type === 'daemon-status') {
           if (!event.connected) {
+            // Output written while the stream is down is not replayed.
+            hasGapRef.current = true;
             toast.warning(event.message || 'PM2 stream disconnected');
+          } else if (hasGapRef.current && shouldRefresh()) {
+            void refreshLatest();
           }
           return;
         }
@@ -286,6 +296,7 @@ export function LogsPage() {
         setEntries(current => [...current, event.entry!].slice(-MAX_LOADED_LINES));
       },
       onError(error) {
+        hasGapRef.current = true;
         toast.error(`Log stream: ${error.message}`);
       },
     }
@@ -299,10 +310,6 @@ export function LogsPage() {
     const controller = new AbortController();
     requestRef.current = controller;
     const lifetime = ++lifetimeRef.current;
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = null;
-    }
     isCatchingUpRef.current = true;
     // A failed or interrupted read still leaves a gap while the stream stopped.
     hasGapRef.current = true;
@@ -327,7 +334,8 @@ export function LogsPage() {
       setDropped(0);
       pausedRef.current = false;
       setPaused(false);
-      isFollowingRef.current = true;
+      // A snapshot replaces every line, so the old reading position means nothing.
+      setFollowing(true);
       setEntries(page.entries);
       setCursor(page.cursor);
       setHasMore(page.hasMore);
@@ -355,7 +363,6 @@ export function LogsPage() {
     setBufferedCount(0);
     setPaused(false);
     pausedRef.current = false;
-    isFollowingRef.current = true;
     hasStreamUpdatesRef.current ||= buffered.length > 0;
     setEntries(current => [...current, ...buffered].slice(-MAX_LOADED_LINES));
   };
@@ -367,8 +374,6 @@ export function LogsPage() {
     const controller = new AbortController();
     requestRef.current = controller;
     const lifetime = lifetimeRef.current;
-    const element = scrollRef.current;
-    const previousHeight = element?.scrollHeight || 0;
     try {
       const page = await utils.client.logs.page.query(
         {
@@ -390,12 +395,6 @@ export function LogsPage() {
       if (page.rotated) {
         toast.warning('The active log file rotated; history cursor was reset.');
       }
-      scrollFrameRef.current = requestAnimationFrame(() => {
-        scrollFrameRef.current = null;
-        if (element && lifetime === lifetimeRef.current && !controller.signal.aborted) {
-          element.scrollTop = element.scrollHeight - previousHeight;
-        }
-      });
     } catch (error) {
       if (!controller.signal.aborted && lifetime === lifetimeRef.current) {
         toast.error(error instanceof Error ? error.message : 'Failed to load older logs');
@@ -407,47 +406,34 @@ export function LogsPage() {
     }
   }, [cursor, hasMore, daemonId, numericId, utils.client.logs.page, view]);
 
-  const searchResult = useMemo(() => {
-    if (!deferredSearch) {
-      return { entries, error: '', highlight: null as RegExp | null };
+  const filteredEntries = useMemo(() => {
+    const { filters } = compiledSearch;
+    if (!filters.length) {
+      return entries;
     }
-    try {
-      const highlight = buildHighlightRegex(deferredSearch, {
-        caseSensitive: deferredCaseSensitive,
-        regex: deferredRegex,
-      });
-      return {
-        entries: entries.filter(entry => {
-          highlight.lastIndex = 0;
-          return highlight.test(entry.text);
-        }),
-        error: '',
-        highlight,
-      };
-    } catch (error) {
-      return {
-        entries,
-        error: error instanceof Error ? error.message : 'Invalid expression',
-        highlight: null as RegExp | null,
-      };
-    }
-  }, [deferredCaseSensitive, deferredRegex, deferredSearch, entries]);
+    return entries.filter(entry =>
+      filters.every(filter => {
+        filter.lastIndex = 0;
+        return filter.test(entry.text);
+      })
+    );
+  }, [compiledSearch, entries]);
 
-  const filteredEntries = searchResult.entries;
-  const canJumpToContext = Boolean(deferredSearch);
-  const isFilterPending =
-    search !== deferredSearch || caseSensitive !== deferredCaseSensitive || regex !== deferredRegex;
+  const isFilterPending = terms !== deferredTerms;
 
   const revealLogEntry = useCallback(
     (entryId: string) => {
-      isFollowingRef.current = false;
+      setFollowing(false);
       pendingJumpIdRef.current = entryId;
       setFocusedEntryId(entryId);
-      if (searchDraft || search) {
-        setSearchDraft('');
+      // Only the filters hide the neighbours; highlights stay.
+      for (const term of terms) {
+        if (term.isFilter && (getDraft(term) || term.search)) {
+          setDraft(term.id, '');
+        }
       }
     },
-    [search, searchDraft, setSearchDraft]
+    [getDraft, setDraft, setFollowing, terms]
   );
 
   const downloadFilteredLogs = useCallback(() => {
@@ -469,10 +455,10 @@ export function LogsPage() {
     const anchor = document.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     anchor.href = url;
-    anchor.download = `pm2-${numericId}-${view}${deferredSearch ? '-filtered' : ''}-${stamp}.log`;
+    anchor.download = `pm2-${numericId}-${view}${isFiltered ? '-filtered' : ''}-${stamp}.log`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [deferredSearch, filteredEntries, numericId, view]);
+  }, [filteredEntries, isFiltered, numericId, view]);
 
   // Measure wrapped rows at their actual height; only visible rows and overscan
   // enter the DOM, even when thousands of lines are loaded.
@@ -481,6 +467,11 @@ export function LogsPage() {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => (wrap ? 28 : 24),
     overscan: 20,
+    paddingEnd: CORNER_BUTTON_SIZE,
+    // Lines come and go at both ends: older history is prepended, and a full
+    // buffer drops its oldest lines as new ones arrive. Keep the line at the
+    // top of the view in place, so reading older lines is not swept along.
+    anchorTo: 'end',
     // Batch scroll/measurement notifications instead of synchronously rebuilding
     // the log viewport for each one. Overscan covers movement before the commit.
     useFlushSync: false,
@@ -516,7 +507,7 @@ export function LogsPage() {
   // Keep pinned to bottom after React/virtualizer layout when following.
   useLayoutEffect(() => {
     pinToBottom();
-  }, [pinToBottom, filteredEntries, totalSize, wrap, deferredSearch]);
+  }, [pinToBottom, filteredEntries, totalSize, wrap, compiledSearch]);
 
   useLayoutEffect(() => {
     if (measuredWrapRef.current !== wrap) {
@@ -528,7 +519,7 @@ export function LogsPage() {
   // After clearing a filter, scroll the chosen line into full-context view.
   useLayoutEffect(() => {
     const entryId = pendingJumpIdRef.current;
-    if (!entryId || deferredSearch) {
+    if (!entryId || isFiltered) {
       return;
     }
     const index = entries.findIndex(entry => entry.id === entryId);
@@ -537,10 +528,46 @@ export function LogsPage() {
       return;
     }
     pendingJumpIdRef.current = null;
-    isFollowingRef.current = false;
+    setFollowing(false);
 
     virtualizer.scrollToIndex(index, { align: 'center' });
-  }, [deferredSearch, entries, virtualizer, wrap]);
+  }, [entries, isFiltered, setFollowing, virtualizer, wrap]);
+
+  const measureScrollbars = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+    const width = element.offsetWidth - element.clientWidth;
+    const height = element.offsetHeight - element.clientHeight;
+    setScrollbarSize(current =>
+      current.width === width && current.height === height ? current : { width, height }
+    );
+  }, []);
+
+  // Scrollbars come and go with the content, which a ResizeObserver does not report.
+  useLayoutEffect(measureScrollbars, [measureScrollbars, totalSize, wrap]);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver(measureScrollbars);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measureScrollbars]);
+
+  // A box added with + starts focused. The boxes are kept for the whole app, so
+  // they cannot use autoFocus: they mount again on every process's logs.
+  useEffect(() => {
+    if (shouldFocusNewBoxRef.current) {
+      shouldFocusNewBoxRef.current = false;
+      Array.from(searchBoxesRef.current?.querySelectorAll('input') ?? [])
+        .at(-1)
+        ?.focus();
+    }
+  }, [terms.length]);
 
   useEffect(() => {
     if (!focusedEntryId) {
@@ -550,59 +577,123 @@ export function LogsPage() {
     return () => window.clearTimeout(timer);
   }, [focusedEntryId]);
 
+  // Back to the newest loaded line. A pause stays as it is; only a view that missed
+  // lines (hidden, disconnected, or dropped while paused) takes a fresh snapshot.
+  const jumpToLatest = () => {
+    if ((hasGapRef.current || dropped > 0) && !pausedRef.current) {
+      void refreshLatest();
+      return;
+    }
+    setFollowing(true);
+    virtualizer.scrollToEnd();
+  };
+
+  const markUserScroll = () => {
+    userScrollUntilRef.current = performance.now() + USER_SCROLL_WINDOW_MS;
+  };
+
+  const cornerButtonStyle = {
+    right: scrollbarSize.width,
+    bottom: scrollbarSize.height,
+    width: CORNER_BUTTON_SIZE,
+    height: CORNER_BUTTON_SIZE,
+  };
+
   return (
     <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-surface-plane">
-      <div className="grid shrink-0 grid-cols-1 items-center gap-2 border-b border-line bg-surface-control px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:px-7 lg:h-detail-toolbar lg:py-0">
-        <div className="flex justify-start">
-          <ToggleGroup aria-label="Log stream filter">
-            {(['combined', 'out', 'err'] as const).map(option => (
-              <Button
-                key={option}
-                variant="toggle"
-                aria-pressed={view === option}
-                className="h-9 px-3 font-mono text-xs"
-                onClick={() => setView(option)}
-              >
-                {option === 'combined' ? 'All' : capitalize(option)}
-              </Button>
-            ))}
-          </ToggleGroup>
+      {/* Left to right: what is shown (stream, filter, highlights), then what is loaded
+          (count and download) and the stream controls. */}
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line bg-surface-control px-3 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:px-7 lg:min-h-(--height-detail-toolbar) lg:flex-nowrap lg:py-[11px]">
+        <ToggleGroup aria-label="Log stream filter" className="self-start sm:self-auto">
+          {(['combined', 'out', 'err'] as const).map(option => (
+            <Button
+              key={option}
+              variant="toggle"
+              aria-pressed={view === option}
+              className="h-9 px-3 font-mono text-xs"
+              onClick={() => setView(option)}
+            >
+              {option === 'combined' ? 'All' : capitalize(option)}
+            </Button>
+          ))}
+        </ToggleGroup>
+
+        {/* Each box filters or only highlights, in its own color. Boxes keep one width,
+            so adding one never resizes the others; it fits on the row or wraps. */}
+        <div ref={searchBoxesRef} className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-1">
+          {terms.map((term, index) => (
+            <div
+              key={term.id}
+              className="flex min-w-0 flex-1 basis-60 items-center sm:flex-none"
+              style={getSearchColorStyle(term.color)}
+            >
+              {index > 0 ? (
+                // A tab on the box's edge, in the color the box paints its matches.
+                <button
+                  type="button"
+                  aria-label="Close box"
+                  title="Close box"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center rounded-l-md border border-r-0 border-line bg-key text-(--mark) hover:bg-key-hover focus-visible:outline-2 focus-visible:outline-cyan"
+                  onClick={() => logSearch.removeTerm(term.id)}
+                >
+                  <X className="size-3" strokeWidth={2.5} />
+                </button>
+              ) : null}
+              <SearchFilter
+                draft={getDraft(term)}
+                phase={logSearch.getPhase(term)}
+                onDraftChange={next => setDraft(term.id, next)}
+                caseSensitive={term.isCaseSensitive}
+                onCaseSensitiveChange={next =>
+                  logSearch.updateTerm(term.id, { isCaseSensitive: next })
+                }
+                regex={term.isRegex}
+                onRegexChange={next => logSearch.updateTerm(term.id, { isRegex: next })}
+                isFilter={term.isFilter}
+                onIsFilterChange={next => logSearch.updateTerm(term.id, { isFilter: next })}
+                hasSearchIcon={false}
+                placeholder={term.isFilter ? 'Filter loaded logs…' : 'Highlight loaded logs…'}
+                className="max-w-full min-w-0 flex-1 sm:w-[22rem] sm:max-w-full sm:flex-none"
+              />
+            </div>
+          ))}
+          {terms.length < MAX_SEARCH_TERMS ? (
+            <Button
+              variant="toggle"
+              aria-label="Add a search box"
+              title="Add a box that filters or highlights, in its own color"
+              className="size-7 shrink-0 rounded-md p-0"
+              onClick={() => {
+                shouldFocusNewBoxRef.current = true;
+                logSearch.addTerm();
+              }}
+            >
+              <Plus className="size-3.5" strokeWidth={2.5} />
+            </Button>
+          ) : null}
         </div>
 
-        <div className="flex min-w-0 items-center justify-center">
-          <SearchFilter
-            draft={searchDraft}
-            phase={searchPhase}
-            onDraftChange={setSearchDraft}
-            caseSensitive={caseSensitive}
-            onCaseSensitiveChange={next => setCaseSensitive(next)}
-            regex={regex}
-            onRegexChange={next => setRegex(next)}
-            placeholder="Filter loaded logs…"
-          />
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="toggle"
-            aria-label="Jump to latest"
-            title="Jump to latest"
-            className="size-9 p-0"
-            disabled={isCatchingUp}
-            onClick={() => void refreshLatest()}
-          >
-            <ArrowDownToLine className="size-4" />
-          </Button>
-          <Button
-            variant="toggle"
-            aria-label="Wrap lines"
-            aria-pressed={wrap}
-            className="size-9 p-0"
-            title="Wrap lines"
-            onClick={() => setWrap(value => !value)}
-          >
-            <TextWrap className="size-4" />
-          </Button>
+        {/* The count leads a right-aligned group, so when it gets longer it grows
+            to the left and the controls after it stay put. */}
+        <div className="flex items-center justify-end gap-2 sm:ml-auto">
+          <div className="flex h-9 items-stretch overflow-hidden rounded-lg border border-line">
+            <span
+              className="inline-flex min-w-9 items-center justify-center px-2.5 font-mono text-[11px] text-muted"
+              title={isFiltered ? 'Filtered / loaded lines' : 'Loaded lines'}
+            >
+              {isFiltered ? `${filteredEntries.length}/${entries.length}` : entries.length}
+            </span>
+            <Button
+              variant="toggle"
+              aria-label="Download filtered logs"
+              className="w-9 shrink-0 rounded-none border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0"
+              title="Download filtered logs"
+              disabled={!filteredEntries.length}
+              onClick={downloadFilteredLogs}
+            >
+              <Download className="size-3.5" />
+            </Button>
+          </div>
           <div className="relative">
             <Button
               variant="toggle"
@@ -632,10 +723,20 @@ export function LogsPage() {
               </span>
             ) : null}
           </div>
+          <Button
+            variant="toggle"
+            aria-label="Wrap lines"
+            aria-pressed={wrap}
+            className="size-9 p-0"
+            title="Wrap lines"
+            onClick={() => setWrap(value => !value)}
+          >
+            <TextWrap className="size-4" />
+          </Button>
         </div>
       </div>
 
-      {sharedFile || dropped || searchResult.error ? (
+      {sharedFile || dropped || compiledSearch.error ? (
         <div className="shrink-0 space-y-3 px-3 py-3 sm:px-7">
           {sharedFile ? (
             <div className="rounded-lg border border-cyan/30 bg-cyan/5 px-4 py-2 font-mono text-xs text-cyan">
@@ -644,44 +745,82 @@ export function LogsPage() {
           ) : null}
           {dropped ? (
             <div className="rounded-lg border border-danger/40 bg-danger/8 px-4 py-2 font-mono text-xs text-danger">
-              {dropped} paused events were dropped from memory. Load history to recover them.
+              {dropped} paused events were dropped from memory. Jump to the latest lines to recover
+              them.
             </div>
           ) : null}
-          {searchResult.error ? (
-            <div className="font-mono text-xs text-danger">{searchResult.error}</div>
+          {compiledSearch.error ? (
+            <div className="font-mono text-xs text-danger">{compiledSearch.error}</div>
           ) : null}
         </div>
       ) : null}
 
       <div className={cn('relative min-h-0 flex-1', isFilterPending && 'opacity-80')}>
-        <div className="absolute top-2 right-2 z-10 flex h-8 items-stretch overflow-hidden rounded-lg border border-line/80 bg-surface-plane/90 shadow-lg backdrop-blur-sm">
-          <span
-            className="inline-flex min-w-8 items-center justify-center px-2.5 font-mono text-[11px] text-muted"
-            title={deferredSearch ? 'Filtered / loaded lines' : 'Loaded lines'}
+        {/* Docked in the corner inside the scrollbars: a flat anchor while new lines
+            scroll into view, a raised key to get back to them otherwise. */}
+        {isFollowing && !dropped ? (
+          <button
+            type="button"
+            aria-label="Anchored to the latest line"
+            aria-pressed
+            title={
+              paused
+                ? 'Anchored to the latest line; new lines wait until you resume. Click to stay here'
+                : 'Anchored: new lines scroll into view. Click to stay here'
+            }
+            className="absolute z-10 flex items-center justify-center rounded-tl-lg border-t border-l border-line bg-key-pressed text-cyan shadow-[inset_0_2px_4px_rgb(0_0_0_/_0.42)] hover:bg-key focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan"
+            style={cornerButtonStyle}
+            onClick={() => setFollowing(false)}
           >
-            {deferredSearch ? `${searchResult.entries.length}/${entries.length}` : entries.length}
-          </span>
-          <Button
-            variant="toggle"
-            aria-label="Download filtered logs"
-            className="size-8 shrink-0 rounded-none border-0 border-l border-line/80 p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0"
-            title="Download filtered logs"
-            disabled={!filteredEntries.length}
-            onClick={downloadFilteredLogs}
+            <Anchor className="size-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+            disabled={isCatchingUp}
+            className="absolute z-10 flex items-center justify-center rounded-tl-lg border-t border-l border-line bg-key text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)] hover:bg-key-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan disabled:cursor-not-allowed disabled:opacity-45"
+            style={cornerButtonStyle}
+            onClick={jumpToLatest}
           >
-            <Download className="size-3.5" />
-          </Button>
-        </div>
+            <ArrowDown className="size-4" strokeWidth={2.25} />
+          </button>
+        )}
         <div
           ref={scrollRef}
           className="h-full min-h-0 overflow-auto [overflow-anchor:none]"
+          onWheel={markUserScroll}
+          onTouchMove={markUserScroll}
+          onKeyDown={markUserScroll}
+          onPointerDown={() => {
+            // Covers dragging the scrollbar, which sends no events while it moves.
+            isPointerDownRef.current = true;
+            const release = () => {
+              isPointerDownRef.current = false;
+              window.removeEventListener('pointerup', release);
+              window.removeEventListener('pointercancel', release);
+            };
+            window.addEventListener('pointerup', release);
+            window.addEventListener('pointercancel', release);
+          }}
           onScroll={event => {
             const element = event.currentTarget;
             if (!element.clientHeight) {
               return;
             }
-            isFollowingRef.current =
-              element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+            const isAtBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+            const isScrollingDown = element.scrollTop > lastScrollTopRef.current;
+            lastScrollTopRef.current = element.scrollTop;
+            const isUserScroll =
+              isPointerDownRef.current || performance.now() < userScrollUntilRef.current;
+            // Following starts again only when the user scrolls down to the end, so
+            // the virtualizer's own adjustments cannot undo a click on the anchor.
+            if (
+              isFollowingRef.current ? !isAtBottom : isAtBottom && isScrollingDown && isUserScroll
+            ) {
+              setFollowing(isAtBottom);
+            }
             if (element.scrollTop < 32) {
               void loadOlder();
             }
@@ -691,7 +830,7 @@ export function LogsPage() {
             <div className="p-8 text-center font-mono text-xs text-muted">Loading active logs…</div>
           ) : !filteredEntries.length ? (
             <div className="p-8 text-center font-mono text-xs text-muted">
-              {deferredSearch
+              {isFiltered
                 ? 'No loaded lines match the search.'
                 : 'No log lines in the active file yet.'}
             </div>
@@ -704,8 +843,8 @@ export function LogsPage() {
                     key={virtualRow.key}
                     entry={entry}
                     wrap={wrap}
-                    highlight={searchResult.highlight}
-                    canJumpToContext={canJumpToContext}
+                    highlights={compiledSearch.layers}
+                    canJumpToContext={isFiltered}
                     focused={focusedEntryId === entry.id}
                     onReveal={revealLogEntry}
                     dataIndex={virtualRow.index}

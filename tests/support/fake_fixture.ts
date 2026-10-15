@@ -65,6 +65,23 @@ export const logLines = (page: Page) =>
     .locator('[data-component="LogRow"]')
     .evaluateAll(rows => rows.map(row => row.lastElementChild?.textContent ?? ''));
 
+/**
+ * Scrolls the logs to the end with the mouse wheel. Following starts again only
+ * after scrolling by hand; setting `scrollTop` from code does not count.
+ */
+export async function wheelLogsToEnd(page: Page) {
+  const scroller = page.locator('[data-component="LogsPage"] .overflow-auto');
+  await scroller.hover();
+  await expect
+    .poll(async () => {
+      await page.mouse.wheel(0, 100_000);
+      return scroller.evaluate(
+        element => element.scrollHeight - element.scrollTop - element.clientHeight
+      );
+    })
+    .toBeLessThan(2);
+}
+
 /** Reads all loaded lines through the export, including rows outside the virtual viewport. */
 export async function downloadLogLines(page: Page) {
   const downloadStarted = page.waitForEvent('download');

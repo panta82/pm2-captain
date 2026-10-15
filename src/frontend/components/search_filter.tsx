@@ -1,4 +1,4 @@
-import { CaseSensitive, Loader2, Regex, Search, X } from 'lucide-react';
+import { CaseSensitive, Funnel, Loader2, Regex, Search, X } from 'lucide-react';
 
 import type { IDebouncePhase } from '@/lib/debounce';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,9 @@ function TypingDots({ className }: { className?: string }) {
   );
 }
 
+const TOGGLE_CLASS =
+  'h-full w-9 shrink-0 rounded-none border-0 border-l border-line p-0 shadow-none last:rounded-r-[7px] focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0';
+
 export function SearchFilter({
   draft,
   phase = 'idle',
@@ -29,6 +32,9 @@ export function SearchFilter({
   onCaseSensitiveChange,
   regex,
   onRegexChange,
+  isFilter,
+  onIsFilterChange,
+  hasSearchIcon = true,
   placeholder,
   className,
 }: {
@@ -40,6 +46,11 @@ export function SearchFilter({
   onCaseSensitiveChange: (next: boolean) => void;
   regex: boolean;
   onRegexChange: (next: boolean) => void;
+  /** Hide the lines without a match, or only highlight the matches. */
+  isFilter?: boolean;
+  /** Omit where a box always filters. */
+  onIsFilterChange?: (next: boolean) => void;
+  hasSearchIcon?: boolean;
   placeholder: string;
   className?: string;
 }) {
@@ -52,7 +63,9 @@ export function SearchFilter({
       )}
     >
       <div className="relative min-h-0 min-w-0 flex-1 self-stretch">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+        {hasSearchIcon ? (
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+        ) : null}
         <input
           value={draft}
           onChange={event => onDraftChange(event.target.value)}
@@ -64,7 +77,8 @@ export function SearchFilter({
           }}
           placeholder={placeholder}
           className={cn(
-            'block h-full w-full border-0 bg-transparent py-0 pl-9 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70',
+            'block h-full w-full border-0 bg-transparent py-0 font-mono text-xs leading-none text-white outline-none placeholder:text-muted/70',
+            hasSearchIcon ? 'pl-9' : 'pl-3',
             draft || phase !== 'idle' ? 'pr-9' : 'pr-3'
           )}
         />
@@ -98,7 +112,7 @@ export function SearchFilter({
         variant="toggle"
         aria-label="Case sensitive"
         aria-pressed={caseSensitive}
-        className="h-full w-9 shrink-0 rounded-none border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
+        className={TOGGLE_CLASS}
         title="Case sensitive"
         onClick={() => onCaseSensitiveChange(!caseSensitive)}
       >
@@ -108,12 +122,28 @@ export function SearchFilter({
         variant="toggle"
         aria-label="Regular expression"
         aria-pressed={regex}
-        className="h-full w-9 shrink-0 rounded-none rounded-tr-[7px] rounded-br-[7px] border-0 border-l border-line p-0 shadow-none focus-visible:outline-offset-[-2px] active:translate-y-0 aria-pressed:translate-y-0"
+        className={TOGGLE_CLASS}
         title="Regular expression"
         onClick={() => onRegexChange(!regex)}
       >
         <Regex className="size-4" />
       </Button>
+      {onIsFilterChange ? (
+        <Button
+          variant="toggle"
+          aria-label="Filter lines"
+          aria-pressed={isFilter}
+          className={TOGGLE_CLASS}
+          title={
+            isFilter
+              ? 'Filtering: only matching lines are shown'
+              : 'Highlighting: every line is shown'
+          }
+          onClick={() => onIsFilterChange(!isFilter)}
+        >
+          <Funnel className="size-4" fill={isFilter ? 'currentColor' : 'none'} fillOpacity={0.35} />
+        </Button>
+      ) : null}
     </div>
   );
 }
