@@ -62,7 +62,12 @@ export const ProcessActions = memo(
           disabled={!daemonAvailable || action.isPending}
           title={!daemonAvailable ? 'Daemon is not connected' : undefined}
           onClick={() =>
-            action.mutate({ daemonId: process.daemonId, pmId: process.pmId, action: primaryAction })
+            action.mutate({
+              daemonId: process.daemonId,
+              connectionId: process.connectionId,
+              pmId: process.pmId,
+              action: primaryAction,
+            })
           }
         >
           {primaryPending ? (
@@ -87,7 +92,12 @@ export const ProcessActions = memo(
                   : undefined
           }
           onClick={() =>
-            action.mutate({ daemonId: process.daemonId, pmId: process.pmId, action: 'stop' })
+            action.mutate({
+              daemonId: process.daemonId,
+              connectionId: process.connectionId,
+              pmId: process.pmId,
+              action: 'stop',
+            })
           }
         >
           {stopPending ? (
@@ -104,6 +114,9 @@ export const ProcessActions = memo(
     prev.compact === next.compact &&
     prev.daemonAvailable === next.daemonAvailable &&
     prev.process.daemonId === next.process.daemonId &&
+    // A daemon moved to another location can show the same IDs and names; the
+    // buttons must act on the new connection.
+    prev.process.connectionId === next.process.connectionId &&
     prev.process.pmId === next.process.pmId &&
     prev.process.name === next.process.name &&
     prev.process.status === next.process.status &&

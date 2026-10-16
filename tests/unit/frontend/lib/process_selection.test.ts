@@ -12,6 +12,7 @@ import type { IProcessStatus, IProcessSummary } from '../../../../src/shared/con
 function process(pmId: number, status: IProcessStatus, isCaptain = false): IProcessSummary {
   return {
     daemonId: 'daemon',
+    connectionId: 'connection',
     pmId,
     name: `app-${pmId}`,
     namespace: 'default',

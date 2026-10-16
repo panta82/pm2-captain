@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 
+import { readPreference, writePreference } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 
 const STORAGE_KEY = 'pm2-captain:process-sidebar-width';
@@ -19,10 +20,7 @@ function constrainWidth(width: number): number {
 }
 
 function loadWidth(): number {
-  if (typeof window === 'undefined') {
-    return DEFAULT_WIDTH;
-  }
-  const storedWidth = Number(window.localStorage.getItem(STORAGE_KEY));
+  const storedWidth = Number(readPreference(STORAGE_KEY));
   return Number.isFinite(storedWidth) && storedWidth > 0
     ? constrainWidth(storedWidth)
     : DEFAULT_WIDTH;
@@ -60,7 +58,7 @@ export function ResizableSidebar({
       return;
     }
     resizeRef.current = null;
-    window.localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+    writePreference(STORAGE_KEY, String(widthRef.current));
     restoreBodyStyles();
   };
 
@@ -91,7 +89,7 @@ export function ResizableSidebar({
     }
     event.preventDefault();
     updateWidth(widthRef.current + (event.key === 'ArrowRight' ? 16 : -16));
-    window.localStorage.setItem(STORAGE_KEY, String(widthRef.current));
+    writePreference(STORAGE_KEY, String(widthRef.current));
   };
 
   return (

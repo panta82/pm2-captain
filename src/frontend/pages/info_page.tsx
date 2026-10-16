@@ -1,6 +1,7 @@
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react';
 
 import { useBulkAction } from '@/lib/bulk_action';
+import { useDaemonConnectionId } from '@/lib/daemon_connection';
 import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
 import { compactPath, formatBytes, formatDuration } from '@/lib/utils';
@@ -169,8 +170,14 @@ export function InfoPage() {
     select: ({ daemonId, pmIds }) => ({ daemonId, pmIds }),
     structuralSharing: true,
   });
+  const connectionId = useDaemonConnectionId(daemonId);
   const details = trpc.useQueries(t =>
-    pmIds.map(id => t.processes.detail({ daemonId, pmId: id }, { refetchInterval: 2_000 }))
+    pmIds.map(id =>
+      t.processes.detail(
+        { daemonId, connectionId, pmId: id },
+        { refetchInterval: 2_000, enabled: connectionId !== undefined }
+      )
+    )
   );
   const processes = details.flatMap(detail => (detail.data ? [detail.data] : []));
   if (details.length > 1 && processes.length < details.length) {

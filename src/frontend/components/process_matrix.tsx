@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import { readPreference, writePreference } from '@/lib/preferences';
 import { processLink } from '@/lib/process_route';
 import { cn } from '@/lib/utils';
 import { type IValueDiff, diffValues } from '@/lib/value_diff';
@@ -37,21 +38,13 @@ export function ProcessMatrix({
   groups: IMatrixGroup[];
 }) {
   const navigate = useNavigate();
-  const [showOnlyDifferences, setShowOnlyDifferences] = useState(() => {
-    try {
-      return localStorage.getItem(ONLY_DIFFERENCES_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [showOnlyDifferences, setShowOnlyDifferences] = useState(
+    () => readPreference(ONLY_DIFFERENCES_STORAGE_KEY) === 'true'
+  );
 
   const chooseRows = (onlyDifferences: boolean) => {
     setShowOnlyDifferences(onlyDifferences);
-    try {
-      localStorage.setItem(ONLY_DIFFERENCES_STORAGE_KEY, String(onlyDifferences));
-    } catch {
-      // Ignore private-mode and quota failures.
-    }
+    writePreference(ONLY_DIFFERENCES_STORAGE_KEY, String(onlyDifferences));
   };
 
   const openSelection = (selection: IProcessSummary[]) => {

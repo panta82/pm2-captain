@@ -8,14 +8,18 @@ import '@fontsource/inter/latin-700.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { loadPreferences } from '@/lib/preferences';
 import { APIProvider } from '@/lib/trpc';
 
 import { Root } from '@/root';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <APIProvider>
-      <Root />
-    </APIProvider>
-  </StrictMode>
-);
+// The desktop app's preferences have to be there for the first render.
+void loadPreferences().then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <APIProvider>
+        <Root />
+      </APIProvider>
+    </StrictMode>
+  );
+});

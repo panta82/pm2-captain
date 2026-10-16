@@ -70,7 +70,7 @@ type IPM2ApiConstructor = new (options: { pm2_home: string; daemon_mode: boolean
 // ~/.pm2 even on a computer without PM2. The API class alone does not. It reads
 // PM2_PROGRAMMATIC when it loads; without it, the first client in a new
 // directory prints PM2's install banner.
-async function loadPm2Api() {
+export async function loadPm2Api() {
   process.env.PM2_PROGRAMMATIC = 'true';
   return (await import('pm2/lib/API.js')).default as unknown as IPM2ApiConstructor;
 }

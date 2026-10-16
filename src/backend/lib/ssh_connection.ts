@@ -1,4 +1,4 @@
-import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { ChildProcess, ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import libOs from 'node:os';
@@ -7,8 +7,15 @@ import libPath from 'node:path';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods } from './app';
+import { trackOwnedProcess } from './owned_processes';
 
 const SSH_CONNECT_TIMEOUT = 15_000;
+/**
+ * Bounds each connection attempt in SSH itself too, so an attempt outlives
+ * Captain only briefly if Captain is killed before its own timer runs. An
+ * option given first on the command line wins over the user's SSH config.
+ */
+const SSH_BASE_OPTIONS = ['-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT / 1000}`];
 const MAX_SFTP_PACKET_SIZE = 16 * 1024 * 1024;
 const REMOTE_INFO_MARKER = '__PM2_CAPTAIN_REMOTE__';
 const REMOTE_INFO_COMMAND = `printf '${REMOTE_INFO_MARKER}\\n%s\\n%s\\n%s\\n%s\\n' "\${PM2_HOME:-$HOME/.pm2}" "\${USER:-$(id -un)}" "$(hostname)" "$HOME"`;
@@ -313,18 +320,82 @@ class SftpFile implements IRandomAccessFile {
   };
 }
 
-async function runSSHCommand(sshArgs: string[], command: string): Promise<string> {
+/**
+ * Says what to do about an SSH failure. SSH reports its own errors with exit
+ * code 255; a remote command never does that here.
+ */
+export function describeSshFailure(detail: string, exitCode: number | null) {
+  if (exitCode !== 255) {
+    return detail || `SSH exited ${exitCode}.`;
+  }
+  const hint = [
+    'Captain runs your system ssh without a terminal, so it cannot ask for passwords, passphrases or new host keys.',
+    'Check that "ssh <destination>" works without prompts: keys loaded in an SSH agent, and the host already in known_hosts.',
+    process.env.SSH_AUTH_SOCK
+      ? ''
+      : 'No SSH agent is available to Captain (SSH_AUTH_SOCK is not set).',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return detail ? `${detail}\n${hint}` : `SSH could not connect. ${hint}`;
+}
+
+function describeSpawnError(error: NodeJS.ErrnoException) {
+  return error.code === 'ENOENT'
+    ? `The ssh command was not found. Install OpenSSH, or make sure ssh is on the PATH Captain runs with (${process.env.PATH || 'empty'}).`
+    : `Unable to start SSH: ${error.message}`;
+}
+
+/**
+ * Ends an SSH child. A detached child leads its own process group, which also
+ * holds a ProxyCommand it started.
+ */
+function killSSH(child: ChildProcess, signal: NodeJS.Signals, isDetached: boolean) {
+  if (isDetached && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // The group is gone; fall back to the child itself.
+    }
+  }
+  child.kill(signal);
+}
+
+async function runSSHCommand(
+  sshArgs: string[],
+  command: string,
+  { isDetached, signal }: { isDetached: boolean; signal: AbortSignal }
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', [...sshArgs, command], { stdio: ['ignore', 'pipe', 'pipe'] });
+    if (signal.aborted) {
+      reject(new SshConnectionError('The SSH connection is shutting down.'));
+      return;
+    }
+    const child = spawn('ssh', [...SSH_BASE_OPTIONS, ...sshArgs, command], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: isDetached,
+    });
+    trackOwnedProcess(child);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let outputSize = 0;
     let killTimer: NodeJS.Timeout | null = null;
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
-      reject(new SshConnectionError('SSH connection timed out.'));
-    }, SSH_CONNECT_TIMEOUT);
+    const end = (error: SshConnectionError) => {
+      killSSH(child, 'SIGTERM', isDetached);
+      killTimer = setTimeout(() => killSSH(child, 'SIGKILL', isDetached), 1_000);
+      reject(error);
+    };
+    const timer = setTimeout(
+      () => end(new SshConnectionError('SSH connection timed out.')),
+      SSH_CONNECT_TIMEOUT
+    );
+    // Stopping Captain or removing the daemon ends a pending discovery at once.
+    const onAbort = () => {
+      clearTimeout(timer);
+      end(new SshConnectionError('The SSH connection is shutting down.'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
     child.stdout.on('data', (chunk: Buffer) => {
       outputSize += chunk.length;
       if (outputSize <= 64 * 1024) {
@@ -338,15 +409,21 @@ async function runSSHCommand(sshArgs: string[], command: string): Promise<string
     });
     child.once('error', error => {
       clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
       if (killTimer) {
         clearTimeout(killTimer);
       }
-      reject(new SshConnectionError(`Unable to start SSH: ${error.message}`));
+      reject(new SshConnectionError(describeSpawnError(error)));
     });
     child.once('close', code => {
       clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
       if (killTimer) {
         clearTimeout(killTimer);
+        // SSH ended on SIGTERM; a helper in its group may have ignored it.
+        if (isDetached) {
+          killSSH(child, 'SIGKILL', true);
+        }
       }
       if (code === 0 && outputSize <= 64 * 1024) {
         resolve(Buffer.concat(stdout).toString('utf8'));
@@ -355,8 +432,9 @@ async function runSSHCommand(sshArgs: string[], command: string): Promise<string
       const detail = Buffer.concat(stderr).toString('utf8').trim();
       reject(
         new SshConnectionError(
-          detail ||
-            (outputSize > 64 * 1024 ? 'SSH returned too much output.' : `SSH exited ${code}.`)
+          outputSize > 64 * 1024
+            ? 'SSH returned too much output.'
+            : describeSshFailure(detail, code)
         )
       );
     });
@@ -396,6 +474,11 @@ export function parseRemoteInfo(
 }
 
 export function createSshConnection({ settings, log }: IContainer) {
+  // The desktop app has no terminal for SSH to prompt on. Its own process group
+  // lets the app end SSH and its ProxyCommand together if this backend dies.
+  // The CLI keeps SSH in its terminal's process group, as before.
+  const isDetached = settings.runtime === 'desktop';
+  let _discovery = new AbortController();
   let _remoteInfo: ISshRemoteInfo | null = null;
   let _socketDirectory: string | null = null;
   let _process: ChildProcessWithoutNullStreams | null = null;
@@ -413,20 +496,25 @@ export function createSshConnection({ settings, log }: IContainer) {
     }
     await new Promise<void>(resolve => {
       const timer = setTimeout(() => {
-        child.kill('SIGKILL');
+        killSSH(child, 'SIGKILL', isDetached);
         resolve();
       }, 1_000);
       child.once('close', () => {
         clearTimeout(timer);
+        // SSH ended on SIGTERM; a helper in its group may have ignored it.
+        if (isDetached) {
+          killSSH(child, 'SIGKILL', true);
+        }
         resolve();
       });
       child.stdin.end();
-      child.kill('SIGTERM');
+      killSSH(child, 'SIGTERM', isDetached);
     });
   };
 
   const releaseSSHResources = async () => {
     _isStopping = true;
+    _discovery.abort();
     await stopSSHProcess();
     _sftp = null;
     _remoteInfo = null;
@@ -469,11 +557,13 @@ export function createSshConnection({ settings, log }: IContainer) {
           '-L',
           `${pubSocket}:${remotePubSocket}`,
           '-s',
+          ...SSH_BASE_OPTIONS,
           ...settings.sshArgs!,
           'sftp',
         ],
-        { stdio: ['pipe', 'pipe', 'pipe'] }
+        { stdio: ['pipe', 'pipe', 'pipe'], detached: isDetached }
       );
+      trackOwnedProcess(child);
       _process = child;
       const sftp = new SftpClient(child);
       _sftp = sftp;
@@ -485,11 +575,15 @@ export function createSshConnection({ settings, log }: IContainer) {
 
       const connectionFailure = new Promise<never>((_resolve, reject) => {
         child.once('error', error => {
-          reject(new SshConnectionError(`Unable to start SSH: ${error.message}`));
+          reject(new SshConnectionError(describeSpawnError(error)));
         });
         child.once('close', code => {
           const detail = _stderr.trim();
-          const error = new SshConnectionError(detail || `SSH connection closed (${code}).`);
+          const error = new SshConnectionError(
+            code === 255
+              ? describeSshFailure(detail, code)
+              : detail || `SSH connection closed (${code}).`
+          );
           sftp.rejectAll(error);
           if (_process === child) {
             _process = null;
@@ -558,9 +652,13 @@ export function createSshConnection({ settings, log }: IContainer) {
         return;
       }
       _isStopping = false;
+      _discovery = new AbortController();
       try {
         _remoteInfo = parseRemoteInfo(
-          await runSSHCommand(settings.sshArgs, REMOTE_INFO_COMMAND),
+          await runSSHCommand(settings.sshArgs, REMOTE_INFO_COMMAND, {
+            isDetached,
+            signal: _discovery.signal,
+          }),
           settings.pm2Home
         );
         _socketDirectory = await fs.mkdtemp(libPath.join(libOs.tmpdir(), 'pm2c-'));
@@ -572,6 +670,12 @@ export function createSshConnection({ settings, log }: IContainer) {
     };
 
     ensureConnected = connectSSH;
+
+    /**
+     * Ends a pending discovery or connection attempt and the SSH processes of
+     * this daemon right away, without waiting for the attempt to finish first.
+     */
+    abort = releaseSSHResources;
 
     openFile = async (path: string): Promise<IRandomAccessFile> => {
       await connectSSH();

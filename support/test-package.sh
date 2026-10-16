@@ -20,11 +20,36 @@ if [[ -z "$package_path" ]]; then
   exit 1
 fi
 
-tar -tzf "$package_path" | grep -Fx 'package/install.sh' >/dev/null
+tar -tzf "$package_path" > "$package_test_dir/files.txt"
+for required in package/install.sh package/dist/backend/app.js package/dist/frontend/index.html package/README.md package/LICENSE; do
+  grep -Fx "$required" "$package_test_dir/files.txt" >/dev/null || {
+    echo "The package is missing $required." >&2
+    exit 1
+  }
+done
+# Desktop sources, staging, installers and development files stay out.
+if grep -E '^package/(src|tests|build|support|scratch|dist/desktop)/|^package/electron-builder\.yml$' "$package_test_dir/files.txt"; then
+  echo "The package contains files that belong to development or the desktop app." >&2
+  exit 1
+fi
 
 npm_config_cache="$package_test_dir/npm-cache" \
   npm install --ignore-scripts --no-audit --no-fund --prefix "$package_test_dir/install" "$package_path"
 
-"$package_test_dir/install/node_modules/.bin/pm2-captain" --help >/dev/null
+installed="$package_test_dir/install/node_modules"
+# npm users never get Electron or the desktop updater.
+for desktop_only in electron electron-updater electron-builder; do
+  if [[ -e "$installed/$desktop_only" ]]; then
+    echo "Installing the package pulled in $desktop_only." >&2
+    exit 1
+  fi
+done
+if grep -rlE "require\(\"electron(-updater)?\"\)" "$installed/pm2-captain/dist" >/dev/null; then
+  echo "The npm runtime requires Electron." >&2
+  exit 1
+fi
+
+"$installed/.bin/pm2-captain" --help >/dev/null
+node support/test-package-smoke.mjs "$installed/.bin/pm2-captain" "$package_test_dir"
 
 echo "Packed artifact installed and executable smoke test passed."

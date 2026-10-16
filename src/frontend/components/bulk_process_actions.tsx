@@ -2,7 +2,7 @@ import { LoaderCircle, type LucideIcon, Play, RotateCw, Square } from 'lucide-re
 import { useEffect, useState } from 'react';
 
 import { useBulkAction } from '@/lib/bulk_action';
-import { bulkActionTargets } from '@/lib/process_selection';
+import { bulkActionTargets, stopConfirmationKey } from '@/lib/process_selection';
 import { cn } from '@/lib/utils';
 
 import type { IProcessAction, IProcessSummary } from '@shared/contracts';
@@ -29,7 +29,7 @@ export function BulkProcessActions({
   const stopCount = stopTargets.length;
   // The confirmation is for exactly the processes it was asked for. A changed
   // selection, or a process that stopped meanwhile, takes a new first click.
-  const stopKey = stopTargets.map(process => `${process.daemonId}:${process.pmId}`).join(',');
+  const stopKey = stopConfirmationKey(stopTargets);
   const [armedStopKey, setArmedStopKey] = useState<string | null>(null);
   const isStopArmed = armedStopKey === stopKey;
 

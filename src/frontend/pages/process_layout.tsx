@@ -1,8 +1,10 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 import { BulkActionProvider } from '@/lib/bulk_action';
+import { useConnectionReplaced } from '@/lib/daemon_connection';
 import { useFilteredProcesses } from '@/lib/process_list_filter';
 import { getProcessTab, processLink, processRouteApi, setProcessTab } from '@/lib/process_route';
 import { formatPmIds } from '@/lib/process_selection';
@@ -33,10 +35,13 @@ export function ProcessLayout() {
   const sidebarTab = isMulti ? getProcessTab() : tab;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
+  const connectionId = list.data?.daemons.find(
+    daemon => daemon.daemonId === daemonId
+  )?.connectionId;
   const detail = trpc.processes.detail.useQuery(
-    { daemonId, pmId: numericId },
+    { daemonId, connectionId, pmId: numericId },
     {
-      enabled: pmIds.length === 1,
+      enabled: pmIds.length === 1 && connectionId !== undefined,
       refetchInterval: query => (query.state.error ? false : 2_000),
       retry: (failureCount, error) => error.data?.code !== 'NOT_FOUND' && failureCount < 2,
     }
@@ -48,6 +53,13 @@ export function ProcessLayout() {
       setProcessTab(tab);
     }
   }, [isMulti, tab]);
+
+  // The selected PM2 IDs belonged to the daemon's previous location. They may
+  // name other processes now, so the page goes back to the daemon's status.
+  useConnectionReplaced(daemonId, connectionId, () => {
+    toast.info('The daemon was reconfigured. Showing its processes.');
+    void navigate({ to: '/', replace: true });
+  });
 
   useEffect(() => {
     // For a selection the list decides: a process that is gone only leaves the selection.
@@ -152,7 +164,7 @@ export function ProcessLayout() {
   const isDaemonAvailable = selectedDaemon?.status === 'online';
 
   return (
-    <BulkActionProvider daemonId={daemonId}>
+    <BulkActionProvider daemonId={daemonId} connectionId={connectionId}>
       <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
         <ResizableSidebar className="hidden min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-r border-line bg-surface-plane lg:flex">
           <AppHeader data={list.data} loading={false} failed={false} sidebar />

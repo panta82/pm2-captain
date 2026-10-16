@@ -1,6 +1,7 @@
 import { Activity, memo, useState } from 'react';
 
-import type { ProcessTab } from '@/lib/process_route';
+import { useDaemonConnectionId } from '@/lib/daemon_connection';
+import { type ProcessTab, processRouteApi } from '@/lib/process_route';
 
 import { EnvPage } from '@/pages/env_page';
 import { InfoPage } from '@/pages/info_page';
@@ -17,6 +18,10 @@ export const ProcessTabs = memo(function ProcessTabs({
   tab: ProcessTab;
   selectionKey: string;
 }) {
+  const daemonId = processRouteApi.useParams({ select: params => params.daemonId });
+  // A daemon moved to another location gets a fresh log view: its history,
+  // cursors and stream belong to the old location.
+  const connectionId = useDaemonConnectionId(daemonId);
   const [selection, setSelection] = useState({ key: selectionKey, tabs: [tab] });
   if (selection.key !== selectionKey) {
     // Discard the old selection's hidden tabs, but reuse the active Info/Env DOM.
@@ -28,7 +33,11 @@ export const ProcessTabs = memo(function ProcessTabs({
 
   return selection.tabs.map(visitedTab => (
     <Activity key={visitedTab} mode={visitedTab === tab ? 'visible' : 'hidden'}>
-      {visitedTab === 'logs' ? <LogsPage key={selectionKey} /> : TAB_PAGES[visitedTab]}
+      {visitedTab === 'logs' ? (
+        <LogsPage key={`${selectionKey}:${connectionId}`} connectionId={connectionId} />
+      ) : (
+        TAB_PAGES[visitedTab]
+      )}
     </Activity>
   ));
 });

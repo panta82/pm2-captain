@@ -19,6 +19,7 @@ const pm2DaemonImporter = importer('pm2Daemon', () => import('./lib/pm2_daemon')
 const processManagerImporter = importer('processManager', () => import('./bl/process_manager'));
 const logManagerImporter = importer('logManager', () => import('./bl/log_manager'));
 const daemonManagerImporter = importer('daemonManager', () => import('./bl/daemon_manager'));
+const sessionAuthImporter = importer('sessionAuth', () => import('./web/session_auth'));
 const captainLauncherImporter = importer('captainLauncher', () => import('./bl/captain_launcher'));
 const webServerImporter = importer('webServer', () => import('./web/web_server'));
 
@@ -46,6 +47,7 @@ export const SERVICES = [
   processManagerImporter,
   logManagerImporter,
   daemonManagerImporter,
+  sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,
   fakeWorldImporter,
@@ -59,6 +61,7 @@ export const APP_SERVICES = [
   daemonStoreImporter,
   pm2HomeFinderImporter,
   daemonManagerImporter,
+  sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,
 ] as const;
@@ -85,6 +88,7 @@ export const FAKE_APP_SERVICES = [
   fakeDaemonStoreImporter,
   fakePm2HomeFinderImporter,
   daemonManagerImporter,
+  sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,
   fakeControlImporter,
@@ -106,9 +110,14 @@ declare module './framework/dependency_injection' {
 
 export type IContainer = IDIContainer<IBackendSettings>;
 export const createAppContainer = (settings: IBackendSettings) => {
+  const services = settings.fake ? FAKE_APP_SERVICES : APP_SERVICES;
   return createContainer<IBackendSettings>(
     settings,
-    settings.fake ? FAKE_APP_SERVICES : APP_SERVICES
+    // The desktop app owns window opening; the browser launch policy, its
+    // terminal banner and CLI handoff belong to the npm command only.
+    settings.runtime === 'desktop'
+      ? services.filter(service => service !== captainLauncherImporter)
+      : services
   );
 };
 

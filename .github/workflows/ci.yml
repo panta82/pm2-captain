@@ -10,6 +10,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# npm jobs never run Electron, so they skip its binary download.
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
 jobs:
   check:
     name: Typecheck, unit tests and package
@@ -22,9 +26,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # support/build-backend.sh lists the sources with ripgrep.
-      - name: Make sure ripgrep is installed
-        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:package
@@ -40,8 +41,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Make sure ripgrep is installed
-        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install --yes ripgrep)
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       # The browser tests run against dist, not the sources.

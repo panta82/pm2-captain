@@ -1,9 +1,16 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods, IAppWaitForMethod } from '../lib/app';
-import { FakeCommandSchema, IFakeCommand } from './fake_commands';
+import {
+  FakeCommandSchema,
+  FakeRegistryUnavailableError,
+  IFakeCommand,
+  InvalidFakeCommandError,
+} from './fake_commands';
 import { FakeTargetNotFoundError } from './fake_daemon';
 import { FakeScenarioNotFoundError, InvalidFakeScenarioError } from './fake_scenario';
 
@@ -18,10 +25,25 @@ export function createFakeControl({
   settings,
   fakeWorld,
   daemonManager,
-  captainLauncher,
+  sessionAuth,
   webServer,
   log,
 }: IContainer) {
+  // A desktop backend has an in-memory launch token on a random port. To be
+  // controlled from a terminal it writes its address and a separate token that
+  // only these fake routes accept into a private file in the app's profile.
+  const controlFile = settings.runtime === 'desktop' ? (settings.fake?.controlFile ?? null) : null;
+  const controlToken = controlFile ? randomBytes(32).toString('base64url') : null;
+
+  const isControlToken = (candidate: string | undefined) => {
+    if (!controlToken || !candidate) {
+      return false;
+    }
+    const left = Buffer.from(candidate);
+    const right = Buffer.from(controlToken);
+    return left.length === right.length && timingSafeEqual(left, right);
+  };
+
   // Captain's daemon list is part of what a scenario sets up, so a reset reads
   // it again. That takes the same steps as stopping and starting Captain.
   const reloadDaemons = async () => {
@@ -46,7 +68,7 @@ export function createFakeControl({
           const candidate = authorization?.startsWith('Bearer ')
             ? authorization.slice(7)
             : undefined;
-          if (!captainLauncher.authenticate(candidate)) {
+          if (!sessionAuth.authenticate(candidate) && !isControlToken(candidate)) {
             return reply.status(401).send({ error: 'Invalid PM2 Captain launch token.' });
           }
         });
@@ -66,8 +88,14 @@ export function createFakeControl({
             try {
               await this.run(commands.data);
             } catch (error) {
-              if (error instanceof InvalidFakeScenarioError) {
+              if (
+                error instanceof InvalidFakeScenarioError ||
+                error instanceof InvalidFakeCommandError
+              ) {
                 return reply.status(400).send({ error: error.message });
+              }
+              if (error instanceof FakeRegistryUnavailableError) {
+                return reply.status(409).send({ error: error.message });
               }
               if (
                 error instanceof FakeTargetNotFoundError ||
@@ -84,11 +112,31 @@ export function createFakeControl({
     };
 
     start = async (waitFor: IAppWaitForMethod) => {
-      await waitFor('captainLauncher');
+      // In the terminal, after the launcher's banner.
+      await waitFor(settings.runtime === 'cli' ? 'captainLauncher' : 'webServer');
+      if (controlFile && controlToken) {
+        const temporaryPath = `${controlFile}.${process.pid}.tmp`;
+        await fs.writeFile(
+          temporaryPath,
+          `${JSON.stringify({ baseURL: webServer.baseURL, token: controlToken })}\n`,
+          { mode: 0o600 }
+        );
+        await fs.rename(temporaryPath, controlFile);
+      }
       console.log(
         `Fake mode: showing the "${settings.fake?.scenario}" scenario, not real PM2 daemons.\n`
       );
     };
+
+    stop = async () => {
+      if (controlFile) {
+        await fs.rm(controlFile, { force: true });
+      }
+    };
+
+    // An app disposed while it is still starting skips stop(), and disposes
+    // only after the start, which may have written the control file, is done.
+    dispose = () => this.stop();
 
     /** Applies the commands in order and stops at the first one that fails. */
     run = async (commands: IFakeCommand[]) => {

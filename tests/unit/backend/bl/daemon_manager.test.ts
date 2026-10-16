@@ -3,10 +3,13 @@ import libPath from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  DaemonChangedError,
   DaemonConflictError,
   InvalidDaemonError,
+  StaleDaemonConnectionError,
   createDaemonManager,
 } from '../../../../src/backend/bl/daemon_manager';
+import { DaemonRegistryError } from '../../../../src/backend/lib/daemon_store';
 import type { IDaemonConfig } from '../../../../src/shared/contracts';
 
 interface IFakeSettings {
@@ -18,6 +21,7 @@ interface IFakeSettings {
 interface IFakeContainer {
   settings: IFakeSettings;
   app: {
+    start: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
   };
   pm2Daemon: {
@@ -25,6 +29,10 @@ interface IFakeContainer {
   };
   processManager: {
     list: ReturnType<typeof vi.fn>;
+    action: ReturnType<typeof vi.fn>;
+  };
+  sshConnection: {
+    abort: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -68,8 +76,14 @@ const mocked = vi.hoisted(() => ({
             },
           ],
         })),
+        action: vi.fn(async (_pmId: number, _action: string, assertCurrent?: () => void) => {
+          assertCurrent?.();
+          return { accepted: true, reconnecting: false };
+        }),
       },
       logManager: {},
+      identifiers: ['sshConnection'],
+      sshConnection: { abort: vi.fn(async () => undefined) },
     };
     mocked.containers.push(container as IFakeContainer);
     return container;
@@ -82,6 +96,16 @@ vi.mock('../../../../src/backend/container', async importOriginal => ({
 }));
 
 const DEFAULT_HOME = libPath.join(libOs.homedir(), '.pm2');
+
+/** What the daemon form sends as the version it was opened with. */
+function expectedOf(config: IDaemonConfig) {
+  const { daemonId, ...fields } = config;
+  if (fields.kind === 'ssh') {
+    const { lastKnownHostname, lastKnownUsername, ...editable } = fields;
+    return editable;
+  }
+  return fields;
+}
 
 const storedDaemons: IDaemonConfig[] = [
   {
@@ -106,6 +130,52 @@ const storedDaemons: IDaemonConfig[] = [
   },
 ];
 
+/** Stands in for daemons.json: content another process can change between calls. */
+function createMemoryStore(initial: IDaemonConfig[] | null) {
+  let content: IDaemonConfig[] | null | Error = initial;
+  let hint: (() => void) | null = null;
+  const store = {
+    path: '/config/pm2-captain/daemons.json',
+    load: vi.fn(async () => {
+      if (content instanceof Error) {
+        throw content;
+      }
+      return content;
+    }),
+    mutate: vi.fn(
+      async (operation: (current: IDaemonConfig[] | null) => IDaemonConfig[] | undefined) => {
+        if (content instanceof Error) {
+          throw content;
+        }
+        const next = operation(content);
+        if (next !== undefined) {
+          content = next;
+          store.save(next);
+        }
+        return content;
+      }
+    ),
+    /** Records every list that was written. */
+    save: vi.fn((_daemons: IDaemonConfig[]) => undefined),
+    watch: vi.fn(async (onHint: () => void) => {
+      hint = onHint;
+      return () => {
+        hint = null;
+      };
+    }),
+    /** Changes the file as an editor or another Captain would, and reports it. */
+    edit: (next: IDaemonConfig[] | null | Error) => {
+      content = next;
+      hint?.();
+    },
+    /** Changes the file without the watcher noticing yet. */
+    replaceUnnoticed: (next: IDaemonConfig[]) => {
+      content = next;
+    },
+  };
+  return store;
+}
+
 function setup({
   daemons = storedDaemons,
   detectedHomes = [],
@@ -117,10 +187,7 @@ function setup({
   pm2Home?: string | null;
   sshArgs?: string[] | null;
 } = {}) {
-  const daemonStore = {
-    load: vi.fn().mockResolvedValue(daemons),
-    save: vi.fn().mockResolvedValue(undefined),
-  };
+  const daemonStore = createMemoryStore(daemons);
   const pm2HomeFinder = { find: vi.fn().mockResolvedValue(detectedHomes) };
   const manager = createDaemonManager({
     settings: { pm2Home, sshArgs, runtimeDaemonId: null },
@@ -314,11 +381,15 @@ describe('daemonManager', () => {
   it('renames a daemon without reconnecting it', async () => {
     const { manager, daemonStore } = await startManager();
 
-    const updated = await manager.update(storedDaemons[1].daemonId, {
-      kind: 'ssh',
-      sshArgs: ['deploy@one.example.com'],
-      label: 'staging',
-    });
+    const updated = await manager.update(
+      storedDaemons[1].daemonId,
+      {
+        kind: 'ssh',
+        sshArgs: ['deploy@one.example.com'],
+        label: 'staging',
+      },
+      expectedOf(storedDaemons[1])
+    );
 
     expect(updated).toMatchObject({ label: 'staging', status: 'online' });
     expect(daemonStore.save).toHaveBeenCalledWith([
@@ -333,15 +404,23 @@ describe('daemonManager', () => {
   it('reconnects a daemon in place when its PM2 location changes', async () => {
     const { manager, daemonStore } = await startManager();
 
-    const remote = await manager.update(storedDaemons[1].daemonId, {
-      kind: 'ssh',
-      sshArgs: ['deploy@one.example.com'],
-      pm2Home: '~/.pm2-staging',
-    });
-    const local = await manager.update(storedDaemons[0].daemonId, {
-      kind: 'local',
-      pm2Home: '/srv/pm2-green',
-    });
+    const remote = await manager.update(
+      storedDaemons[1].daemonId,
+      {
+        kind: 'ssh',
+        sshArgs: ['deploy@one.example.com'],
+        pm2Home: '~/.pm2-staging',
+      },
+      expectedOf(storedDaemons[1])
+    );
+    const local = await manager.update(
+      storedDaemons[0].daemonId,
+      {
+        kind: 'local',
+        pm2Home: '/srv/pm2-green',
+      },
+      expectedOf(storedDaemons[0])
+    );
 
     // The identity remembered for the old location is dropped until the new one reports in.
     expect(remote.config).toEqual({
@@ -377,14 +456,22 @@ describe('daemonManager', () => {
     const { manager, daemonStore } = await startManager();
 
     await expect(
-      manager.update(storedDaemons[1].daemonId, {
-        kind: 'ssh',
-        sshArgs: ['-p', '2222', 'deploy@two.example.com'],
-        pm2Home: '/opt/pm2',
-      })
+      manager.update(
+        storedDaemons[1].daemonId,
+        {
+          kind: 'ssh',
+          sshArgs: ['-p', '2222', 'deploy@two.example.com'],
+          pm2Home: '/opt/pm2',
+        },
+        expectedOf(storedDaemons[1])
+      )
     ).rejects.toBeInstanceOf(DaemonConflictError);
     await expect(
-      manager.update(storedDaemons[0].daemonId, { kind: 'ssh', sshArgs: ['tk-dev'] })
+      manager.update(
+        storedDaemons[0].daemonId,
+        { kind: 'ssh', sshArgs: ['tk-dev'] },
+        expectedOf(storedDaemons[0])
+      )
     ).rejects.toBeInstanceOf(InvalidDaemonError);
 
     expect(daemonStore.save).not.toHaveBeenCalled();
@@ -394,12 +481,202 @@ describe('daemonManager', () => {
   it('removes any daemon and persists the removal before disposing it', async () => {
     const { manager, daemonStore } = await startManager();
 
-    await manager.remove(storedDaemons[0].daemonId);
+    await manager.remove(storedDaemons[0].daemonId, expectedOf(storedDaemons[0]));
 
     expect(daemonStore.save).toHaveBeenCalledWith(storedDaemons.slice(1));
     expect(mocked.containers[0].app.dispose).toHaveBeenCalledOnce();
     expect(manager.listDaemons().map(daemon => daemon.daemonId)).toEqual(
       storedDaemons.slice(1).map(daemon => daemon.daemonId)
     );
+  });
+
+  it('applies edits made on disk: renames keep the connection, a new location replaces it', async () => {
+    const { manager, daemonStore } = await startManager();
+    const before = manager.listDaemons();
+
+    daemonStore.edit([
+      { ...storedDaemons[2], label: 'two' },
+      { ...storedDaemons[0], pm2Home: '/srv/pm2-green' },
+    ]);
+    await vi.waitFor(() => expect(manager.listDaemons()).toHaveLength(2));
+
+    const after = manager.listDaemons();
+    expect(after.map(daemon => daemon.daemonId)).toEqual([
+      storedDaemons[2].daemonId,
+      storedDaemons[0].daemonId,
+    ]);
+    expect(after[0]).toMatchObject({ label: 'two', connectionId: before[2].connectionId });
+    expect(after[1].connectionId).not.toBe(before[0].connectionId);
+    // The replaced and the removed connections are closed.
+    await vi.waitFor(() => expect(mocked.containers[0].app.dispose).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mocked.containers[1].app.dispose).toHaveBeenCalledOnce());
+    expect(mocked.containers[2].app.dispose).not.toHaveBeenCalled();
+    expect(daemonStore.save).not.toHaveBeenCalled();
+  });
+
+  it('keeps the last working daemons while the file on disk is broken', async () => {
+    const { manager, daemonStore } = await startManager();
+
+    daemonStore.edit(new DaemonRegistryError(daemonStore.path, 'The file is not valid JSON.'));
+    await vi.waitFor(async () =>
+      expect((await manager.listProcesses()).registryWarning).toContain('not valid JSON')
+    );
+    expect(manager.listDaemons()).toHaveLength(3);
+    // A save would replace the user's file with what this process remembers.
+    await expect(manager.add({ kind: 'local', pm2Home: '/srv/pm2-green' })).rejects.toBeInstanceOf(
+      DaemonRegistryError
+    );
+
+    daemonStore.edit(null);
+    await vi.waitFor(async () =>
+      expect((await manager.listProcesses()).registryWarning).toContain('missing')
+    );
+    expect(manager.listDaemons()).toHaveLength(3);
+
+    daemonStore.edit(storedDaemons.slice(0, 1));
+    await vi.waitFor(() => expect(manager.listDaemons()).toHaveLength(1));
+    expect((await manager.listProcesses()).registryWarning).toBeNull();
+  });
+
+  it('merges a change made by another Captain into its own save', async () => {
+    const { manager, daemonStore } = await startManager();
+    const external = {
+      daemonId: '2f1d7f0e-8d5b-4f3e-9d61-0c8c0c7f61b1',
+      kind: 'local' as const,
+      pm2Home: '/srv/pm2-red',
+    };
+    // Written by another process; this one has not reloaded yet.
+    daemonStore.replaceUnnoticed([...storedDaemons, external]);
+
+    const added = await manager.add({ kind: 'local', pm2Home: '/srv/pm2-green' });
+
+    expect(
+      daemonStore.save.mock.lastCall?.[0].map((config: IDaemonConfig) => config.daemonId)
+    ).toEqual([
+      ...storedDaemons.map(config => config.daemonId),
+      external.daemonId,
+      added.daemon.daemonId,
+    ]);
+    expect(manager.listDaemons()).toHaveLength(5);
+  });
+
+  it('refuses to overwrite a daemon that changed since its form was opened', async () => {
+    const { manager, daemonStore } = await startManager();
+    daemonStore.edit([
+      { ...storedDaemons[0], label: 'renamed elsewhere' },
+      ...storedDaemons.slice(1),
+    ]);
+
+    await expect(
+      manager.update(
+        storedDaemons[0].daemonId,
+        { kind: 'local', pm2Home: '/srv/pm2-blue', label: 'mine' },
+        expectedOf(storedDaemons[0])
+      )
+    ).rejects.toBeInstanceOf(DaemonChangedError);
+    await expect(
+      manager.remove(storedDaemons[0].daemonId, expectedOf(storedDaemons[0]))
+    ).rejects.toBeInstanceOf(DaemonChangedError);
+    expect(daemonStore.save).not.toHaveBeenCalled();
+
+    // Remembered host names are not something the form edits.
+    await manager.update(
+      storedDaemons[1].daemonId,
+      { kind: 'ssh', sshArgs: ['deploy@one.example.com'], label: 'one' },
+      { kind: 'ssh', sshArgs: ['deploy@one.example.com'] }
+    );
+  });
+
+  it('refuses an action prepared for a connection that was replaced', async () => {
+    const { manager } = await startManager();
+    const [old] = manager.listDaemons();
+
+    await manager.update(
+      old.daemonId,
+      { kind: 'local', pm2Home: '/srv/pm2-green' },
+      expectedOf(storedDaemons[0])
+    );
+    await vi.waitFor(() => expect(manager.listDaemons()[0].status).toBe('online'));
+
+    expect(() => manager.action(old.daemonId, old.connectionId, 0, 'restart')).toThrow(
+      StaleDaemonConnectionError
+    );
+    expect(() => manager.detail(old.daemonId, 0, false, old.connectionId)).toThrow(
+      StaleDaemonConnectionError
+    );
+    const current = manager.listDaemons()[0];
+    await expect(
+      manager.action(current.daemonId, current.connectionId, 0, 'restart')
+    ).resolves.toEqual({
+      accepted: true,
+      reconnecting: false,
+    });
+    expect(mocked.containers[0].processManager.action).not.toHaveBeenCalled();
+  });
+
+  it('checks a queued action again when its turn comes', async () => {
+    const { manager } = await startManager();
+    const [daemon] = manager.listDaemons();
+    let release!: () => void;
+    const [container] = mocked.containers;
+    container.processManager.action.mockImplementationOnce(
+      async (_pmId: number, _action: string, assertCurrent?: () => void) => {
+        // Waits in the queue behind another action while the daemon is moved.
+        await new Promise<void>(resolve => (release = resolve));
+        assertCurrent?.();
+        return { accepted: true, reconnecting: false };
+      }
+    );
+
+    const pending = manager.action(daemon.daemonId, daemon.connectionId, 0, 'stop');
+    await manager.update(
+      daemon.daemonId,
+      { kind: 'local', pm2Home: '/srv/pm2-green' },
+      expectedOf(storedDaemons[0])
+    );
+    release();
+
+    await expect(pending).rejects.toBeInstanceOf(StaleDaemonConnectionError);
+  });
+
+  it('does not let a retiring connection bring back a removed daemon', async () => {
+    let finishStart!: () => void;
+    const { manager, daemonStore } = setup();
+    await manager.initialize();
+    const remote = mocked.containers[1];
+    remote.app.start = vi.fn(
+      () => new Promise<boolean>(resolve => (finishStart = () => resolve(true)))
+    ) as never;
+    await manager.start();
+
+    daemonStore.edit([storedDaemons[0], storedDaemons[2]]);
+    await vi.waitFor(() => expect(manager.listDaemons()).toHaveLength(2));
+    (remote.pm2Daemon as unknown as { identity: object }).identity = {
+      hostname: 'new-host',
+      username: 'deploy',
+    };
+    finishStart();
+    await vi.waitFor(() => expect(remote.app.dispose).toHaveBeenCalled());
+
+    expect(daemonStore.save).not.toHaveBeenCalled();
+  });
+
+  it('ends a pending connection attempt when its daemon is removed', async () => {
+    const { manager } = setup();
+    await manager.initialize();
+    const remote = mocked.containers[1];
+    let failStart!: (error: Error) => void;
+    remote.app.start = vi.fn(
+      () => new Promise<boolean>((_resolve, reject) => (failStart = reject))
+    ) as never;
+    remote.sshConnection.abort.mockImplementation(async () => {
+      failStart(new Error('The SSH connection is shutting down.'));
+    });
+    await manager.start();
+
+    await manager.remove(storedDaemons[1].daemonId, expectedOf(storedDaemons[1]));
+
+    expect(remote.sshConnection.abort).toHaveBeenCalledOnce();
+    expect(remote.app.dispose).toHaveBeenCalledOnce();
   });
 });

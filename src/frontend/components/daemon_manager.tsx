@@ -125,6 +125,19 @@ function TextField({
   );
 }
 
+/** The fields a user edits, as the server compares them for a conflicting edit. */
+function editableInput(config: IDaemonConfig): IDaemonInput {
+  const label = config.label ? { label: config.label } : {};
+  return config.kind === 'local'
+    ? { kind: 'local', pm2Home: config.pm2Home, ...label }
+    : {
+        kind: 'ssh',
+        sshArgs: config.sshArgs,
+        ...(config.pm2Home ? { pm2Home: config.pm2Home } : {}),
+        ...label,
+      };
+}
+
 function toFields(kind: IDaemonKind, config: IDaemonConfig | null) {
   return {
     ...sshArgsToFields(config?.kind === 'ssh' ? config.sshArgs : []),
@@ -143,8 +156,18 @@ function DaemonForm({
   config: IDaemonConfig | null;
   onAdded: (daemonId: string) => void;
 }) {
-  const stored = toFields(kind, config);
+  // The daemon as this form loaded or last saved it. Saving sends it along, so
+  // an edit made elsewhere in the meantime is reported instead of overwritten.
+  const [baseline, setBaseline] = useState(config);
+  const stored = toFields(kind, baseline);
   const [fields, setFields] = useState(stored);
+  const [isChangedElsewhere, setIsChangedElsewhere] = useState(false);
+  const onSaveError = (error: { message: string; data?: { appCode?: string | null } | null }) => {
+    if (error.data?.appCode === 'DAEMON_CHANGED') {
+      setIsChangedElsewhere(true);
+    }
+    toast.error(error.message);
+  };
   const utils = trpc.useUtils();
   const invalidate = () =>
     Promise.all([utils.daemons.list.invalidate(), utils.processes.list.invalidate()]);
@@ -162,17 +185,19 @@ function DaemonForm({
     onSuccess: async result => {
       toast.success(`Saved ${result.label}`);
       // Show what was stored, which can be normalized differently than typed.
+      setBaseline(result.config);
       setFields(toFields(kind, result.config));
+      setIsChangedElsewhere(false);
       await invalidate();
     },
-    onError: error => toast.error(error.message),
+    onError: onSaveError,
   });
   const remove = trpc.daemons.remove.useMutation({
     onSuccess: async () => {
       toast.success('Daemon removed');
       await invalidate();
     },
-    onError: error => toast.error(error.message),
+    onError: onSaveError,
   });
 
   const isSshArgsChanged =
@@ -199,15 +224,21 @@ function DaemonForm({
         // Untouched connection fields keep the stored arguments verbatim, so
         // renaming a daemon never reorders them and forces a reconnect.
         sshArgs =
-          config?.kind === 'ssh' && !isSshArgsChanged ? config.sshArgs : fieldsToSshArgs(fields);
+          baseline?.kind === 'ssh' && !isSshArgsChanged
+            ? baseline.sshArgs
+            : fieldsToSshArgs(fields);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Invalid SSH options');
         return;
       }
       input = { kind, sshArgs, ...(pm2Home ? { pm2Home } : {}), ...(label ? { label } : {}) };
     }
-    if (config) {
-      update.mutate({ daemonId: config.daemonId, daemon: input });
+    if (baseline) {
+      update.mutate({
+        daemonId: baseline.daemonId,
+        daemon: input,
+        expected: editableInput(baseline),
+      });
     } else {
       add.mutate(input);
     }
@@ -215,6 +246,45 @@ function DaemonForm({
 
   return (
     <form data-component="DaemonForm" onSubmit={submit} className="space-y-3">
+      {isChangedElsewhere && config ? (
+        <div className="rounded-md border border-line bg-panel p-3 text-sm leading-5">
+          This daemon was changed elsewhere since you opened it. Your edits are still here.{' '}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={async () => {
+              // Always a fresh read: the polled list may predate the change.
+              // Without one, the draft and this notice stay.
+              let settings;
+              try {
+                settings = await utils.daemons.list.fetch(undefined, {
+                  staleTime: 0,
+                  retry: false,
+                });
+              } catch (error) {
+                toast.error(
+                  `Unable to load the saved version: ${
+                    error instanceof Error ? error.message : 'the daemon list could not be read.'
+                  }`
+                );
+                return;
+              }
+              const saved = settings.find(
+                daemon => daemon.config.daemonId === config.daemonId
+              )?.config;
+              if (!saved) {
+                toast.error('This daemon is no longer in the saved list.');
+                return;
+              }
+              setBaseline(saved);
+              setFields(toFields(kind, saved));
+              setIsChangedElsewhere(false);
+            }}
+          >
+            Load the saved version
+          </button>
+        </div>
+      ) : null}
       {kind === 'local' ? (
         <TextField
           label="PM2 home"
@@ -287,7 +357,10 @@ function DaemonForm({
                   'Remove this daemon from Captain? This does not stop PM2 or any applications.'
                 )
               ) {
-                remove.mutate({ daemonId: config.daemonId });
+                remove.mutate({
+                  daemonId: config.daemonId,
+                  expected: editableInput(baseline ?? config),
+                });
               }
             }}
           >

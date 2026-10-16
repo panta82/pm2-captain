@@ -89,6 +89,7 @@ export function createProcessManager({ pm2Daemon, log, settings }: IContainer) {
 
     return {
       daemonId: settings?.runtimeDaemonId || 'local',
+      connectionId: settings?.runtimeConnectionId || '',
       pmId: Number(environment.pm_id ?? -1),
       name: environment.name || description.name || 'unnamed',
       namespace: environment.namespace || 'default',
@@ -187,7 +188,11 @@ export function createProcessManager({ pm2Daemon, log, settings }: IContainer) {
       return normalize(result[0], includeEnvironment);
     };
 
-    action = async (pmId: number, action: IProcessAction) => {
+    /**
+     * `assertCurrent` runs when the action's turn comes, right before it is sent
+     * to PM2, and can still refuse it.
+     */
+    action = async (pmId: number, action: IProcessAction, assertCurrent?: () => void) => {
       const process = await this.detail(pmId);
       if (action === 'stop' && process.isCaptain) {
         throw new Error('PM2 Captain cannot stop itself');
@@ -197,6 +202,7 @@ export function createProcessManager({ pm2Daemon, log, settings }: IContainer) {
       const operation = previous
         .catch(() => undefined)
         .then(async () => {
+          assertCurrent?.();
           log.info({ pmId, action }, `PM2 ${action} requested`);
           if (action === 'start') {
             return pm2Daemon.startProcess(pmId);

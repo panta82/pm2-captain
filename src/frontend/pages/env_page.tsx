@@ -1,5 +1,6 @@
 import { memo } from 'react';
 
+import { useDaemonConnectionId } from '@/lib/daemon_connection';
 import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
 
@@ -46,11 +47,12 @@ export function EnvPage() {
     select: ({ daemonId, pmIds }) => ({ daemonId, pmIds }),
     structuralSharing: true,
   });
+  const connectionId = useDaemonConnectionId(daemonId);
   const details = trpc.useQueries(t =>
     pmIds.map(id =>
       t.processes.detail(
-        { daemonId, pmId: id, includeEnvironment: true },
-        { staleTime: 30_000, refetchInterval: 30_000 }
+        { daemonId, connectionId, pmId: id, includeEnvironment: true },
+        { staleTime: 30_000, refetchInterval: 30_000, enabled: connectionId !== undefined }
       )
     )
   );

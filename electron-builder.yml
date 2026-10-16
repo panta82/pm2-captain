@@ -1,0 +1,90 @@
+# PM2 Captain desktop packaging. `npm run desktop:stage` prepares the app
+# directory; see docs/development.md. The npm package does not use this file.
+# Linux targets are built one per run by support/desktop/package-linux.mjs:
+# each writes its updater type into the shared resources directory.
+appId: com.panta82.pm2-captain
+productName: PM2 Captain
+# The Linux package and command are pm2-captain-desktop, so installing them
+# never shadows the npm `pm2-captain` command or a service that runs it. The
+# Mac overrides this below.
+executableName: pm2-captain-desktop
+copyright: Copyright © Ivan Pantic
+npmRebuild: false
+nodeGypRebuild: false
+directories:
+  app: build/desktop/app
+  output: build/desktop/release
+  buildResources: support/desktop/resources
+files:
+  - '**/*'
+  - '!**/*.map'
+  - '!**/*.d.ts'
+  # Build-time only: the frontend is already bundled, and TypeScript is a peer
+  # of the tRPC packages for their types.
+  - '!node_modules/lucide-react/**'
+  - '!node_modules/@fontsource/**'
+  - '!node_modules/typescript/**'
+asar: true
+extraResources:
+  - from: src/frontend/public/android-chrome-512x512.png
+    to: icon.png
+electronFuses:
+  # The backend runs in a utility process; nothing needs ELECTRON_RUN_AS_NODE.
+  runAsNode: false
+  enableCookieEncryption: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+publish:
+  provider: github
+  owner: panta82
+  repo: pm2-captain
+  releaseType: draft
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+    - target: rpm
+      arch: [x64]
+  icon: src/frontend/public/pm2-captain-logo.png
+  category: Development
+  synopsis: Desktop control room for PM2 processes and logs
+  # Confirm before the first public release; Debian requires a maintainer address.
+  maintainer: Ivan Pantic <panta82@users.noreply.github.com>
+  vendor: Ivan Pantic
+appImage:
+  # No version in the name: the updater replaces the file in place, so desktop
+  # shortcuts and links to it keep working.
+  artifactName: PM2-Captain-${arch}.${ext}
+  # An empty list replaces electron-builder's default --no-sandbox in the
+  # desktop entry. Whether to start without the sandbox is decided by
+  # support/desktop/appimage/launcher.sh: it keeps the sandbox where user
+  # namespaces work, and otherwise adds --no-sandbox.
+  executableArgs: []
+deb:
+  artifactName: ${name}_${version}_${arch}.${ext}
+rpm:
+  artifactName: ${name}-${version}.${arch}.${ext}
+mac:
+  # The top-level executableName names the Linux package and command. A Mac
+  # app's bundle and executable come from executableName too (app-builder-lib
+  # appInfo.js), so the Mac keeps the user-facing name: PM2 Captain.app,
+  # Contents/MacOS/PM2 Captain.
+  executableName: PM2 Captain
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  icon: src/frontend/public/pm2-captain-logo.png
+  category: public.app-category.developer-tools
+  artifactName: PM2-Captain-${version}-${arch}.${ext}
+  hardenedRuntime: true
+  entitlements: support/desktop/resources/entitlements.mac.plist
+  entitlementsInherit: support/desktop/resources/entitlements.mac.plist
+  # The release workflow turns notarization on and supplies the credentials.
+  notarize: false

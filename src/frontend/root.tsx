@@ -13,6 +13,7 @@ import { Toaster } from 'sonner';
 
 import { DaemonSelectionProvider } from '@/lib/daemon_selection';
 import { LogSearchProvider } from '@/lib/log_search';
+import { readPreference, writePreference } from '@/lib/preferences';
 import { ProcessListFilterProvider } from '@/lib/process_list_filter';
 import { isProcessTab, processLink } from '@/lib/process_route';
 import { formatPmIds, parsePmIds } from '@/lib/process_selection';
@@ -21,21 +22,21 @@ import { trpc } from '@/lib/trpc';
 import { AppHeader } from '@/components/app_header';
 import { DaemonManagerProvider } from '@/components/daemon_manager';
 import { ProcessFilterField } from '@/components/process_filter_field';
+import { RegistryWarning } from '@/components/registry_warning';
 import { RestartOverlay } from '@/components/restart_overlay';
+import { UpdateNotice } from '@/components/update_banner';
+
+import type { IDesktopPreferenceKey } from '@shared/desktop_bridge';
 
 import { ErrorPage } from '@/pages/error_page';
 import { NotFoundPage } from '@/pages/not_found_page';
 import { ProcessLayout } from '@/pages/process_layout';
 import { StatusPage } from '@/pages/status_page';
 
-const SELECTED_DAEMON_STORAGE_KEY = 'pm2-captain-selected-daemon';
+const SELECTED_DAEMON_STORAGE_KEY = 'pm2-captain-selected-daemon' satisfies IDesktopPreferenceKey;
 
 function loadSelectedDaemonId(): string | null {
-  try {
-    return localStorage.getItem(SELECTED_DAEMON_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return readPreference(SELECTED_DAEMON_STORAGE_KEY);
 }
 
 function RootLayout() {
@@ -64,11 +65,7 @@ function RootLayout() {
 
   const storeDaemonId = useCallback((daemonId: string) => {
     setStoredDaemonId(daemonId);
-    try {
-      localStorage.setItem(SELECTED_DAEMON_STORAGE_KEY, daemonId);
-    } catch {
-      // Ignore private-mode and quota failures.
-    }
+    writePreference(SELECTED_DAEMON_STORAGE_KEY, daemonId);
   }, []);
 
   // A process URL pins its daemon; otherwise the remembered choice applies.
@@ -144,6 +141,10 @@ function RootLayout() {
               data-component="RootLayout"
               className="flex h-svh min-h-0 flex-col overflow-hidden bg-surface-plane text-white"
             >
+              <UpdateNotice />
+              {list.data?.registryWarning ? (
+                <RegistryWarning message={list.data.registryWarning} />
+              ) : null}
               {!processDetailOpen ? (
                 <AppHeader
                   data={list.data}

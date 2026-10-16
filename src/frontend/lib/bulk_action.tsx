@@ -51,9 +51,12 @@ const COMPLETED_ACTION: Record<IProcessAction, string> = {
 /** Runs one action on a selection of processes of one daemon and tracks each of them. */
 export function BulkActionProvider({
   daemonId,
+  connectionId,
   children,
 }: {
   daemonId: string;
+  /** A new connection to the same daemon starts over, like another daemon. */
+  connectionId: string | undefined;
   children: ReactNode;
 }) {
   const utils = trpc.useUtils();
@@ -64,7 +67,8 @@ export function BulkActionProvider({
   // finishes its requests, but may not touch the state any more.
   const generationRef = useRef(0);
 
-  // PM2 IDs repeat across daemons, so nothing of a run carries over to another one.
+  // PM2 IDs repeat across daemons and locations, so nothing of a run carries
+  // over to another one.
   useEffect(() => {
     setProgress(new Map());
     setRunningAction(null);
@@ -72,7 +76,7 @@ export function BulkActionProvider({
       generationRef.current++;
       window.clearTimeout(clearTimerRef.current);
     };
-  }, [daemonId]);
+  }, [daemonId, connectionId]);
 
   const run = useCallback(
     async (action: IProcessAction, processes: IProcessSummary[]) => {
@@ -92,6 +96,7 @@ export function BulkActionProvider({
         try {
           const result = await utils.client.processes.action.mutate({
             daemonId: process.daemonId,
+            connectionId: process.connectionId,
             pmId: process.pmId,
             action,
           });

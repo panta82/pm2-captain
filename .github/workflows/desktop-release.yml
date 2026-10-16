@@ -1,0 +1,439 @@
+name: Desktop release
+
+# Starts from a version tag that a maintainer pushes by hand. It builds and
+# checks the desktop apps and the npm package from the tag's commit and uploads
+# them to a DRAFT GitHub Release. Nothing is published here: a maintainer
+# publishes the draft after reviewing it, and publishing it starts
+# npm-publish.yml, which publishes the npm tarball attached to the draft.
+# See docs/development.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build, for example v1.6.0
+        required: true
+
+permissions:
+  contents: read
+
+# One release at a time; a run in progress is never cancelled.
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: Checks and shared build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      # Every later job builds this commit, even if the tag is moved meanwhile.
+      commit: ${{ steps.commit.outputs.commit }}
+      version: ${{ steps.commit.outputs.version }}
+    steps:
+      - name: The tag is a stable version tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "\"$RELEASE_TAG\" is not a stable version tag such as v2.0.0." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: The tag's commit and package version
+        id: commit
+        run: |
+          commit="$(git rev-parse HEAD)"
+          if [[ "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" != "$commit" ]]; then
+            echo "The checkout is not the commit of $RELEASE_TAG." >&2
+            exit 1
+          fi
+          version="$(node support/release/release.mjs check-version "$RELEASE_TAG")"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+      - run: npm run test:package
+      # The npm package from this same tested build. It is attached to the draft,
+      # and npm-publish.yml publishes exactly this file.
+      - run: npm pack --ignore-scripts
+      - run: node support/release/release.mjs check-tarball "pm2-captain-${RELEASE_TAG#v}.tgz" "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: shared-build
+          path: |
+            dist/
+            pm2-captain-*.tgz
+          retention-days: 7
+
+  linux:
+    name: Linux DEB, RPM and AppImage
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: shared-build
+      - name: Tools to build and inspect RPM packages
+        run: sudo apt-get update && sudo apt-get install --yes rpm squashfs-tools xvfb
+      - run: npm run desktop:stage
+      - run: node support/desktop/package-linux.mjs
+      - run: npm run desktop:verify -- --targets appimage,deb,rpm
+      - name: Electron flows against the staged app
+        run: npx playwright install --with-deps chromium && xvfb-run -a npm run test:desktop
+      - name: Packaged app smoke test, outside the checkout
+        run: |
+          smoke="$RUNNER_TEMP/smoke"
+          mkdir -p "$smoke"
+          cp -a build/desktop/release/linux-unpacked "$smoke/"
+          xvfb-run -a node support/desktop/smoke-packaged.mjs run "$smoke/linux-unpacked/pm2-captain-desktop" --no-sandbox
+      # A higher version of the same build, only as the update feed for the
+      # installed-update tests below. It is never released.
+      - name: Build version N+1 for the update tests
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split('.'); [a, b, Number(c) + 1].join('.')")"
+          npm version "$next" --no-git-tag-version --allow-same-version
+          npm run build
+          npm run desktop:stage
+          node support/desktop/package-linux.mjs --output build/desktop/update-feed
+          git checkout -- package.json package-lock.json
+          echo "$next" > build/desktop/update-feed/VERSION
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-release
+          path: |
+            build/desktop/release/*.AppImage
+            build/desktop/release/*.deb
+            build/desktop/release/*.rpm
+            build/desktop/release/*.blockmap
+            build/desktop/release/latest-linux.yml
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-update-feed
+          path: |
+            build/desktop/update-feed/*.AppImage
+            build/desktop/update-feed/*.deb
+            build/desktop/update-feed/*.rpm
+            build/desktop/update-feed/*.blockmap
+            build/desktop/update-feed/latest-linux.yml
+            build/desktop/update-feed/VERSION
+          retention-days: 3
+
+  # Installs the real packages on a disposable runner: sandboxed launches and
+  # app-driven updates from N to N+1. pkexec is granted or denied by a polkit
+  # rule, so the password prompt itself is not tested here.
+  linux-installed:
+    name: Installed DEB and AppImage
+    needs: [check, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-release
+          path: release
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-update-feed
+          path: feed
+      - name: Display, FUSE and polkit
+        run: sudo apt-get update && sudo apt-get install --yes xvfb libfuse2t64 polkitd pkexec
+      # This runner is thrown away; restricting user namespaces as Ubuntu
+      # desktops do makes the sandbox checks meaningful.
+      - name: Restrict unprivileged user namespaces like Ubuntu 24.04 desktops
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+      - name: Install the DEB
+        run: |
+          sudo apt-get install --yes ./release/pm2-captain-desktop_*_amd64.deb
+          test -L /usr/bin/pm2-captain-desktop
+          test ! -e /usr/bin/pm2-captain
+          test -f /etc/apparmor.d/pm2-captain-desktop
+          sudo aa-status | grep -F pm2-captain-desktop
+      - name: The installed DEB starts with its sandbox
+        run: xvfb-run -a node support/desktop/smoke-packaged.mjs run "/opt/PM2 Captain/pm2-captain-desktop"
+      - name: Update feed on a loopback port
+        run: |
+          (cd feed && python3 -m http.server 8732 --bind 127.0.0.1 > "$RUNNER_TEMP/feed.log" 2>&1 &)
+          sleep 1
+          curl --fail --silent http://127.0.0.1:8732/latest-linux.yml
+      - name: A denied authorization leaves the DEB installation and backend as they were
+        run: |
+          sudo tee /etc/polkit-1/rules.d/10-pm2-captain-ci.rules > /dev/null <<'RULE'
+          polkit.addRule(function (action, subject) {
+            if (action.id == "org.freedesktop.policykit.exec" && subject.user == "runner") {
+              return polkit.Result.NO;
+            }
+          });
+          RULE
+          sudo systemctl restart polkit
+          before="$(dpkg-query -W -f '${Version}' pm2-captain-desktop)"
+          xvfb-run -a node support/desktop/ci/update-test.mjs "/opt/PM2 Captain/pm2-captain-desktop" http://127.0.0.1:8732/ "$(cat feed/VERSION)" --expect-not-installed
+          test "$(dpkg-query -W -f '${Version}' pm2-captain-desktop)" = "$before"
+      - name: The app updates the DEB from N to N+1 and relaunches
+        run: |
+          sudo sed -i 's/polkit.Result.NO/polkit.Result.YES/' /etc/polkit-1/rules.d/10-pm2-captain-ci.rules
+          sudo systemctl restart polkit
+          xvfb-run -a node support/desktop/ci/update-test.mjs "/opt/PM2 Captain/pm2-captain-desktop" http://127.0.0.1:8732/ "$(cat feed/VERSION)"
+          test "$(dpkg-query -W -f '${Version}' pm2-captain-desktop)" = "$(cat feed/VERSION)"
+      - name: Removing the DEB leaves no command or profile behind
+        run: |
+          sudo apt-get remove --yes pm2-captain-desktop
+          test ! -e /usr/bin/pm2-captain-desktop
+          test ! -e /etc/apparmor.d/pm2-captain-desktop
+      # No --no-sandbox and no special environment: the AppImage decides itself.
+      - name: Without its AppArmor profile, the AppImage starts without the sandbox
+        run: |
+          mkdir -p "$HOME/Applications"
+          cp release/PM2-Captain-x86_64.AppImage "$HOME/Applications/"
+          chmod +x "$HOME/Applications/PM2-Captain-x86_64.AppImage"
+          xvfb-run -a node support/desktop/smoke-packaged.mjs fallback "$HOME/Applications/PM2-Captain-x86_64.AppImage"
+          xvfb-run -a node support/desktop/smoke-packaged.mjs fallback "$HOME/Applications/PM2-Captain-x86_64.AppImage" --real-empty
+      - name: With its AppArmor profile, the AppImage starts with its sandbox
+        run: |
+          sh support/desktop/appimage/apparmor-profile.sh "$HOME/Applications/PM2-Captain-x86_64.AppImage" \
+            | sudo tee /etc/apparmor.d/pm2-captain-desktop-appimage
+          sudo apparmor_parser -r /etc/apparmor.d/pm2-captain-desktop-appimage
+          xvfb-run -a node support/desktop/smoke-packaged.mjs run "$HOME/Applications/PM2-Captain-x86_64.AppImage"
+      - name: The app updates the AppImage from N to N+1 in place
+        run: |
+          xvfb-run -a node support/desktop/ci/update-test.mjs "$HOME/Applications/PM2-Captain-x86_64.AppImage" http://127.0.0.1:8732/ "$(cat feed/VERSION)"
+          cmp feed/PM2-Captain-x86_64.AppImage "$HOME/Applications/PM2-Captain-x86_64.AppImage"
+
+  # The RPM on an RPM distribution, in a container. App-driven RPM updates need
+  # polkit and a system bus, which this container does not run; the package
+  # upgrade path is tested with rpm directly instead.
+  linux-rpm-installed:
+    name: Installed RPM (Fedora container)
+    needs: [check, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: fedora:42
+      # Chromium's namespace sandbox needs unshare(2), which Docker's default seccomp profile blocks.
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Tools
+        run: dnf install --assumeyes nodejs npm git xorg-x11-server-Xvfb procps-ng findutils
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-release
+          path: release
+      - uses: actions/download-artifact@v7
+        with:
+          name: linux-update-feed
+          path: feed
+      - name: Install the RPM
+        run: |
+          dnf install --assumeyes ./release/pm2-captain-desktop-*.x86_64.rpm
+          test -L /usr/bin/pm2-captain-desktop
+          test ! -e /usr/bin/pm2-captain
+      # Chromium does not run as root with its sandbox.
+      - name: The installed RPM starts with its sandbox
+        run: |
+          useradd --create-home tester
+          chmod -R a+rX "$GITHUB_WORKSPACE"
+          su tester -c "cd '$GITHUB_WORKSPACE' && xvfb-run -a node support/desktop/smoke-packaged.mjs run '/opt/PM2 Captain/pm2-captain-desktop'"
+      - name: Upgrading the RPM from N to N+1 keeps it working
+        run: |
+          rpm --upgrade ./feed/pm2-captain-desktop-*.x86_64.rpm
+          test "$(rpm --query --queryformat '%{VERSION}' pm2-captain-desktop)" = "$(cat feed/VERSION)"
+          su tester -c "cd '$GITHUB_WORKSPACE' && xvfb-run -a node support/desktop/smoke-packaged.mjs run '/opt/PM2 Captain/pm2-captain-desktop'"
+
+  mac:
+    name: macOS DMG and ZIP (arm64 and x64)
+    needs: check
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # Production Mac builds are signed and notarized; without credentials the release stops here.
+      - name: Signing credentials are present
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "$name is not configured; production Mac builds must be signed and notarized." >&2
+              exit 1
+            fi
+          done
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: shared-build
+      - run: npm run desktop:stage
+      - name: Build, sign and notarize
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --config electron-builder.yml --mac --publish never --config.mac.notarize=true
+      - name: Verify signatures and notarization
+        run: |
+          for app in build/desktop/release/mac*/"PM2 Captain.app"; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose "$app"
+          done
+      - run: npm run desktop:verify -- --targets mac
+      # The signed app itself, launched outside the checkout on this runner's architecture.
+      - name: Packaged app smoke test
+        run: |
+          arch="$(uname -m)"
+          app_dir="build/desktop/release/mac-${arch/x86_64/x64}"
+          [[ -d "$app_dir" ]] || app_dir="build/desktop/release/mac"
+          cp -R "$app_dir/PM2 Captain.app" "$RUNNER_TEMP/"
+          node support/desktop/smoke-packaged.mjs run "$RUNNER_TEMP/PM2 Captain.app/Contents/MacOS/PM2 Captain"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac-release
+          path: |
+            build/desktop/release/*.dmg
+            build/desktop/release/*.zip
+            build/desktop/release/*.blockmap
+            build/desktop/release/latest-mac.yml
+          retention-days: 7
+
+  draft:
+    name: Draft GitHub Release
+    needs: [check, linux, linux-installed, linux-rpm-installed, mac]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@v7
+        with:
+          path: build/desktop/release
+          merge-multiple: true
+          pattern: '*-release'
+      - uses: actions/download-artifact@v7
+        with:
+          name: shared-build
+          path: shared-build
+      # Every manifest entry must name an uploaded file with the right checksum.
+      - run: node support/desktop/verify-artifacts.mjs build/desktop/release --targets manifests
+      - name: The npm package and the tag are still those that were tested
+        env:
+          COMMIT: ${{ needs.check.outputs.commit }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          node support/release/release.mjs check-tarball "shared-build/pm2-captain-$VERSION.tgz" "$RELEASE_TAG"
+          git fetch --no-tags --depth=1 origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          if [[ "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" != "$COMMIT" ]]; then
+            echo "$RELEASE_TAG was moved while this release was built." >&2
+            exit 1
+          fi
+          node support/release/release.mjs notes "$VERSION" > release-notes.md
+          # Ties the tag to this tested commit and npm tarball; npm-publish.yml
+          # publishes only what this names.
+          node support/release/release.mjs metadata "shared-build/pm2-captain-$VERSION.tgz" "$RELEASE_TAG" "$COMMIT" \
+            > "pm2-captain-$VERSION-release.json"
+      - name: Upload to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          # Lists drafts too, unlike the API's lookup by tag. An API failure
+          # fails the step instead of looking like a missing release.
+          releases="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.tag_name == env.RELEASE_TAG) | "\(.id) \(.draft)"')"
+          title="PM2 Captain $RELEASE_TAG"
+          if [[ -z "$releases" ]]; then
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "$title" --notes-file release-notes.md
+          elif [[ "$(wc -l <<< "$releases")" -ne 1 ]]; then
+            echo "There are several releases for $RELEASE_TAG; delete the extra drafts." >&2
+            exit 1
+          elif [[ "$releases" == *" true" ]]; then
+            # A rerun brings the draft's notes up to date with the README.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/${releases%% *}" \
+              -f name="$title" -F body=@release-notes.md > /dev/null
+          else
+            echo "$RELEASE_TAG is already published; published releases are never changed." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" --clobber \
+            build/desktop/release/*.AppImage build/desktop/release/*.deb build/desktop/release/*.rpm \
+            build/desktop/release/*.dmg build/desktop/release/*.zip build/desktop/release/*.blockmap \
+            build/desktop/release/latest-linux.yml build/desktop/release/latest-mac.yml \
+            "shared-build/pm2-captain-$VERSION.tgz" "pm2-captain-$VERSION-release.json"
+      - name: The draft is complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.check.outputs.commit }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets,body > release.json
+          node support/release/release.mjs check-release release.json "$RELEASE_TAG" --draft --notes release-notes.md
+          gh release download "$RELEASE_TAG" --pattern "pm2-captain-$VERSION-release.json" --dir draft-check
+          node support/release/release.mjs check-metadata "draft-check/pm2-captain-$VERSION-release.json" \
+            "$RELEASE_TAG" "$COMMIT" "shared-build/pm2-captain-$VERSION.tgz"
+          assets="$(node -p 'require("./release.json").assets.map(asset => asset.name).join("\n")')"
+          for manifest in latest-linux.yml latest-mac.yml; do
+            while read -r url; do
+              grep -Fx "$url" <<< "$assets" >/dev/null || { echo "$url is missing from the draft." >&2; exit 1; }
+            done < <(grep -E '^\s*- url:' "build/desktop/release/$manifest" | awk '{print $3}')
+          done

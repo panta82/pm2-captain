@@ -16,47 +16,104 @@ const DEFAULT_PORT = 3212;
 /** Fake mode has its own port, so it never lands on a Captain that shows real daemons. */
 const DEFAULT_FAKE_PORT = 3213;
 
-const BackendSettingsSchema = z.object({
-  nodeEnv: z.enum(['development', 'test', 'production']).default('production'),
-  host: z.literal('127.0.0.1').default('127.0.0.1'),
-  port: z.number().int().min(1).max(65535).default(DEFAULT_PORT),
-  /** Captain's own files: the daemon registry and the launch token. */
-  configDir: z.string().min(1),
-  /**
-   * The app container holds the PM2 home requested with --pm2-home. Each daemon
-   * container holds that daemon's PM2 home; for SSH daemons null means the remote
-   * default.
-   */
-  pm2Home: z.string().min(1).nullable().default(null),
-  /** PM2_HOME from the environment, used only to detect local PM2 homes. */
-  environmentPm2Home: z.string().min(1).nullable().default(null),
-  debug: z.boolean().default(false),
-  serverDevMode: z.boolean().default(false),
-  /**
-   * "auto" opens a browser tab unless one from the previous run is expected to
-   * reconnect.
-   */
-  browserOpen: z.enum(['auto', 'always', 'never']).default('auto'),
-  noAuth: z.boolean().default(false),
-  sshArgs: z.array(z.string()).nullable().default(null),
-  runtimeDaemonId: z.string().nullable().default(null),
-  /**
-   * Set in fake mode, where simulated PM2 daemons replace the real ones. The
-   * scenario is a built-in name or the path to a JSON file.
-   */
-  fake: z
-    .object({ scenario: z.string().min(1) })
-    .nullable()
-    .default(null),
-  /** The arguments after the "fake" subcommand, sent to a Captain running in fake mode. */
-  fakeCommand: z.array(z.string()).min(1).nullable().default(null),
-});
+export const BackendSettingsSchema = z
+  .object({
+    nodeEnv: z.enum(['development', 'test', 'production']).default('production'),
+    /**
+     * "cli" is the npm command. "desktop" is a backend owned by the desktop app:
+     * it has an in-memory launch token, no browser launch policy, and may listen
+     * on an OS-assigned port.
+     */
+    runtime: z.enum(['cli', 'desktop']).default('cli'),
+    host: z.literal('127.0.0.1').default('127.0.0.1'),
+    /** 0 lets the OS pick a port; only a desktop backend asks for that. */
+    port: z.number().int().min(0).max(65535).default(DEFAULT_PORT),
+    /** Captain's own files: the daemon registry and the launch token. */
+    configDir: z.string().min(1),
+    /**
+     * The app container holds the PM2 home requested with --pm2-home. Each daemon
+     * container holds that daemon's PM2 home; for SSH daemons null means the remote
+     * default.
+     */
+    pm2Home: z.string().min(1).nullable().default(null),
+    /** PM2_HOME from the environment, used only to detect local PM2 homes. */
+    environmentPm2Home: z.string().min(1).nullable().default(null),
+    debug: z.boolean().default(false),
+    serverDevMode: z.boolean().default(false),
+    /**
+     * "auto" opens a browser tab unless one from the previous run is expected to
+     * reconnect.
+     */
+    browserOpen: z.enum(['auto', 'always', 'never']).default('auto'),
+    noAuth: z.boolean().default(false),
+    sshArgs: z.array(z.string()).nullable().default(null),
+    runtimeDaemonId: z.string().nullable().default(null),
+    runtimeConnectionId: z.string().nullable().default(null),
+    /**
+     * Set in fake mode, where simulated PM2 daemons replace the real ones. The
+     * scenario is a built-in name or the path to a JSON file.
+     */
+    fake: z
+      .object({
+        scenario: z.string().min(1),
+        /**
+         * Desktop only: where the backend writes its address and a fake-only
+         * control token, so `pm2-captain fake --control <file>` can reach it.
+         */
+        controlFile: z.string().min(1).nullable().default(null),
+      })
+      .nullable()
+      .default(null),
+    /** The arguments after the "fake" subcommand, sent to a Captain running in fake mode. */
+    fakeCommand: z.array(z.string()).min(1).nullable().default(null),
+  })
+  .refine(settings => settings.port !== 0 || settings.runtime === 'desktop', {
+    message: 'The port must be between 1 and 65535.',
+    path: ['port'],
+  });
 
 export type IBackendSettings = z.infer<typeof BackendSettingsSchema> & {
+  /**
+   * The configured URL. A desktop backend asks for port 0, so its real origin
+   * is only known once it listens; see webServer.baseURL.
+   */
   baseURL: string;
 };
 
-function defaultConfigDir() {
+/** What the desktop app chooses for the backend it owns. */
+export interface IDesktopBackendOptions {
+  configDir: string;
+  environmentPm2Home: string | null;
+  fakeScenario: string | null;
+  /** With fakeScenario: where to write the fake control file. */
+  fakeControlFile: string | null;
+  debug: boolean;
+  /** Development only: serve the frontend from source through Vite. */
+  serverDevMode: boolean;
+}
+
+/**
+ * Settings for a backend started by the desktop app. Nothing comes from the
+ * command line: Electron's arguments are not Captain options.
+ */
+export function createDesktopBackendSettings(options: IDesktopBackendOptions): IBackendSettings {
+  const ownSettings = BackendSettingsSchema.parse({
+    nodeEnv: options.serverDevMode ? 'development' : 'production',
+    runtime: 'desktop',
+    port: 0,
+    configDir: options.configDir,
+    environmentPm2Home: options.environmentPm2Home,
+    debug: options.debug,
+    serverDevMode: options.serverDevMode,
+    browserOpen: 'never',
+    fake: options.fakeScenario
+      ? { scenario: options.fakeScenario, controlFile: options.fakeControlFile }
+      : null,
+  });
+  return { ...ownSettings, baseURL: `http://${ownSettings.host}:${ownSettings.port}` };
+}
+
+export function defaultConfigDir() {
   return libPath.join(
     process.env.XDG_CONFIG_HOME || libPath.join(libOs.homedir(), '.config'),
     'pm2-captain'
@@ -198,6 +255,7 @@ computer.`);
     noAuth: args.noAuth || process.env.PM2_CAPTAIN_NO_AUTH === 'true',
     sshArgs: args.sshArgs,
     runtimeDaemonId: null,
+    runtimeConnectionId: null,
     fake: args.fakeScenario ? { scenario: args.fakeScenario } : null,
     fakeCommand: args.fakeCommand,
   });

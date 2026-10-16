@@ -46,6 +46,16 @@ export function selectRange(orderedIds: number[], anchorId: number, targetId: nu
  * single-process buttons: Start is for what is not running, Restart and Stop are
  * for what is, and Captain may not stop itself.
  */
+/**
+ * What a confirmation to stop several processes is for: these processes on
+ * this connection. A daemon moved to another location can show the same PM2 IDs.
+ */
+export function stopConfirmationKey(targets: IProcessSummary[]) {
+  return targets
+    .map(process => `${process.daemonId}:${process.connectionId}:${process.pmId}`)
+    .join(',');
+}
+
 export function bulkActionTargets<T extends IProcessSummary>(
   action: IProcessAction,
   processes: T[]

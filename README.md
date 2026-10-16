@@ -6,6 +6,8 @@ https://github.com/user-attachments/assets/b92df2ab-5e63-4cfb-b746-7e03f4800092
 
 ## Quick start
 
+Instant satisfaction:
+
 ```bash
 npx pm2-captain
 ```
@@ -16,6 +18,10 @@ or install with:
 npm install -g pm2-captain
 pm2-captain
 ```
+
+or download one of the desktop app builds from:
+
+#### [GitHub releases page](https://github.com/panta82/pm2-captain/releases/latest).
 
 ## What is it?
 
@@ -34,44 +40,54 @@ in a web UI.
 - Info, environment, and logs for each process
 - Multiple PM2 daemons, local and remote (via SSH)
 - Start/stop/restart multiple apps at once
-- Filter or highlight logs, pause, download 
+- Filter or highlight logs, pause, download
 
-## Options
+## Desktop builds
 
-Captain can be configured via command-line options or environment variables.
+Pick your build from the [releases page](https://github.com/panta82/pm2-captain/releases):
 
-### Available options
+| Your system                   | Download                                   | Install                                                                                                 |
+| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Debian or Ubuntu, x64         | `pm2-captain-desktop_<version>_amd64.deb`  | Open with your package manager.                                                                         |
+| Fedora, RHEL or openSUSE, x64 | `pm2-captain-desktop-<version>.x86_64.rpm` | Open with your package manager.                                                                         |
+| Other Linux, x64              | `PM2-Captain-x86_64.AppImage`              | Make the file executable, then open it.                                                                 |
+| macOS                         | `PM2-Captain-<version>-<arch>.dmg`         | Choose `arm64` for Apple silicon or `x64` for Intel. Open the DMG and drag PM2 Captain to Applications. |
 
-| Command-line option   | Environment variable       | Default | Description                                                                      |
-| --------------------- | -------------------------- | ------- | -------------------------------------------------------------------------------- |
-| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`  | HTTP port on `127.0.0.1`. In fake mode the default is `3213`.                    |
-| `--pm2-home <path>`   | —                          | —       | Add the PM2 home at this path. With `ssh`, the path is on the remote server.     |
-| `--open`              | —                          | Off     | Always open a browser tab, even when a restart could reuse the one already open. |
-| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                             |
-| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy.  |
-| `--fake [scenario]`   | `PM2_CAPTAIN_FAKE`         | Off     | Show simulated PM2 daemons instead of real ones. See [Fake mode](docs/development.md#fake-mode).    |
-| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                         |
+For AppImage-s, we recommend using the [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher). Otherwise, make the AppImage executable with:
 
-The `ssh <ssh arguments>` subcommand adds a remote PM2 daemon to Captain.
-Remote daemons require the system `ssh` executable, OpenSSH stream-local
-forwarding, and an enabled SFTP subsystem on the server.
+```bash
+chmod +x PM2-Captain-x86_64.AppImage
+```
 
-`PM2_HOME` is only used to detect local PM2 daemons; it does not add one on its
-own once the daemon list exists.
+Desktop app logs are in these folders by default:
 
-Command-line values take precedence over environment values. Set `DEBUG=true`
-to enable diagnostic service and request logs; production output otherwise
-contains only startup information and errors.
+- Linux: `~/.config/PM2 Captain/logs`, or `$XDG_CONFIG_HOME/PM2 Captain/logs` when set.
+- macOS: `~/Library/Application Support/PM2 Captain/logs`.
 
-Captain keeps its own files in `~/.config/pm2-captain` (or
-`$XDG_CONFIG_HOME/pm2-captain`). The directory uses mode `0700`.
+## CLI options
 
-1. `daemons.json` is the daemon list, with mode `0600` because saved SSH
-   arguments can contain sensitive option values. Delete it, or set `daemons` to
-   `null`, to have Captain detect local PM2 daemons again on the next launch.
-2. `launch-token` is the persistent launch token used when authentication is
-   enabled, with mode `0600`. The launch URL exchanges it for an HttpOnly,
-   SameSite session cookie.
+| Command-line option   | Environment variable       | Default | Description                                                                                      |
+| --------------------- | -------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `-p, --port <number>` | `PM2_CAPTAIN_PORT`         | `3212`  | HTTP port on `127.0.0.1`. In fake mode the default is `3213`.                                    |
+| `--pm2-home <path>`   | —                          | —       | Add the PM2 home at this path. With `ssh`, the path is on the remote server.                     |
+| `--open`              | —                          | Off     | Always open a browser tab, even when a restart could reuse the one already open.                 |
+| `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                                             |
+| `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy.                  |
+| `--fake [scenario]`   | `PM2_CAPTAIN_FAKE`         | Off     | Show simulated PM2 daemons instead of real ones. See [Fake mode](docs/development.md#fake-mode). |
+| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                                         |
+|                       | `DEBUG=true`               | Off     | Enable diagnostic service and request logs.                                                      |
+
+The `ssh <ssh arguments>` subcommand adds a remote PM2 daemon to Captain. You can also do this from the UI.
+
+Remote daemons require a local `ssh` executable, OpenSSH stream-local forwarding, and an enabled SFTP subsystem on the server.
+
+`PM2_HOME` is a hint for initial daemon detection. Once a daemon list is saved, use `--pm2-home` or the UI to add another daemon.
+
+## Config
+
+The app keeps its config file in `~/.config/pm2-captain/daemons.json` (or `$XDG_CONFIG_HOME/pm2-captain/daemons.json` when set).
+
+The configured daemons are shared between the desktop app and any npm `pm2-captain` instances or services. The instances will sync the changes between themselves.
 
 ## Service setup
 
@@ -84,6 +100,11 @@ Read [this guide](docs/service_setup.md) for details.
 Read [development.md](docs/development.md) for more details.
 
 ## Version history
+
+#### `2.0.0` (2026-10-16)
+
+- Introduce PM2 Captain desktop app
+- Extend "fake mode" to the desktop app
 
 #### `1.5.0` (2026-10-15)
 

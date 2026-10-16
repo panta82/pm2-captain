@@ -2,10 +2,11 @@ import { TRPCError, initTRPC } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import type { IncomingHttpHeaders } from 'node:http';
 
+import { AUTH_COOKIE_NAME } from '../../shared/session';
 import { IContainer } from '../container';
 import { defaultLog } from '../lib/logger';
 
-export const AUTH_COOKIE_NAME = 'pm2_captain_session';
+export { AUTH_COOKIE_NAME };
 
 function firstHeaderValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value?.split(',', 1)[0]?.trim();
@@ -31,10 +32,12 @@ export function isRequestOriginAllowed(
 
 export function makeCreateContext(container: IContainer) {
   return async ({ info, req, res }: CreateFastifyContextOptions) => {
-    const isAuthenticated = container.captainLauncher.authenticate(req.cookies[AUTH_COOKIE_NAME]);
+    const isAuthenticated = container.sessionAuth.authenticate(req.cookies[AUTH_COOKIE_NAME]);
+    // The origin the server actually listens on: a desktop backend's port is
+    // assigned by the OS.
     const isOriginAllowed = isRequestOriginAllowed(
       req.headers,
-      container.settings.baseURL,
+      container.webServer.baseURL,
       container.settings.noAuth
     );
     return {
@@ -52,17 +55,18 @@ export function makeCreateContext(container: IContainer) {
 export type IFastifyContext = Awaited<ReturnType<ReturnType<typeof makeCreateContext>>>;
 
 const t = initTRPC.context<IFastifyContext>().create({
-  errorFormatter({ shape, error, type, path, ctx, input }) {
+  errorFormatter({ shape, error, type, path, ctx }) {
     const log = ctx?.log || defaultLog;
+    // Only stable identifiers: the input, error messages and stacks can quote
+    // SSH arguments, which may carry secrets. Services log their own safe context.
+    const causeCode = (error.cause as { code?: unknown } | undefined)?.code;
+    // The typed code of a Captain error, so the UI never has to read messages.
+    const appCode = typeof causeCode === 'string' ? causeCode : null;
     log.error(
-      {
-        input,
-        error: error.cause || error,
-        code: error.code,
-      },
-      `[TRPC ${type}] ${path || 'unknown'}: ${error.message}`
+      { code: error.code, appCode, errorName: error.cause?.name ?? error.name },
+      `[TRPC ${type}] ${path || 'unknown'} failed`
     );
-    return shape;
+    return { ...shape, data: { ...shape.data, appCode } };
   },
 });
 

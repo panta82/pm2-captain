@@ -1,5 +1,7 @@
 import { getRouteApi, linkOptions } from '@tanstack/react-router';
 
+import { readPreference, writePreference } from '@/lib/preferences';
+
 const STORAGE_KEY = 'pm2-captain-process-tab';
 
 const PROCESS_TABS = ['info', 'env', 'logs'] as const;
@@ -16,20 +18,12 @@ export const PROCESS_ROUTE = '/daemons/$daemonId/processes/$pmIds/$tab';
 export const processRouteApi = getRouteApi(PROCESS_ROUTE);
 
 export function getProcessTab(): ProcessTab {
-  try {
-    const storedTab = localStorage.getItem(STORAGE_KEY);
-    return storedTab && isProcessTab(storedTab) ? storedTab : 'info';
-  } catch {
-    return 'info';
-  }
+  const storedTab = readPreference(STORAGE_KEY);
+  return storedTab && isProcessTab(storedTab) ? storedTab : 'info';
 }
 
 export function setProcessTab(tab: ProcessTab): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, tab);
-  } catch {
-    // ignore quota / private-mode failures
-  }
+  writePreference(STORAGE_KEY, tab);
 }
 
 /**

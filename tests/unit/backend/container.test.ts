@@ -17,9 +17,15 @@ describe('service lists', () => {
     expect(identifiers(DAEMON_SERVICES)).not.toContain('fakeWorld');
     for (const service of [...APP_SERVICES, ...DAEMON_SERVICES]) {
       expect((FAKE_APP_SERVICES as readonly object[]).includes(service)).toBe(
-        ['logger', 'log', 'app', 'daemonManager', 'captainLauncher', 'webServer'].includes(
-          service.identifier
-        )
+        [
+          'logger',
+          'log',
+          'app',
+          'daemonManager',
+          'sessionAuth',
+          'captainLauncher',
+          'webServer',
+        ].includes(service.identifier)
       );
     }
   });

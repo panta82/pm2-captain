@@ -128,7 +128,7 @@ const LogRow = memo(function LogRow({
   );
 });
 
-export function LogsPage() {
+export function LogsPage({ connectionId }: { connectionId: string | undefined }) {
   // Logs exist for one process only; the route redirects a selection elsewhere.
   const { daemonId, numericId } = processRouteApi.useParams({
     select: ({ daemonId, pmIds }) => ({ daemonId, numericId: pmIds[0] ?? 0 }),
@@ -156,8 +156,8 @@ export function LogsPage() {
   const lifetimeRef = useRef(0);
   const requestRef = useRef<AbortController | null>(null);
   const pageInput = useMemo(
-    () => ({ daemonId, pmId: numericId, view, cursor: null, limit: 500 }),
-    [daemonId, numericId, view]
+    () => ({ daemonId, connectionId, pmId: numericId, view, cursor: null, limit: 500 }),
+    [daemonId, connectionId, numericId, view]
   );
   const shouldRefresh = () =>
     !pausedRef.current && isFollowingRef.current && !isCatchingUpRef.current;
@@ -166,6 +166,7 @@ export function LogsPage() {
     // Catch up automatically only while following. Paused and older history
     // remain frozen until Resume or Jump to latest explicitly requests a snapshot.
     {
+      enabled: connectionId !== undefined,
       staleTime: 0,
       refetchOnMount: shouldRefresh,
       refetchOnWindowFocus: shouldRefresh,
@@ -266,9 +267,9 @@ export function LogsPage() {
   }, [initialPage.data]);
 
   trpc.logs.stream.useSubscription(
-    { daemonId, pmId: numericId, view },
+    { daemonId, connectionId, pmId: numericId, view },
     {
-      enabled: !isCatchingUp,
+      enabled: !isCatchingUp && connectionId !== undefined,
       onData(event) {
         if (event.type === 'daemon-status') {
           if (!event.connected) {
@@ -378,6 +379,7 @@ export function LogsPage() {
       const page = await utils.client.logs.page.query(
         {
           daemonId,
+          connectionId,
           pmId: numericId,
           view,
           cursor,
@@ -404,7 +406,7 @@ export function LogsPage() {
         requestRef.current = null;
       }
     }
-  }, [cursor, hasMore, daemonId, numericId, utils.client.logs.page, view]);
+  }, [cursor, hasMore, daemonId, connectionId, numericId, utils.client.logs.page, view]);
 
   const filteredEntries = useMemo(() => {
     const { filters } = compiledSearch;
@@ -457,7 +459,8 @@ export function LogsPage() {
     anchor.href = url;
     anchor.download = `pm2-${numericId}-${view}${isFiltered ? '-filtered' : ''}-${stamp}.log`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    // The desktop app asks where to save before it reads the file.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }, [filteredEntries, isFiltered, numericId, view]);
 
   // Measure wrapped rows at their actual height; only visible rows and overscan

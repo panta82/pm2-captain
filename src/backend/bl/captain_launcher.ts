@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { accessSync, promises as fs, constants as fsConstants } from 'node:fs';
 import libNet from 'node:net';
 import libPath from 'node:path';
@@ -9,7 +8,6 @@ import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods, IAppWaitForMethod } from '../lib/app';
 
-const TOKEN_FILE_NAME = 'launch-token';
 /** Captains on different ports share the config directory, so the file is per port. */
 const TAB_SEEN_FILE_PREFIX = 'tab-seen-';
 /** A tab connected this recently before launch is assumed to still be open. */
@@ -74,40 +72,17 @@ export function resolveBrowserOpenCommand(
   return command ? [command, [url]] : null;
 }
 
-export function createCaptainLauncher({ settings, log }: IContainer) {
-  let token = '';
+export function createCaptainLauncher({ settings, log, sessionAuth }: IContainer) {
   let openTabCount = 0;
   /** When a tab was last connected to this Captain, or null if none was yet. */
   let tabSeenAt: number | null = null;
   let tabReconnectTimer: NodeJS.Timeout | null = null;
   const tabSeenPath = libPath.join(settings.configDir, `${TAB_SEEN_FILE_PREFIX}${settings.port}`);
 
-  const ensureToken = async () => {
-    if (token) {
-      return token;
-    }
-    const tokenPath = libPath.join(settings.configDir, TOKEN_FILE_NAME);
-    await fs.mkdir(settings.configDir, { recursive: true, mode: 0o700 });
-    await fs.chmod(settings.configDir, 0o700);
-    try {
-      token = (await fs.readFile(tokenPath, 'utf8')).trim();
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-    if (!token) {
-      token = randomBytes(32).toString('base64url');
-      await fs.writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
-      await fs.chmod(tokenPath, 0o600);
-    }
-    return token;
-  };
-
   const launchURL = async () =>
     settings.noAuth
       ? settings.baseURL
-      : `${settings.baseURL}/launch?token=${encodeURIComponent(await ensureToken())}`;
+      : `${settings.baseURL}/launch?token=${encodeURIComponent(await sessionAuth.ensureToken())}`;
 
   const browserOpenCommand = (url: string) =>
     settings.browserOpen === 'never' ? null : resolveBrowserOpenCommand(url);
@@ -198,7 +173,7 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
   };
 
   const requestRunningCaptain = async (path: string, body?: unknown) => {
-    const launchToken = settings.noAuth ? '' : await ensureToken();
+    const launchToken = settings.noAuth ? '' : await sessionAuth.ensureToken();
     return fetch(`${settings.baseURL}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: {
@@ -240,7 +215,7 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
   return new (class CaptainLauncher implements IAppLifecycleMethods {
     initialize = async () => {
       if (!settings.noAuth) {
-        await ensureToken();
+        await sessionAuth.ensureToken();
       }
     };
 
@@ -284,6 +259,7 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
       }
       let isExistingCaptain = false;
       let isExistingFake = false;
+      let isExistingDesktop = false;
       try {
         const response = await fetch(`${settings.baseURL}/health`, {
           signal: AbortSignal.timeout(1_000),
@@ -297,6 +273,7 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         ) {
           isExistingCaptain = true;
           isExistingFake = 'fake' in health && health.fake === true;
+          isExistingDesktop = 'runtime' in health && health.runtime === 'desktop';
         }
       } catch {
         // The diagnostic below is more useful than the fetch error.
@@ -307,6 +284,12 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
         // before treating the occupied port as a live singleton instance.
         if (await waitForPortRelease()) {
           return false;
+        }
+        // A desktop backend has a private token that this command cannot use.
+        if (isExistingDesktop) {
+          throw new PortConflictError(
+            `Port ${settings.port} belongs to the PM2 Captain desktop app. Use --port <number>.`
+          );
         }
         // Fake and real daemons never share a Captain: asking for one must not
         // quietly open the other.
@@ -331,18 +314,6 @@ ${isAlreadyRunning ? '' : 'Press Ctrl+C to stop Captain.'}
      * command-line handoff is. A body makes it a POST.
      */
     requestRunningCaptain = requestRunningCaptain;
-
-    authenticate = (candidate: string | undefined) => {
-      if (settings.noAuth) {
-        return true;
-      }
-      if (!candidate || !token) {
-        return false;
-      }
-      const left = Buffer.from(candidate);
-      const right = Buffer.from(token);
-      return left.length === right.length && timingSafeEqual(left, right);
-    };
   })();
 }
 

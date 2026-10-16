@@ -1,3 +1,4 @@
+import { observable } from '@trpc/server/observable';
 import { randomUUID } from 'node:crypto';
 import libOs from 'node:os';
 import libPath from 'node:path';
@@ -7,6 +8,7 @@ import {
   IDaemonInput,
   IDaemonSettings,
   IDaemonSummary,
+  ILogStreamEvent,
   ILogView,
   IProcessAction,
   IProcessListResult,
@@ -16,9 +18,15 @@ import { IBackendSettings, requestedDaemonInput, resolveLocalPath } from '../bac
 import { IContainer, createDaemonContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 import { IAppLifecycleMethods } from '../lib/app';
+import { DaemonRegistryError, daemonLocationKey } from '../lib/daemon_store';
 
 interface IDaemonRuntime {
   config: IDaemonConfig;
+  /**
+   * Identifies this connection. A daemon whose location changes gets a new
+   * runtime and a new ID, so requests prepared for the old location fail.
+   */
+  connectionId: string;
   container: IContainer;
   status: IDaemonSummary['status'];
   error: string | null;
@@ -28,6 +36,8 @@ interface IDaemonRuntime {
   processes: IProcessSummary[];
   startPromise: Promise<void> | null;
   removeStatusListener: (() => void) | null;
+  /** Ends the log streams of this connection when it is retired. */
+  streamClosers: Set<() => void>;
   isRemoved: boolean;
 }
 
@@ -67,6 +77,36 @@ export class DaemonConflictError extends Error {
   }
 }
 
+/** The daemon was changed elsewhere since the form that edits it was opened. */
+export class DaemonChangedError extends Error {
+  readonly code = 'DAEMON_CHANGED';
+
+  constructor(readonly daemonId: string) {
+    super(
+      'This daemon was changed elsewhere since you opened it. Your edits are kept; reload the daemon to see the saved version.'
+    );
+    this.name = 'DaemonChangedError';
+  }
+}
+
+/** The request was prepared for a connection that has since been replaced or removed. */
+export class StaleDaemonConnectionError extends Error {
+  readonly code = 'DAEMON_CONNECTION_REPLACED';
+
+  constructor(readonly daemonId: string) {
+    super(
+      'This daemon was reconfigured. Nothing was sent to PM2; check the process and try again.'
+    );
+    this.name = 'StaleDaemonConnectionError';
+  }
+}
+
+/** A warning about the registry file that leaves the last working daemons in use. */
+export interface IDaemonRegistryWarning {
+  path: string;
+  message: string;
+}
+
 // A remote PM2 home ends up in an SSH stream-local forward ("local:remote"),
 // so it cannot contain a colon. It is resolved on the server, so it must be
 // absolute or start with ~.
@@ -100,13 +140,17 @@ function normalizeInput(input: IDaemonInput): IDaemonInput {
 }
 
 function isSameDaemon(left: IDaemonInput, right: IDaemonInput) {
-  if (left.kind === 'local' || right.kind === 'local') {
-    return left.kind === right.kind && left.pm2Home === right.pm2Home;
-  }
-  return (
-    JSON.stringify(left.sshArgs) === JSON.stringify(right.sshArgs) &&
-    (left.pm2Home ?? null) === (right.pm2Home ?? null)
-  );
+  return daemonLocationKey(left) === daemonLocationKey(right);
+}
+
+/** The fields a user edits. Remembered host metadata is not one of them. */
+function editableFields(daemon: IDaemonInput | IDaemonConfig): string {
+  return JSON.stringify([
+    daemon.kind,
+    daemon.kind === 'ssh' ? daemon.sshArgs : null,
+    daemon.pm2Home ?? null,
+    daemon.label ?? null,
+  ]);
 }
 
 function compactHomePath(path: string) {
@@ -121,10 +165,14 @@ export function createDaemonManager({
   log,
   container: appContainer,
 }: IContainer) {
+  // In registry order. Retired runtimes leave the map at once.
   const runtimes = new Map<string, IDaemonRuntime>();
-  // Runtimes replaced by an edit finish disconnecting in the background.
+  // Runtimes that were replaced or removed finish disconnecting in the background.
   const retiringRuntimes = new Set<Promise<void>>();
   let mutationQueue = Promise.resolve();
+  let isStarted = false;
+  let stopWatching: (() => void) | null = null;
+  let registryWarning: IDaemonRegistryWarning | null = null;
 
   const serializeMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
     const result = mutationQueue.then(operation);
@@ -135,21 +183,24 @@ export function createDaemonManager({
     return result;
   };
 
-  const makeDaemonSettings = (config: IDaemonConfig): IBackendSettings => ({
+  const makeDaemonSettings = (config: IDaemonConfig, connectionId: string): IBackendSettings => ({
     ...settings,
     pm2Home: config.pm2Home ?? null,
     sshArgs: config.kind === 'ssh' ? config.sshArgs : null,
     runtimeDaemonId: config.daemonId,
+    runtimeConnectionId: connectionId,
   });
 
   const createRuntime = (config: IDaemonConfig): IDaemonRuntime => {
-    const container = createDaemonContainer(makeDaemonSettings(config), appContainer);
+    const connectionId = randomUUID();
+    const container = createDaemonContainer(makeDaemonSettings(config, connectionId), appContainer);
     // A local daemon is known before it connects. A remote one shows what was
     // remembered from its last connection.
     const identity = container.pm2Daemon.identity;
     const remembered = config.kind === 'ssh' ? config : null;
     return {
       config,
+      connectionId,
       container,
       status: 'offline',
       error: null,
@@ -159,13 +210,12 @@ export function createDaemonManager({
       processes: [],
       startPromise: null,
       removeStatusListener: null,
+      streamClosers: new Set(),
       isRemoved: false,
     };
   };
 
-  const activeRuntimes = () => Array.from(runtimes.values()).filter(runtime => !runtime.isRemoved);
-
-  const configuredDaemons = () => activeRuntimes().map(runtime => runtime.config);
+  const activeRuntimes = () => Array.from(runtimes.values());
 
   // Several PM2s can share a computer and user, so a PM2 home other than the
   // default is part of the name, like the path in an scp destination.
@@ -190,6 +240,7 @@ export function createDaemonManager({
 
   const summaryFor = (runtime: IDaemonRuntime): IDaemonSummary => ({
     daemonId: runtime.config.daemonId,
+    connectionId: runtime.connectionId,
     kind: runtime.config.kind,
     label: labelFor(runtime),
     hostname: runtime.hostname,
@@ -204,26 +255,127 @@ export function createDaemonManager({
     config: runtime.config,
   });
 
-  const persistLastKnownIdentity = async (runtime: IDaemonRuntime) => {
-    await serializeMutation(async () => {
+  const disposeRuntime = async (runtime: IDaemonRuntime) => {
+    runtime.removeStatusListener?.();
+    runtime.removeStatusListener = null;
+    for (const close of runtime.streamClosers) {
+      close();
+    }
+    // A connection attempt still in progress would otherwise hold the disposal
+    // until its SSH timeout. Fake daemons have no SSH connection.
+    if (runtime.startPromise && runtime.container.identifiers.includes('sshConnection')) {
+      await runtime.container.sshConnection.abort();
+    }
+    await runtime.startPromise;
+    await runtime.container.app.dispose();
+  };
+
+  /** Takes a runtime out of service. Resolves once it has disconnected. */
+  const retireRuntime = (runtime: IDaemonRuntime) => {
+    runtime.isRemoved = true;
+    const daemonId = runtime.config.daemonId;
+    const retirement: Promise<void> = disposeRuntime(runtime)
+      .catch(error => {
+        log.warn({ error, daemonId }, 'Unable to disconnect a replaced or removed PM2 daemon');
+      })
+      .finally(() => retiringRuntimes.delete(retirement));
+    retiringRuntimes.add(retirement);
+    return retirement;
+  };
+
+  /**
+   * Makes the runtimes match a validated list. Label edits and reordering keep
+   * connections; a new location is a new connection. Runs in the mutation
+   * queue. Resolves to the retirements it started.
+   */
+  const reconcile = (configs: IDaemonConfig[]) => {
+    const previous = new Map(runtimes);
+    const retirements: Promise<void>[] = [];
+    const started: IDaemonRuntime[] = [];
+    runtimes.clear();
+    for (const config of configs) {
+      const current = previous.get(config.daemonId);
+      previous.delete(config.daemonId);
+      if (current && isSameDaemon(current.config, config)) {
+        current.config = config;
+        runtimes.set(config.daemonId, current);
+        continue;
+      }
+      if (current) {
+        retirements.push(retireRuntime(current));
+        log.info({ daemonId: config.daemonId }, 'PM2 daemon location changed; reconnecting');
+      }
+      const runtime = createRuntime(config);
+      runtimes.set(config.daemonId, runtime);
+      started.push(runtime);
+    }
+    for (const removed of previous.values()) {
+      retirements.push(retireRuntime(removed));
+      log.info({ daemonId: removed.config.daemonId }, 'PM2 daemon removed from Captain');
+    }
+    if (isStarted) {
+      for (const runtime of started) {
+        void startRuntime(runtime);
+      }
+    }
+    return retirements;
+  };
+
+  /**
+   * Runs one change against the newest registry on disk and applies the result
+   * here. After startup the file has to hold a valid list: a missing or broken
+   * file is never replaced with what this process remembers.
+   */
+  const mutateRegistry = async (
+    operation: (current: IDaemonConfig[]) => IDaemonConfig[] | undefined
+  ) => {
+    const result = await daemonStore.mutate(current => {
+      if (current === null) {
+        throw new DaemonRegistryError(
+          daemonStore.path,
+          'The daemon list is missing. Restore the file or restart Captain to detect local PM2 daemons.'
+        );
+      }
+      return operation(current);
+    });
+    registryWarning = null;
+    return reconcile(result ?? []);
+  };
+
+  const persistLastKnownIdentity = (runtime: IDaemonRuntime) =>
+    serializeMutation(async () => {
+      if (runtime.isRemoved || runtime.config.kind !== 'ssh') {
+        return;
+      }
+      const { hostname, username } = runtime;
+      const remembered = runtime.config;
+      // Unchanged identities need no locked save.
       if (
-        runtime.isRemoved ||
-        runtime.config.kind !== 'ssh' ||
-        !runtime.hostname ||
-        !runtime.username ||
-        (runtime.config.lastKnownHostname === runtime.hostname &&
-          runtime.config.lastKnownUsername === runtime.username)
+        !hostname ||
+        !username ||
+        (remembered.lastKnownHostname === hostname && remembered.lastKnownUsername === username)
       ) {
         return;
       }
-      runtime.config = {
-        ...runtime.config,
-        lastKnownHostname: runtime.hostname,
-        lastKnownUsername: runtime.username,
-      };
-      await daemonStore.save(configuredDaemons());
+      await mutateRegistry(current => {
+        const entry = current.find(config => config.daemonId === runtime.config.daemonId);
+        // A retiring connection must not resurrect a removed daemon or describe
+        // a location the daemon no longer has.
+        if (
+          runtime.isRemoved ||
+          entry?.kind !== 'ssh' ||
+          !isSameDaemon(entry, runtime.config) ||
+          (entry.lastKnownHostname === hostname && entry.lastKnownUsername === username)
+        ) {
+          return undefined;
+        }
+        return current.map(config =>
+          config === entry
+            ? { ...entry, lastKnownHostname: hostname, lastKnownUsername: username }
+            : config
+        );
+      });
     });
-  };
 
   const startRuntime = (runtime: IDaemonRuntime) => {
     if (runtime.startPromise || runtime.isRemoved) {
@@ -235,7 +387,6 @@ export function createDaemonManager({
       .start()
       .then(async () => {
         if (runtime.isRemoved) {
-          await runtime.container.app.dispose();
           return;
         }
         const identity = runtime.container.pm2Daemon.identity;
@@ -253,7 +404,9 @@ export function createDaemonManager({
             runtime.lastSeenAt = Date.now();
           }
         });
-        await persistLastKnownIdentity(runtime).catch(error => {
+        // Not awaited: the save waits for the mutation queue, and a mutation
+        // that retires this runtime waits for this start to finish.
+        void persistLastKnownIdentity(runtime).catch(error => {
           log.warn(
             { error, daemonId: runtime.config.daemonId },
             'Unable to persist daemon identity'
@@ -274,23 +427,33 @@ export function createDaemonManager({
     return runtime.startPromise;
   };
 
-  const disposeRuntime = async (runtime: IDaemonRuntime) => {
-    runtime.removeStatusListener?.();
-    runtime.removeStatusListener = null;
-    await runtime.startPromise;
-    await runtime.container.app.dispose();
-  };
-
   const getRuntime = (daemonId: string) => {
     const runtime = runtimes.get(daemonId);
-    if (!runtime || runtime.isRemoved) {
+    if (!runtime) {
       throw new DaemonNotFoundError(daemonId);
     }
     return runtime;
   };
 
-  const getOperationalRuntime = (daemonId: string) => {
-    const runtime = getRuntime(daemonId);
+  const assertConnection = (runtime: IDaemonRuntime, connectionId: string | undefined) => {
+    if (
+      connectionId !== undefined &&
+      (runtime.isRemoved || runtime.connectionId !== connectionId)
+    ) {
+      throw new StaleDaemonConnectionError(runtime.config.daemonId);
+    }
+  };
+
+  const getOperationalRuntime = (daemonId: string, connectionId?: string) => {
+    const runtime = runtimes.get(daemonId);
+    if (!runtime) {
+      // A request for a known connection of a removed daemon is stale, not unknown.
+      if (connectionId !== undefined) {
+        throw new StaleDaemonConnectionError(daemonId);
+      }
+      throw new DaemonNotFoundError(daemonId);
+    }
+    assertConnection(runtime, connectionId);
     if (runtime.status !== 'online') {
       throw new DaemonUnavailableError(daemonId);
     }
@@ -299,6 +462,9 @@ export function createDaemonManager({
 
   const refreshRuntime = async (runtime: IDaemonRuntime) => {
     const result = await runtime.container.processManager.list();
+    if (runtime.isRemoved) {
+      return;
+    }
     runtime.hostname = result.hostname;
     runtime.username = result.username;
     runtime.processes = result.processes;
@@ -307,52 +473,108 @@ export function createDaemonManager({
     runtime.lastSeenAt = Date.now();
   };
 
-  const addRuntime = (config: IDaemonConfig) => {
-    const runtime = createRuntime(config);
-    runtimes.set(config.daemonId, runtime);
-    void startRuntime(runtime);
-    return runtime;
-  };
+  /** Rereads the registry after a change on disk, keeping the last good list on errors. */
+  const reload = () =>
+    serializeMutation(async () => {
+      if (!isStarted) {
+        return;
+      }
+      let configs: IDaemonConfig[] | null;
+      try {
+        configs = await daemonStore.load();
+      } catch (error) {
+        const message =
+          error instanceof DaemonRegistryError
+            ? error.message
+            : `${daemonStore.path}: ${errorMessage(error)}`;
+        if (registryWarning?.message !== message) {
+          log.warn(
+            { path: daemonStore.path },
+            'The daemon registry cannot be used; keeping the last working daemons'
+          );
+        }
+        registryWarning = { path: daemonStore.path, message };
+        return;
+      }
+      if (configs === null) {
+        registryWarning = {
+          path: daemonStore.path,
+          message: `${daemonStore.path}: The daemon list is missing. Captain keeps the last working daemons.`,
+        };
+        return;
+      }
+      registryWarning = null;
+      void Promise.all(reconcile(configs));
+    });
 
   return new (class DaemonManager implements IAppLifecycleMethods {
     initialize = async () => {
+      registryWarning = null;
+      // Invalid content fails startup: there is no working list to fall back to.
       let daemons = await daemonStore.load();
       if (daemons === null) {
         // The first launch starts from the PM2 homes on this computer. The list
         // is saved even when empty, so daemons the user removes stay removed.
-        daemons = (await pm2HomeFinder.find()).map(pm2Home => ({
+        const detected = (await pm2HomeFinder.find()).map((pm2Home): IDaemonConfig => ({
           daemonId: randomUUID(),
           kind: 'local',
           pm2Home,
         }));
-        await daemonStore.save(daemons);
-        log.info({ count: daemons.length }, 'Added the detected local PM2 homes');
+        let isSaved = false;
+        // Another Captain may have set the list up in the meantime; that list wins.
+        daemons = await daemonStore.mutate(current => {
+          if (current !== null) {
+            return undefined;
+          }
+          isSaved = true;
+          return detected;
+        });
+        if (isSaved) {
+          log.info({ count: detected.length }, 'Added the detected local PM2 homes');
+        }
       }
       const requestedDaemon = requestedDaemonInput(settings);
       if (requestedDaemon) {
         const input = normalizeInput(requestedDaemon);
-        if (!daemons.some(config => isSameDaemon(config, input))) {
-          daemons = [...daemons, { ...input, daemonId: randomUUID() }];
-          await daemonStore.save(daemons);
-        }
+        daemons = await daemonStore.mutate(current =>
+          current?.some(config => isSameDaemon(config, input))
+            ? undefined
+            : [...(current ?? []), { ...input, daemonId: randomUUID() } as IDaemonConfig]
+        );
       }
-      for (const config of daemons) {
+      runtimes.clear();
+      for (const config of daemons ?? []) {
         runtimes.set(config.daemonId, createRuntime(config));
       }
     };
 
     start = async () => {
+      isStarted = true;
       for (const runtime of runtimes.values()) {
         void startRuntime(runtime);
       }
+      // Watch first, then reread, so an edit between the initial read and the
+      // watch is not missed.
+      stopWatching = await daemonStore.watch(() => void reload());
+      void reload();
     };
 
     stop = async () => {
+      isStarted = false;
+      stopWatching?.();
+      stopWatching = null;
+      await mutationQueue;
       await Promise.all(retiringRuntimes);
       await Promise.all(
         Array.from(runtimes.values(), async runtime => {
           runtime.removeStatusListener?.();
           runtime.removeStatusListener = null;
+          for (const close of runtime.streamClosers) {
+            close();
+          }
+          if (runtime.startPromise && runtime.container.identifiers.includes('sshConnection')) {
+            await runtime.container.sshConnection.abort();
+          }
           await runtime.startPromise;
           await runtime.container.app.stop();
           runtime.status = 'offline';
@@ -361,18 +583,30 @@ export function createDaemonManager({
     };
 
     dispose = async () => {
+      isStarted = false;
+      stopWatching?.();
+      stopWatching = null;
+      await mutationQueue;
       await Promise.all(retiringRuntimes);
       await Promise.all(Array.from(runtimes.values(), disposeRuntime));
       runtimes.clear();
     };
+
+    get registryWarning() {
+      return registryWarning;
+    }
+
+    /** Rereads the registry now, as a file change would. */
+    reload = reload;
 
     listDaemons = () => activeRuntimes().map(summaryFor);
 
     listSettings = () => activeRuntimes().map(settingsFor);
 
     listProcesses = async (): Promise<IProcessListResult> => {
+      const listed = activeRuntimes();
       await Promise.all(
-        Array.from(runtimes.values(), async runtime => {
+        listed.map(async runtime => {
           // A reconnecting daemon keeps its last known processes until the PM2
           // client reports the daemon again.
           if (runtime.container.app.state.stage !== 'active' || isReconnecting(runtime)) {
@@ -383,7 +617,7 @@ export function createDaemonManager({
           } catch (error) {
             // The PM2 client fails its pending calls when it loses the daemon,
             // right after reporting the loss. That report stands.
-            if (isReconnecting(runtime)) {
+            if (isReconnecting(runtime) || runtime.isRemoved) {
               return;
             }
             runtime.status = 'error';
@@ -391,91 +625,101 @@ export function createDaemonManager({
           }
         })
       );
+      // A runtime retired while the list was refreshing is not shown.
+      const current = activeRuntimes();
       return {
-        daemons: this.listDaemons(),
-        processes: Array.from(runtimes.values()).flatMap(runtime =>
-          runtime.isRemoved ? [] : runtime.processes
-        ),
+        daemons: current.map(summaryFor),
+        processes: current.flatMap(runtime => runtime.processes),
+        registryWarning: registryWarning?.message ?? null,
       };
     };
 
     add = (input: IDaemonInput) =>
       serializeMutation(async () => {
         const normalized = normalizeInput(input);
-        const duplicate = activeRuntimes().find(runtime =>
-          isSameDaemon(runtime.config, normalized)
-        );
-        if (duplicate) {
-          return { added: false, daemon: summaryFor(duplicate) };
+        let addedId: string | null = null;
+        let duplicateId: string | null = null;
+        await mutateRegistry(current => {
+          const duplicate = current.find(config => isSameDaemon(config, normalized));
+          if (duplicate) {
+            duplicateId = duplicate.daemonId;
+            return undefined;
+          }
+          const config = { ...normalized, daemonId: randomUUID() } as IDaemonConfig;
+          addedId = config.daemonId;
+          return [...current, config];
+        });
+        if (addedId) {
+          log.info({ daemonId: addedId }, 'PM2 daemon added');
         }
-        const config: IDaemonConfig = { ...normalized, daemonId: randomUUID() };
-        await daemonStore.save([...configuredDaemons(), config]);
-        return { added: true, daemon: summaryFor(addRuntime(config)) };
+        return {
+          added: addedId !== null,
+          daemon: summaryFor(getRuntime((addedId ?? duplicateId)!)),
+        };
       });
 
-    remove = async (daemonId: string) => {
-      const runtime = await serializeMutation(async () => {
-        const selectedRuntime = getRuntime(daemonId);
-        selectedRuntime.isRemoved = true;
-        await daemonStore.save(configuredDaemons());
-        return selectedRuntime;
-      });
-      await disposeRuntime(runtime);
-      runtimes.delete(daemonId);
-      log.info({ daemonId }, 'PM2 daemon removed from Captain');
+    /**
+     * Removes a daemon. `expected` holds the fields the user saw; a daemon that
+     * changed since then is not removed.
+     */
+    remove = async (daemonId: string, expected: IDaemonInput) => {
+      const retirements = await serializeMutation(() =>
+        mutateRegistry(current => {
+          const entry = current.find(config => config.daemonId === daemonId);
+          if (!entry) {
+            throw new DaemonNotFoundError(daemonId);
+          }
+          if (editableFields(entry) !== editableFields(expected)) {
+            throw new DaemonChangedError(daemonId);
+          }
+          return current.filter(config => config !== entry);
+        })
+      );
+      await Promise.all(retirements);
       return { removed: true };
     };
 
-    update = (daemonId: string, input: IDaemonInput) =>
+    /**
+     * Saves an edit made from the daemon form. `expected` holds the fields the
+     * form was opened with; a daemon that changed since then is not overwritten.
+     */
+    update = (daemonId: string, input: IDaemonInput, expected: IDaemonInput) =>
       serializeMutation(async () => {
-        const current = getRuntime(daemonId);
         const normalized = normalizeInput(input);
-        if (normalized.kind !== current.config.kind) {
-          throw new InvalidDaemonError('A daemon cannot switch between local and SSH.');
-        }
-        if (
-          activeRuntimes().some(
-            other => other !== current && isSameDaemon(other.config, normalized)
-          )
-        ) {
-          throw new DaemonConflictError();
-        }
-        const isSameConnection = isSameDaemon(current.config, normalized);
-        // The remembered identity describes the previous destination.
-        const previous = isSameConnection && current.config.kind === 'ssh' ? current.config : null;
-        const config: IDaemonConfig = {
-          ...normalized,
-          daemonId,
-          ...(previous?.lastKnownHostname && previous.lastKnownUsername
-            ? {
-                lastKnownHostname: previous.lastKnownHostname,
-                lastKnownUsername: previous.lastKnownUsername,
-              }
-            : {}),
-        };
-        await daemonStore.save(
-          configuredDaemons().map(existing => (existing.daemonId === daemonId ? config : existing))
-        );
+        let isSameConnection = false;
+        await mutateRegistry(current => {
+          const entry = current.find(config => config.daemonId === daemonId);
+          if (!entry) {
+            throw new DaemonNotFoundError(daemonId);
+          }
+          if (editableFields(entry) !== editableFields(expected)) {
+            throw new DaemonChangedError(daemonId);
+          }
+          if (normalized.kind !== entry.kind) {
+            throw new InvalidDaemonError('A daemon cannot switch between local and SSH.');
+          }
+          if (current.some(other => other !== entry && isSameDaemon(other, normalized))) {
+            throw new DaemonConflictError();
+          }
+          isSameConnection = isSameDaemon(entry, normalized);
+          // The remembered identity describes the previous destination.
+          const previous = isSameConnection && entry.kind === 'ssh' ? entry : null;
+          const config = {
+            ...normalized,
+            daemonId,
+            ...(previous?.lastKnownHostname && previous.lastKnownUsername
+              ? {
+                  lastKnownHostname: previous.lastKnownHostname,
+                  lastKnownUsername: previous.lastKnownUsername,
+                }
+              : {}),
+          } as IDaemonConfig;
+          return current.map(existing => (existing === entry ? config : existing));
+        });
         log.info({ daemonId, isSameConnection }, 'PM2 daemon updated');
-        if (isSameConnection) {
-          current.config = config;
-          return settingsFor(current);
-        }
-
-        // A new location means a new connection. The replacement keeps the daemon
-        // ID and list position, so open pages and the selection stay valid.
-        current.isRemoved = true;
-        const replacement = createRuntime(config);
-        runtimes.set(daemonId, replacement);
-        void startRuntime(replacement);
-        // The old connection may still be timing out; do not make the edit wait.
-        const retirement = disposeRuntime(current)
-          .catch(error => {
-            log.warn({ error, daemonId }, 'Unable to disconnect the replaced PM2 daemon');
-          })
-          .finally(() => retiringRuntimes.delete(retirement));
-        retiringRuntimes.add(retirement);
-        return settingsFor(replacement);
+        // The replacement keeps the daemon ID and list position, so open pages
+        // and the selection stay valid; its connection ID is new.
+        return settingsFor(getRuntime(daemonId));
       });
 
     retry = async (daemonId: string) => {
@@ -496,22 +740,56 @@ export function createDaemonManager({
       return summaryFor(runtime);
     };
 
-    detail = (daemonId: string, pmId: number, includeEnvironment = false) =>
-      getOperationalRuntime(daemonId).container.processManager.detail(pmId, includeEnvironment);
+    detail = (daemonId: string, pmId: number, includeEnvironment = false, connectionId?: string) =>
+      getOperationalRuntime(daemonId, connectionId).container.processManager.detail(
+        pmId,
+        includeEnvironment
+      );
 
-    action = (daemonId: string, pmId: number, action: IProcessAction) =>
-      getOperationalRuntime(daemonId).container.processManager.action(pmId, action);
+    /**
+     * Runs a lifecycle action on the connection the request was prepared for.
+     * It is checked again when the action's turn in the queue comes; an action
+     * that was already sent is never repeated.
+     */
+    action = (daemonId: string, connectionId: string, pmId: number, action: IProcessAction) => {
+      const runtime = getOperationalRuntime(daemonId, connectionId);
+      return runtime.container.processManager.action(pmId, action, () => {
+        if (runtimes.get(daemonId) !== runtime) {
+          throw new StaleDaemonConnectionError(daemonId);
+        }
+        assertConnection(runtime, connectionId);
+      });
+    };
 
     logPage = (
       daemonId: string,
       pmId: number,
       view: ILogView,
       cursor?: string | null,
-      limit?: number
-    ) => getOperationalRuntime(daemonId).container.logManager.page(pmId, view, cursor, limit);
+      limit?: number,
+      connectionId?: string
+    ) =>
+      getOperationalRuntime(daemonId, connectionId).container.logManager.page(
+        pmId,
+        view,
+        cursor,
+        limit
+      );
 
-    logStream = (daemonId: string, pmId: number, view: ILogView) =>
-      getOperationalRuntime(daemonId).container.logManager.stream(pmId, view);
+    /** A log stream that ends when its connection is replaced or removed. */
+    logStream = (daemonId: string, pmId: number, view: ILogView, connectionId?: string) => {
+      const runtime = getOperationalRuntime(daemonId, connectionId);
+      const stream = runtime.container.logManager.stream(pmId, view);
+      return observable<ILogStreamEvent>(emit => {
+        const close = () => emit.error(new StaleDaemonConnectionError(daemonId));
+        runtime.streamClosers.add(close);
+        const subscription = stream.subscribe(emit);
+        return () => {
+          runtime.streamClosers.delete(close);
+          subscription.unsubscribe();
+        };
+      });
+    };
   })();
 }
 

@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import libOs from 'node:os';
 import libPath from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  PortConflictError,
   createCaptainLauncher,
   resolveBrowserOpenCommand,
 } from '../../../../src/backend/bl/captain_launcher';
@@ -48,36 +51,6 @@ describe('browser link support', () => {
     expect(
       resolveBrowserOpenCommand(url, 'darwin', { PATH: '/usr/bin' }, () => '/usr/bin/open')
     ).toEqual(['/usr/bin/open', [url]]);
-  });
-});
-
-describe('launch token', () => {
-  it('lives in a private config directory and survives restarts', async () => {
-    const root = await fs.mkdtemp(libPath.join(libOs.tmpdir(), 'pm2-captain-launcher-'));
-    const configDir = libPath.join(root, 'config', 'pm2-captain');
-    const launch = async () => {
-      const launcher = createCaptainLauncher({
-        settings: { configDir, noAuth: false },
-        log: { warn: vi.fn() },
-      } as never);
-      await launcher.initialize();
-      return launcher;
-    };
-    try {
-      const launcher = await launch();
-      const tokenPath = libPath.join(configDir, 'launch-token');
-      const token = (await fs.readFile(tokenPath, 'utf8')).trim();
-
-      expect(token).toMatch(/^[\w-]{43}$/);
-      expect((await fs.stat(configDir)).mode & 0o777).toBe(0o700);
-      expect((await fs.stat(tokenPath)).mode & 0o777).toBe(0o600);
-      expect(launcher.authenticate(token)).toBe(true);
-      expect(launcher.authenticate(`${token[0] === 'a' ? 'b' : 'a'}${token.slice(1)}`)).toBe(false);
-      expect(launcher.authenticate(undefined)).toBe(false);
-      expect((await launch()).authenticate(token)).toBe(true);
-    } finally {
-      await fs.rm(root, { recursive: true, force: true });
-    }
   });
 });
 
@@ -221,4 +194,37 @@ describe('browser tab reuse', () => {
 
     expect(spawn).not.toHaveBeenCalled();
   });
+});
+
+describe('existing instance on the port', () => {
+  it('reports a desktop-owned backend as a conflict instead of opening it', async () => {
+    const server = createHttpServer((_request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(
+        JSON.stringify({ name: 'pm2-captain', version: '1.6.0', fake: false, runtime: 'desktop' })
+      );
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const launcher = createCaptainLauncher({
+        settings: {
+          port,
+          host: '127.0.0.1',
+          baseURL: `http://127.0.0.1:${port}`,
+          fake: null,
+          configDir: libOs.tmpdir(),
+        },
+        log: { warn: vi.fn() },
+        sessionAuth: { ensureToken: vi.fn() },
+      } as never);
+
+      const error = await launcher.openExistingIfRunning().catch(error => error);
+
+      expect(error).toBeInstanceOf(PortConflictError);
+      expect(error.message).toContain('desktop app');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  }, 10_000);
 });

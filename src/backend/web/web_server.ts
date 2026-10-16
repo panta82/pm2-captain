@@ -32,6 +32,9 @@ export function createWebServer({ log, container }: IContainer) {
     forceCloseConnections: true,
   });
   let viteServer: Awaited<ReturnType<(typeof import('vite'))['createServer']>> | null = null;
+  const isDesktop = container.settings.runtime === 'desktop';
+  // Known once the server listens; a desktop backend's port is assigned by the OS.
+  let boundBaseURL: string | null = null;
 
   app.register(cookie);
 
@@ -40,6 +43,7 @@ export function createWebServer({ log, container }: IContainer) {
     version: PACKAGE_VERSION,
     pid: process.pid,
     fake: Boolean(container.settings.fake),
+    runtime: container.settings.runtime,
   }));
 
   app.get('/launch', async (request, reply) => {
@@ -47,7 +51,7 @@ export function createWebServer({ log, container }: IContainer) {
       return reply.redirect('/');
     }
     const token = (request.query as { token?: string }).token;
-    if (!container.captainLauncher.authenticate(token)) {
+    if (!container.sessionAuth.authenticate(token)) {
       return reply.status(401).type('text/plain').send('Invalid PM2 Captain launch token.');
     }
     reply.setCookie(AUTH_COOKIE_NAME, token!, {
@@ -60,6 +64,10 @@ export function createWebServer({ log, container }: IContainer) {
   });
 
   app.post('/launch/daemon', async (request, reply) => {
+    // The desktop app has no command-line handoff; its token never leaves it.
+    if (isDesktop) {
+      return reply.status(404).send({ error: 'Not found.' });
+    }
     if (request.headers.origin) {
       return reply
         .status(403)
@@ -68,7 +76,7 @@ export function createWebServer({ log, container }: IContainer) {
 
     const authorization = request.headers.authorization;
     const candidate = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
-    if (!container.captainLauncher.authenticate(candidate)) {
+    if (!container.sessionAuth.authenticate(candidate)) {
       return reply.status(401).send({ error: 'Invalid PM2 Captain launch token.' });
     }
 
@@ -102,6 +110,10 @@ export function createWebServer({ log, container }: IContainer) {
   });
 
   return {
+    /** The origin the server listens on. Same as the configured URL for the CLI. */
+    get baseURL() {
+      return boundBaseURL ?? container.settings.baseURL;
+    },
     /**
      * Lets another service add its own routes. They have to be added before the
      * server starts, and under one of the backend paths.
@@ -137,25 +149,34 @@ export function createWebServer({ log, container }: IContainer) {
         app.get('/*', async (request, reply) => {
           if (
             request.headers.accept?.includes('text/html') &&
-            !container.captainLauncher.authenticate(request.cookies[AUTH_COOKIE_NAME])
+            !container.sessionAuth.authenticate(request.cookies[AUTH_COOKIE_NAME])
           ) {
             return reply
               .status(401)
               .type('text/html')
               .send(
-                '<!doctype html><title>PM2 Captain</title><body style="font-family:system-ui;background:#071A2B;color:white;padding:3rem"><h1>PM2 Captain is locked</h1><p>Run <code>pm2-captain</code> and use the printed URL.</p></body>'
+                `<!doctype html><title>PM2 Captain</title><body style="font-family:system-ui;background:#071A2B;color:white;padding:3rem"><h1>PM2 Captain is locked</h1><p>${
+                  isDesktop
+                    ? 'This page belongs to the PM2 Captain desktop app. Open the app instead.'
+                    : 'Run <code>pm2-captain</code> and use the printed URL.'
+                }</p></body>`
               );
           }
           return reply.sendFile('index.html');
         });
       }
 
-      const address = await app.listen({
+      await app.listen({
         host: container.settings.host,
         port: container.settings.port,
         listenTextResolver: () => '',
       });
-      log.info(`PM2 Captain is listening at ${address}`);
+      const address = app.server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('The HTTP server did not report its port.');
+      }
+      boundBaseURL = `http://${container.settings.host}:${address.port}`;
+      log.info(`PM2 Captain is listening at ${boundBaseURL}`);
     },
     stop: async () => {
       await viteServer?.close();

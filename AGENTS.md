@@ -4,14 +4,18 @@
 
 PM2 Captain is a local web control room for PM2 daemons, local and remote (accessed via SSH). It shows PM2 process status and details, performs Start/Stop/Restart actions, and reads and streams active stdout/stderr logs.
 
+It ships two ways from this one repository: the npm package `pm2-captain` (a CLI that serves the UI to a browser, also run as a service), and an Electron desktop app (DEB, RPM and AppImage for Linux, DMG/ZIP for macOS) that bundles the same backend and UI. Desktop user documentation is in `docs/desktop.md`; development, packaging and release instructions are in `docs/development.md`.
+
 ## Architecture
 
-The entire app is a single Node.js process:
+The npm CLI and service are a single Node.js process:
 
 - Fastify + tRPC API
 - Self-hosted Vite middleware
 - Production serves `dist/frontend` from the compiled backend.
 - The `pm2-captain` binary stays in the foreground, binds to `127.0.0.1`, prints its launch URL, and opens a browser when appropriate.
+
+The desktop app is two processes: Electron main (window, menu, preferences, updates, single-instance lock) and the same backend in an Electron `utilityProcess` (`src/desktop/backend/desktop_backend.ts`, using `createDesktopBackendSettings`). The backend listens on `127.0.0.1` on an OS-assigned port with a fresh launch token per run, which it sends only to main over the typed `parentPort` protocol in `src/desktop/shared/backend_protocol.ts`. Main sets the session cookie in the window and restarts a backend that exits unexpectedly (bounded). The backend shuts down when main asks or when its parent disappears. The window is a normal Captain page; everything goes over the HTTP API except the small preload bridge (UI preferences and update controls).
 
 Requires Node.js 22 or newer. Settings live under `~/.config/pm2-captain` (or `$XDG_CONFIG_HOME/pm2-captain`).
 
@@ -22,7 +26,13 @@ Requires Node.js 22 or newer. Settings live under `~/.config/pm2-captain` (or `$
 - `src/backend/bl/`: project-specific business logic for daemons, processes, logs, and the launcher.
 - `src/backend/web/`: the web layer - HTTP, session, and thin tRPC routes. Business logic is delegated to `bl/`.
 - `src/shared/`: JSON/transport-safe types used by both backend and frontend. Can be referenced by anyone.
-- `src/frontend/`: React UI, Vite config, and static assets. Separate from backend, other than shared types.
+- `src/frontend/`: React UI, Vite config, and static assets. Separate from backend, other than shared types. Desktop-only UI talks to the preload bridge through the types in `src/shared/desktop_bridge.ts`.
+- `src/backend/fake/`: fake mode (simulated daemons, processes, logs, registry and updates). Never used by real mode.
+- `src/desktop/main/`: Electron main process: window, IPC sender validation (`ipc_trust.ts`), preferences, backend host, updater and the Linux/AppImage installers.
+- `src/desktop/preload/`: the preload bridge, bundled into one sandboxed file.
+- `src/desktop/backend/`: the utility-process entry point around the shared backend.
+- `src/desktop/shared/`: types shared by main and the desktop backend (protocol, IPC channels). Not for the frontend.
+- `support/desktop/`: staging, packaging, artifact verification, smoke tests, the AppImage launcher, and `dev.mjs` (`npm run desktop:dev`). `support/release/release.mjs`: release workflow helpers.
 
 ### Services
 
@@ -38,6 +48,9 @@ Requires Node.js 22 or newer. Settings live under `~/.config/pm2-captain` (or `$
 - In `daemons.json`, a missing file or `"daemons": null` means "never set up": on that launch only, Captain detects local PM2 daemons and saves the result, even when empty. An existing list, even an empty one, is the user's choice. Never auto-add daemons to it.
 - Two daemons are the same when their location is: the resolved local path, or identical SSH arguments plus the same remote PM2 home.
 - `PM2_HOME` is only a detection hint. `--pm2-home` and `ssh ...` add a daemon explicitly, including to an already running Captain.
+- `daemons.json` is shared by every Captain on the machine: npm, services, and the desktop app. Every Captain change goes through `daemonStore.mutate`, which takes the `.daemons.lock` lock, rereads the newest file, applies one change, and saves atomically. Never write the file from a remembered list. Editing a daemon that changed on disk since its form was opened fails with `DaemonConflictError`.
+- Captain watches `daemons.json` (debounced, plus a periodic rescan) and reloads it. A broken or missing file becomes a registry warning while the last loaded daemons stay connected; it is never overwritten. A symbolic link is refused.
+- Each daemon runtime has a `connectionId`, new for every connection. A reload keeps the connection when only the label changes, and replaces it when the location changes. Process actions carry the `connectionId` they were shown from and are refused for a replaced or removed connection, so an action never lands on a different PM2.
 
 ### PM2 behavior
 
@@ -61,6 +74,12 @@ Requires Node.js 22 or newer. Settings live under `~/.config/pm2-captain` (or `$
 
 Keep the tRPC surface small and stable. Whitelist process-detail fields and never pass raw PM2 process objects to the frontend. Environment variables are returned only by `processes.detail` when explicitly requested, never in lists. `daemons.list` returns stored daemon configurations, including SSH arguments, so they can be edited.
 
+### Fake mode
+
+- `--fake [scenario]` (and `npm run dev:fake`, `npm run desktop:dev`) shows simulated daemons. It never looks for PM2, never runs SSH, and never reads or writes the real `daemons.json`; its store is in memory but uses the production registry validation.
+- The fake world is driven by commands (`process.*`, `daemon.*`, `log.*`, `world.reset`, `registry.*` for outside edits of the stored list, `update.*` for the simulated desktop update), defined in `src/backend/fake/fake_commands.ts`. `pm2-captain fake <command>` sends them to the fake Captain on the port; `/api/fake/*` exists only in fake mode.
+- The desktop app in fake mode (`PM2_CAPTAIN_DESKTOP_FAKE=<scenario>`) writes `fake-control.json` (0600, removed on stop) into its profile, with its address and a separate token that only the fake routes accept; `pm2-captain fake --control <file> <command>` uses it. Its launch token never leaves the app. Desktop updates are simulated in fake mode, except in the release update test's loopback feed.
+
 ## Security boundary
 
 Captain is local-only, but local HTTP requests are not automatically trusted. Preserve all of these constraints:
@@ -73,7 +92,15 @@ Captain is local-only, but local HTTP requests are not automatically trusted. Pr
 - Keep backend routes (`/health`, `/launch`, `/launch/daemon`, `/api`, `/api/trpc`) ahead of and protected from the Vite/static frontend fallback.
 - Do not log launch tokens, cookies, environment values, or raw PM2 environment objects.
 
-Any change to authentication, binding, origin checks, self-stop protection, or environment filtering is security-sensitive and requires focused tests.
+Desktop additions:
+
+- The desktop backend's launch token goes only to main, which sets it as the session cookie; it never appears in a URL or log, and the backend never touches the npm `launch-token`.
+- Keep the window's Node integration off, context isolation and renderer sandbox on, and navigation pinned to the backend origin. IPC handlers accept only the main frame of the current Captain page (`ipc_trust.ts`).
+- Keep the fuses (no RunAsNode, `NODE_OPTIONS` or inspector; load only from `app.asar`).
+- Sandbox policy: DEB and RPM keep Chromium's sandbox (AppArmor profile plus setuid helper). The AppImage's `support/desktop/appimage/launcher.sh` keeps the sandbox where user namespaces work and otherwise starts with `--no-sandbox`. Main only logs "Running without the Chromium sandbox"; it does not refuse to start.
+- The DEB/RPM updater installs only a package whose checksum, name, version and architecture were checked, through `pkexec dpkg --refuse-downgrade` or `pkexec rpm --upgrade`, and never runs repair commands.
+
+Any change to authentication, binding, origin checks, self-stop protection, environment filtering, IPC trust, fuses, the sandbox policy, or the updater's install path is security-sensitive and requires focused tests.
 
 ## Frontend
 
@@ -118,24 +145,36 @@ Include actionable context, but never secrets or environment values. Expected di
 - The E2E server uses its own `XDG_CONFIG_HOME` with a pre-seeded empty daemon list, because first-launch detection would otherwise pick up the developer's running PM2 daemons. Keep remote test daemons unreachable (for example `-p 1 127.0.0.1`) so they cannot connect to the developer's own PM2.
 - Unix-socket sandbox restrictions may require approval for the isolated E2E PM2 daemon. Do not work around that by using the developer's normal PM2 home.
 - Write unit tests for tricky business rules and failure modes, such as PM2 normalization, action rules, callback timeouts, reconnect and listener cleanup, cursor validation, and reverse-file edge cases. Use browser tests for complete user flows, not for small styling details.
+- Desktop: `tests/unit/desktop/` holds main-process, protocol, launcher and sandbox-evidence units (part of `npm test`). `tests/e2e/desktop/` holds Electron flows against the staged app (`npm run build && npm run desktop:stage && xvfb-run -a npm run test:desktop`). `support/desktop/smoke-packaged.mjs` smoke-tests packaged builds. All use simulated daemons or an empty real list, with temporary profile, config and home directories.
+- Never execute a built `.AppImage` locally: on a desktop with AppImageLauncher, that integrates it into the home folder. Extract it with `unsquashfs` and run the extracted `AppRun`.
+- `tests/unit/release/` covers the release helper's failure codes and retry rules.
 
-Before handing off a material code change, run at minimum `npm run typecheck`, `npm test`, and `npm run build`. Run `npm run test:e2e` for routes, authentication, lifecycle actions, log UI, responsive behavior, or production-serving changes. When changing packaging or the CLI, also run `npm pack --dry-run`; for material packaging changes, run `npm run test:package`.
+Before handing off a material code change, run at minimum `npm run typecheck`, `npm test`, and `npm run build`. Run `npm run test:e2e` for routes, authentication, lifecycle actions, log UI, responsive behavior, or production-serving changes. When changing packaging or the CLI, also run `npm pack --dry-run`; for material packaging changes, run `npm run test:package`. For desktop main, preload or packaging changes, run the desktop flows, and `npm run desktop:package:linux` plus `npm run desktop:verify` when packaging changes. Run `actionlint` on workflow changes.
 
 ## Runtime and packaging invariants
 
 - Preserve the CLI: `--port`, `--pm2-home`, `--no-open`, `--no-auth`, the `ssh` subcommand, `PM2_CAPTAIN_PORT`, and `PM2_HOME` as a detection hint.
 - If the selected port already hosts Captain, hand off any daemon requested with `--pm2-home` or `ssh`, then open/print that instance and exit. If another service owns the port, report a clear conflict.
 - Interactive execution stays in the foreground and shuts down cleanly on Ctrl+C, SIGINT, or SIGTERM.
-- Keep one root package and one executable named `pm2-captain`. The packed npm artifact contains the runtime `dist` output, `install.sh`, README, and license, but no tests or development sources.
+- Keep one root package. The npm package `pm2-captain` has one executable, `pm2-captain`, and never depends on Electron. The packed npm artifact contains the runtime `dist` output, `install.sh`, README, license and the docs listed in `files`, but no tests, desktop sources or other development sources. Link docs that are not in `files` (such as `docs/desktop.md`) from packed files with absolute GitHub URLs.
+- The desktop app is staged from the same build and version into `build/desktop/app`. The Linux packages are `pm2-captain-desktop` with the command `pm2-captain-desktop` under `/opt/PM2 Captain`; they must never install `/usr/bin/pm2-captain` or shadow the npm command. The Mac app is `PM2 Captain.app`. The app ID is `com.panta82.pm2-captain`.
 
 ### Preparing a new release
 
 When told to prepare a new release, the following steps should be taken:
 
-- Update `package.json` with a new version number (decide whether to bump the patch or minor version).
-- Update README.md "Version history" section with the new version number and date, then write brief bullet points describing the changes.
+- Update `package.json` and `package-lock.json` with a new version number (decide whether to bump the patch or minor version).
+- Update README.md "Version history" section with the new version number and date, then write brief bullet points describing the changes. The draft release uses this entry as its notes.
+- Run the checks.
 - Commit the changes, with a good commit messsage, containing the version number and a short description of the changes.
 - Push to origin/master
+
+Only do this when a release is explicitly requested. What happens after that is up to the maintainer, and is never done by an agent unless told:
+
+- Pushing the tag `v<version>` runs `desktop-release.yml`, which checks the tag, package and lock versions, builds and tests everything from the tag's exact commit, and uploads the desktop builds, update manifests and the tested npm tarball to a draft GitHub Release. It never publishes. Mac builds need the signing and notarization secrets.
+- The draft carries `pm2-captain-<version>-release.json` (schema 1: tag, version, tested commit, npm tarball name and integrity). A rerun replaces a draft's files and notes and never touches a published release.
+- Publishing the draft runs `npm-publish.yml`, which publishes exactly the attached tarball to npm with trusted publishing (OIDC, no token, no rebuild, no scripts). Before anything from the repository runs, it requires the run's `GITHUB_REF` to be the tag and `GITHUB_SHA` to be the recorded commit, and the tag to still peel to it; then it checks out that commit. npm provenance records the run's ref and commit, so retries run for the tag (`gh workflow run npm-publish.yml --ref vX.Y.Z -f tag=vX.Y.Z`), never for a branch. A rerun passes only if npm already has the identical archive. npm's trusted publisher names this workflow file, so do not rename it.
+- Never publish to npm by hand, and never publish a GitHub Release without the desktop files: the desktop app updates from the latest published release.
 
 ## General agent behavior
 

@@ -37,6 +37,11 @@ export type IDaemonInput =
 
 export interface IDaemonSummary {
   daemonId: string;
+  /**
+   * Identifies the current connection to the daemon. It changes when the
+   * daemon's location changes; lifecycle actions must send the one they saw.
+   */
+  connectionId: string;
   kind: IDaemonKind;
   label: string;
   hostname: string | null;
@@ -53,6 +58,8 @@ export interface IDaemonSettings extends IDaemonSummary {
 
 export interface IProcessSummary {
   daemonId: string;
+  /** The daemon connection this process was read from. */
+  connectionId: string;
   pmId: number;
   name: string;
   namespace: string;
@@ -93,6 +100,11 @@ export interface IEnvironmentVariable {
 export interface IProcessListResult {
   daemons: IDaemonSummary[];
   processes: IProcessSummary[];
+  /**
+   * Set while the daemon registry on disk cannot be used. Captain keeps the
+   * daemons it last loaded until the file is fixed.
+   */
+  registryWarning: string | null;
 }
 
 export interface ISingleDaemonProcessListResult {

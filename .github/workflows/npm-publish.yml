@@ -1,0 +1,138 @@
+name: npm publish
+
+# Publishes the npm tarball attached to a GitHub Release when a maintainer
+# publishes that release (desktop-release.yml created it as a draft). It
+# publishes exactly that tested file: nothing is built, installed or run from
+# the package. npm trusted publishing authenticates this workflow by name
+# (npm-publish.yml); there is no npm token.
+#
+# npm's provenance names the run's ref and commit, so the run must be for the
+# release tag and its tested commit, as recorded in the release's metadata
+# asset; anything else stops before a publish. To retry a published release,
+# run it for the tag itself, never for a branch:
+#
+#   gh workflow run npm-publish.yml --ref v2.0.0 -f tag=v2.0.0
+#
+# A version already on npm passes only if it is the same archive.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release to publish to npm, for example v2.0.0. Choose the same tag as the workflow's ref ("Use workflow from").
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  publish:
+    name: Publish the release's npm package
+    # A prerelease is never published to npm; a manual run for one fails below.
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # npm trusted publishing (OIDC).
+      id-token: write
+    steps:
+      - name: The run is for a stable version tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "\"$RELEASE_TAG\" is not a stable version tag such as v2.0.0." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "This run is for $GITHUB_REF, not refs/tags/$RELEASE_TAG. Run it for the tag:" >&2
+            echo "  gh workflow run npm-publish.yml --ref $RELEASE_TAG -f tag=$RELEASE_TAG" >&2
+            exit 1
+          fi
+          # Release files stay outside the checkout, which would delete them.
+          echo "RELEASE_DIR=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+      # No checkout yet: until the tag is proven to be the tested commit,
+      # nothing from the repository runs.
+      - name: The run, the tag and the release metadata name the tested commit
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          mkdir -p "$RELEASE_DIR"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "pm2-captain-$version-release.json" --dir "$RELEASE_DIR"
+          commit="$(jq -er '.commit' "$RELEASE_DIR/pm2-captain-$version-release.json")"
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The release metadata has no full commit hash." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_SHA" != "$commit" ]]; then
+            echo "This run is for commit $GITHUB_SHA, but $RELEASE_TAG was tested as $commit." >&2
+            exit 1
+          fi
+          # Peel the tag, annotated or not, as it is now.
+          object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
+          read -r type sha <<< "$object"
+          for _ in 1 2 3 4 5; do
+            [[ "$type" == tag ]] || break
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq '.object.type + " " + .object.sha')"
+            read -r type sha <<< "$object"
+          done
+          if [[ "$type" != commit || "$sha" != "$commit" ]]; then
+            echo "$RELEASE_TAG now names $type $sha, not the tested commit $commit." >&2
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      # Only for the release helper, at the tested commit; nothing is built.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.identity.outputs.commit }}
+      # Trusted publishing needs Node 22.14+ and npm 11.5.1+.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.20.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: npm 11.21.1
+        run: |
+          npm install --global npm@11.21.1
+          test "$(npm --version)" = 11.21.1
+      - name: The release is published, stable and complete, and the tarball is the tested one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.identity.outputs.commit }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets > "$RELEASE_DIR/release.json"
+          node support/release/release.mjs check-release "$RELEASE_DIR/release.json" "$RELEASE_TAG"
+          gh release download "$RELEASE_TAG" --pattern "pm2-captain-$version.tgz" --dir "$RELEASE_DIR"
+          node support/release/release.mjs check-metadata "$RELEASE_DIR/pm2-captain-$version-release.json" \
+            "$RELEASE_TAG" "$COMMIT" "$RELEASE_DIR/pm2-captain-$version.tgz"
+      - name: Decide
+        id: plan
+        run: node support/release/release.mjs npm-plan "$RELEASE_DIR/pm2-captain-${RELEASE_TAG#v}.tgz" "$RELEASE_TAG"
+      - name: Publish
+        if: steps.plan.outputs.action == 'publish'
+        run: npm publish "$RELEASE_DIR/pm2-captain-${RELEASE_TAG#v}.tgz" --ignore-scripts --access public
+      # The registry can take a moment to show a new version. A different
+      # archive or an npm failure fails at once.
+      - name: npm has exactly this archive
+        run: |
+          for _ in $(seq 12); do
+            result="$(node support/release/release.mjs npm-plan "$RELEASE_DIR/pm2-captain-${RELEASE_TAG#v}.tgz" "$RELEASE_TAG")" || exit 1
+            if [[ "$result" == already-published:* ]]; then
+              echo "$result"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "npm does not show pm2-captain ${RELEASE_TAG#v} a minute after publishing." >&2
+          exit 1
