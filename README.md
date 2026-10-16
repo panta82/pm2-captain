@@ -51,7 +51,8 @@ Pick your build from the [releases page](https://github.com/panta82/pm2-captain/
 | Debian or Ubuntu, x64         | `pm2-captain-desktop_<version>_amd64.deb`  | Open with your package manager.                                                                         |
 | Fedora, RHEL or openSUSE, x64 | `pm2-captain-desktop-<version>.x86_64.rpm` | Open with your package manager.                                                                         |
 | Other Linux, x64              | `PM2-Captain-x86_64.AppImage`              | Make the file executable, then open it.                                                                 |
-| macOS                         | `PM2-Captain-<version>-<arch>.dmg`         | Choose `arm64` for Apple silicon or `x64` for Intel. Open the DMG and drag PM2 Captain to Applications. |
+
+macOS desktop builds will follow. The npm CLI remains available on macOS.
 
 For AppImage-s, we recommend using the [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher). Otherwise, make the AppImage executable with:
 
@@ -62,7 +63,6 @@ chmod +x PM2-Captain-x86_64.AppImage
 Desktop app logs are in these folders by default:
 
 - Linux: `~/.config/PM2 Captain/logs`, or `$XDG_CONFIG_HOME/PM2 Captain/logs` when set.
-- macOS: `~/Library/Application Support/PM2 Captain/logs`.
 
 ## CLI options
 
@@ -100,6 +100,12 @@ Read [this guide](docs/service_setup.md) for details.
 Read [development.md](docs/development.md) for more details.
 
 ## Version history
+
+#### `2.0.3` (2026-10-17)
+
+- First desktop release for Linux: DEB, RPM and AppImage, with in-app updates
+- Simulate settings-file conflicts and updates in fake mode
+- macOS desktop builds will follow
 
 #### `2.0.2` (2026-10-16)
 

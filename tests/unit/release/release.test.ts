@@ -191,13 +191,57 @@ describe('GitHub release', () => {
     const assets = release.requiredAssets('2.0.0').map((name: string) => ({ name }));
     const check = (list: Array<{ name: string }>) =>
       codeOf(() => release.checkRelease(complete({ assets: list }), 'v2.0.0', { isDraft: false }));
-    expect(check(assets.filter((asset: { name: string }) => asset.name !== 'latest-mac.yml'))).toBe(
-      'MISSING_ASSET'
-    );
+    expect(
+      check(assets.filter((asset: { name: string }) => asset.name !== 'latest-linux.yml'))
+    ).toBe('MISSING_ASSET');
     expect(check([...assets, { name: 'pm2-captain-1.9.0.tgz' }])).toBe('BAD_RELEASE');
     expect(
       check(assets.filter((asset: { name: string }) => !asset.name.endsWith('-release.json')))
     ).toBe('MISSING_ASSET');
+  });
+
+  it('accepts Linux-only assets but still requires Mac files when Mac is enabled', () => {
+    const linuxAssets = [
+      'pm2-captain-2.0.0.tgz',
+      'pm2-captain-2.0.0-release.json',
+      'latest-linux.yml',
+      'PM2-Captain-x86_64.AppImage',
+      'pm2-captain-desktop_2.0.0_amd64.deb',
+      'pm2-captain-desktop-2.0.0.x86_64.rpm',
+    ].map(name => ({ name }));
+    const check = (assets: Array<{ name: string }>, platforms: string[]) =>
+      codeOf(() =>
+        release.checkRelease(complete({ assets }), 'v2.0.0', { isDraft: false, platforms })
+      );
+    expect(check(linuxAssets, ['linux'])).toBeNull();
+    for (const asset of linuxAssets) {
+      expect(
+        check(
+          linuxAssets.filter(item => item !== asset),
+          ['linux']
+        )
+      ).toBe('MISSING_ASSET');
+    }
+    expect(check(linuxAssets, ['linux', 'mac'])).toBe('MISSING_ASSET');
+    const allAssets = [
+      ...linuxAssets,
+      ...[
+        'latest-mac.yml',
+        'PM2-Captain-2.0.0-arm64.dmg',
+        'PM2-Captain-2.0.0-arm64.zip',
+        'PM2-Captain-2.0.0-x64.dmg',
+        'PM2-Captain-2.0.0-x64.zip',
+      ].map(name => ({ name })),
+    ];
+    expect(check(allAssets, ['linux', 'mac'])).toBeNull();
+    for (const asset of allAssets) {
+      expect(
+        check(
+          allAssets.filter(item => item !== asset),
+          ['linux', 'mac']
+        )
+      ).toBe('MISSING_ASSET');
+    }
   });
 
   it('with notes, requires the release body to be those notes', () => {
@@ -234,6 +278,7 @@ describe('release metadata asset', () => {
       tag: 'v2.0.0',
       version: '2.0.0',
       commit: COMMIT,
+      platforms: release.RELEASE_PLATFORMS,
       npmPackage: { file: 'pm2-captain-2.0.0.tgz', integrity: release.integrityOf(file) },
     });
     expect(release.checkMetadata(metadata, 'v2.0.0', COMMIT, file)).toEqual({
@@ -250,6 +295,11 @@ describe('release metadata asset', () => {
     expect(check({ ...metadata, schema: 2 })).toBe('BAD_METADATA');
     expect(check({ ...metadata, commit: undefined })).toBe('BAD_METADATA');
     expect(check({ ...metadata, npmPackage: undefined })).toBe('BAD_METADATA');
+    expect(check({ ...metadata, platforms: undefined })).toBe('BAD_METADATA');
+    expect(check({ ...metadata, platforms: [] })).toBe('BAD_METADATA');
+    expect(check({ ...metadata, platforms: [...release.RELEASE_PLATFORMS, 'unknown'] })).toBe(
+      'BAD_METADATA'
+    );
     expect(check({ ...metadata, npmPackage: { file: 'pm2-captain-2.0.0.tgz' } })).toBe(
       'BAD_METADATA'
     );
@@ -284,6 +334,7 @@ describe('release command line', () => {
       spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
     const file = await tarball('pm2-captain-2.0.0.tgz', { name: 'pm2-captain', version: '2.0.0' });
 
+    expect(JSON.parse(run('platforms').stdout)).toEqual(release.RELEASE_PLATFORMS);
     expect(run('check-tarball', file, 'v2.0.0').status).toBe(0);
     expect(run('check-tarball', file, 'v2.0.0-rc.1').status).toBe(release.EXIT_CODES.PRERELEASE);
     expect(run('check-tarball', file, 'v2.0.1').status).toBe(release.EXIT_CODES.BAD_PACKAGE);

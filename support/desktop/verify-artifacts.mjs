@@ -24,6 +24,8 @@ import libOs from 'node:os';
 import libPath from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { RELEASE_PLATFORMS } from '../release/release.mjs';
+
 const rootDir = libPath.resolve(libPath.dirname(fileURLToPath(import.meta.url)), '../..');
 const PACKAGE_NAME = 'pm2-captain-desktop';
 const INSTALL_DIR = 'opt/PM2 Captain';
@@ -340,7 +342,7 @@ function verifyMac() {
   }
 }
 
-/** Before upload: both manifests list every expected file, and every file matches. */
+/** Before upload: enabled platforms' manifests list every expected file, and every file matches. */
 function verifyReleaseManifests() {
   const linux = verifyManifest('latest-linux.yml');
   const linuxUrls = (linux?.files ?? []).map(file => file.url);
@@ -351,7 +353,9 @@ function verifyReleaseManifests() {
   ]) {
     check(linuxUrls.includes(file), `latest-linux.yml lists ${file}`);
   }
-  verifyMac();
+  if (RELEASE_PLATFORMS.includes('mac')) {
+    verifyMac();
+  }
 }
 
 try {

@@ -3,6 +3,8 @@
 // workflow publishes. Plain Node, no dependencies.
 //
 // Usage:
+//   node support/release/release.mjs platforms
+//     Prints the desktop platforms shipped by this commit as a JSON array.
 //   node support/release/release.mjs notes <version>
 //     Prints the README version history entry of that version.
 //   node support/release/release.mjs check-version <tag>
@@ -29,6 +31,9 @@ import libPath from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PACKAGE_NAME = 'pm2-captain';
+
+/** Add mac when signing is configured. Keep shipped platforms in later releases for updates. */
+export const RELEASE_PLATFORMS = Object.freeze(['linux']);
 
 /** A failure with a stable code; the command line exits with its exit code. */
 export class ReleaseError extends Error {
@@ -59,19 +64,23 @@ export const METADATA_SCHEMA = 1;
 export const metadataFileOf = version => `${PACKAGE_NAME}-${version}-release.json`;
 
 /** Everything a complete release carries: the desktop builds, their manifests, the npm package. */
-export function requiredAssets(version) {
+export function requiredAssets(version, platforms = RELEASE_PLATFORMS) {
   return [
     `${PACKAGE_NAME}-${version}.tgz`,
     metadataFileOf(version),
     'latest-linux.yml',
-    'latest-mac.yml',
     'PM2-Captain-x86_64.AppImage',
     `pm2-captain-desktop_${version}_amd64.deb`,
     `pm2-captain-desktop-${version}.x86_64.rpm`,
-    `PM2-Captain-${version}-arm64.dmg`,
-    `PM2-Captain-${version}-arm64.zip`,
-    `PM2-Captain-${version}-x64.dmg`,
-    `PM2-Captain-${version}-x64.zip`,
+    ...(platforms.includes('mac')
+      ? [
+          'latest-mac.yml',
+          `PM2-Captain-${version}-arm64.dmg`,
+          `PM2-Captain-${version}-arm64.zip`,
+          `PM2-Captain-${version}-x64.dmg`,
+          `PM2-Captain-${version}-x64.zip`,
+        ]
+      : []),
   ];
 }
 
@@ -80,7 +89,11 @@ export function requiredAssets(version) {
  * published) and not a prerelease, and that every required asset is there,
  * with exactly one npm tarball.
  */
-export function checkRelease(release, tag, { isDraft, notes = null }) {
+export function checkRelease(
+  release,
+  tag,
+  { isDraft, notes = null, platforms = RELEASE_PLATFORMS }
+) {
   const version = stableVersionOf(tag);
   if (
     typeof release !== 'object' ||
@@ -106,7 +119,7 @@ export function checkRelease(release, tag, { isDraft, notes = null }) {
     );
   }
   const names = release.assets.map(asset => asset.name);
-  const missing = requiredAssets(version).filter(name => !names.includes(name));
+  const missing = requiredAssets(version, platforms).filter(name => !names.includes(name));
   if (missing.length) {
     throw new ReleaseError('MISSING_ASSET', `The ${tag} release lacks ${missing.join(', ')}.`);
   }
@@ -140,6 +153,7 @@ export function releaseMetadataOf(file, tag, commit) {
     tag,
     version,
     commit,
+    platforms: RELEASE_PLATFORMS,
     npmPackage: { file: libPath.basename(file), integrity },
   };
 }
@@ -167,6 +181,9 @@ export function checkMetadata(metadata, tag, commit, file = null) {
   }
   if (metadata.commit !== commit) {
     fail(`names commit ${metadata.commit}, not ${commit}`);
+  }
+  if (JSON.stringify(metadata.platforms) !== JSON.stringify(RELEASE_PLATFORMS)) {
+    fail('does not name the desktop platforms shipped by this commit');
   }
   const npmPackage = metadata.npmPackage;
   if (npmPackage?.file !== `${PACKAGE_NAME}-${version}.tgz`) {
@@ -320,7 +337,9 @@ export function planNpmPublish(file, tag, run = execFileSync) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [command, ...args] = process.argv.slice(2);
   try {
-    if (command === 'notes' && args.length === 1) {
+    if (command === 'platforms' && args.length === 0) {
+      console.log(JSON.stringify(RELEASE_PLATFORMS));
+    } else if (command === 'notes' && args.length === 1) {
       const readme = readFileSync(
         libPath.resolve(libPath.dirname(fileURLToPath(import.meta.url)), '../../README.md'),
         'utf8'
@@ -375,7 +394,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     } else {
       throw new ReleaseError(
         'USAGE',
-        'Usage: release.mjs notes <version> | check-version <tag> | check-tarball <file.tgz> <tag> | metadata <file.tgz> <tag> <commit> | check-metadata <metadata.json> <tag> <commit> <file.tgz> | check-release <release.json> <tag> [--draft] [--notes <file>] | npm-plan <file.tgz> <tag>'
+        'Usage: release.mjs platforms | notes <version> | check-version <tag> | check-tarball <file.tgz> <tag> | metadata <file.tgz> <tag> <commit> | check-metadata <metadata.json> <tag> <commit> <file.tgz> | check-release <release.json> <tag> [--draft] [--notes <file>] | npm-plan <file.tgz> <tag>'
       );
     }
   } catch (error) {

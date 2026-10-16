@@ -35,6 +35,7 @@ jobs:
       # Every later job builds this commit, even if the tag is moved meanwhile.
       commit: ${{ steps.commit.outputs.commit }}
       version: ${{ steps.commit.outputs.version }}
+      platforms: ${{ steps.commit.outputs.platforms }}
     steps:
       - name: The tag is a stable version tag
         run: |
@@ -54,8 +55,12 @@ jobs:
             exit 1
           fi
           version="$(node support/release/release.mjs check-version "$RELEASE_TAG")"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          platforms="$(node support/release/release.mjs platforms)"
+          {
+            echo "commit=$commit"
+            echo "version=$version"
+            echo "platforms=$platforms"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -289,6 +294,7 @@ jobs:
   mac:
     name: macOS DMG and ZIP (arm64 and x64)
     needs: check
+    if: contains(fromJSON(needs.check.outputs.platforms), 'mac')
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -354,6 +360,14 @@ jobs:
   draft:
     name: Draft GitHub Release
     needs: [check, linux, linux-installed, linux-rpm-installed, mac]
+    # A deliberately omitted Mac build must not skip the draft. All enabled
+    # builds and installed-package checks must still succeed.
+    if: >-
+      ${{ !cancelled() && needs.check.result == 'success' &&
+          needs.linux.result == 'success' && needs.linux-installed.result == 'success' &&
+          needs.linux-rpm-installed.result == 'success' &&
+          (needs.mac.result == 'success' ||
+           (needs.mac.result == 'skipped' && !contains(fromJSON(needs.check.outputs.platforms), 'mac'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -371,9 +385,13 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - uses: actions/download-artifact@v7
         with:
+          name: linux-release
           path: build/desktop/release
-          merge-multiple: true
-          pattern: '*-release'
+      - uses: actions/download-artifact@v7
+        if: contains(fromJSON(needs.check.outputs.platforms), 'mac')
+        with:
+          name: mac-release
+          path: build/desktop/release
       - uses: actions/download-artifact@v7
         with:
           name: shared-build
@@ -419,10 +437,9 @@ jobs:
             echo "$RELEASE_TAG is already published; published releases are never changed." >&2
             exit 1
           fi
-          gh release upload "$RELEASE_TAG" --clobber \
-            build/desktop/release/*.AppImage build/desktop/release/*.deb build/desktop/release/*.rpm \
-            build/desktop/release/*.dmg build/desktop/release/*.zip build/desktop/release/*.blockmap \
-            build/desktop/release/latest-linux.yml build/desktop/release/latest-mac.yml \
+          # Only enabled platforms were downloaded. Completeness checks below
+          # still require every package and manifest for those platforms.
+          gh release upload "$RELEASE_TAG" --clobber build/desktop/release/* \
             "shared-build/pm2-captain-$VERSION.tgz" "pm2-captain-$VERSION-release.json"
       - name: The draft is complete
         env:
@@ -436,8 +453,8 @@ jobs:
           node support/release/release.mjs check-metadata "draft-check/pm2-captain-$VERSION-release.json" \
             "$RELEASE_TAG" "$COMMIT" "shared-build/pm2-captain-$VERSION.tgz"
           assets="$(node -p 'require("./release.json").assets.map(asset => asset.name).join("\n")')"
-          for manifest in latest-linux.yml latest-mac.yml; do
+          for manifest in build/desktop/release/latest-*.yml; do
             while read -r url; do
               grep -Fx "$url" <<< "$assets" >/dev/null || { echo "$url is missing from the draft." >&2; exit 1; }
-            done < <(grep -E '^\s*- url:' "build/desktop/release/$manifest" | awk '{print $3}')
+            done < <(grep -E '^\s*- url:' "$manifest" | awk '{print $3}')
           done

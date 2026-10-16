@@ -238,13 +238,15 @@ The scripts are `support/desktop/smoke-packaged.mjs` and `support/desktop/ci/upd
 A version tag builds a draft GitHub Release. Publishing that draft releases the desktop app and triggers publication of its saved npm tarball.
 
 1. Align `package.json` and `package-lock.json`, add the README version-history entry, run checks, then commit and push.
-2. Push `v<version>`. `desktop-release.yml` verifies the versions and builds from the tag's exact commit. It tests Linux packages, signed and notarized Mac builds, and the npm tarball, then attaches them to a draft with update manifests and README release notes.
+2. Push `v<version>`. `desktop-release.yml` verifies the versions and builds from the tag's exact commit. It tests Linux packages, the npm tarball, and Mac builds when enabled, then attaches them to a draft with update manifests and README release notes.
 3. Download and try the draft's files. Publish it through GitHub's UI or your own API credentials. A publication made with a workflow's `GITHUB_TOKEN` does not trigger the npm workflow.
 4. `npm-publish.yml` publishes the attached tarball through npm trusted publishing, without rebuilding it or running package scripts.
 
-The draft also carries `pm2-captain-<version>-release.json`, recording the tested commit and npm archive checksum. Before checking out repository code, the publish job requires the run's ref and SHA, the current peeled tag, and that recorded commit to agree. It then checks out the recorded commit and verifies that the release is published, stable and complete, and that the downloaded archive matches the metadata.
+`RELEASE_PLATFORMS` in `support/release/release.mjs` selects the desktop platforms for each tagged commit. It currently contains only `linux`. The Mac job is skipped, and both draft and npm publication checks require the complete Linux asset set. Add `mac` once the signing credentials below are configured. Keep every shipped platform enabled in later releases so its updater always finds a manifest.
 
-A build rerun may replace a draft's files and notes. It refuses a moved tag during the build or an already published release. Fix a published release with a higher version. Every published stable GitHub Release must include all desktop files and update manifests; a notes-only or npm-only release would break desktop update checks.
+The draft also carries `pm2-captain-<version>-release.json`, recording the tested commit, enabled desktop platforms and npm archive checksum. Before checking out repository code, the publish job requires the run's ref and SHA, the current peeled tag, and that recorded commit to agree. It then checks out the recorded commit and verifies that the release is published, stable and complete for those platforms, and that the downloaded archive matches the metadata.
+
+A build rerun may replace a draft's files and notes. It refuses a moved tag during the build or an already published release. Fix a published release with a higher version. Every published stable GitHub Release must include all desktop files and update manifests for its enabled platforms; a notes-only or npm-only release would break desktop update checks.
 
 For an npm retry, run the workflow from the release tag so its provenance names the correct commit. In the UI, choose the tag under **Use workflow from**, or run:
 
@@ -262,4 +264,4 @@ Mac builds require these repository secrets:
 - `APPLE_APP_SPECIFIC_PASSWORD`.
 - `APPLE_TEAM_ID`.
 
-Missing signing credentials stop the release; production Mac builds are never unsigned.
+When `mac` is enabled, missing signing credentials stop the release; production Mac builds are never unsigned.
