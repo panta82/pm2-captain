@@ -251,7 +251,6 @@ export function createDaemonStore({ settings, log }: IContainer) {
      */
     watch = async (onHint: () => void) => {
       let watcher: FSWatcher | null = null;
-      let watchedInode: number | null = null;
       let debounceTimer: NodeJS.Timeout | null = null;
       let isStopped = false;
       let isDegraded = false;
@@ -280,10 +279,6 @@ export function createDaemonStore({ settings, log }: IContainer) {
         try {
           // The directory, not the file: editors and atomic saves replace the file.
           watcher = watchDirectory(directory, { persistent: false }, schedule);
-          void fs.stat(directory).then(
-            stats => (watchedInode = stats.ino),
-            () => undefined
-          );
           watcher.on('error', error => {
             log.warn({ error }, 'Watching the daemon registry failed; rescanning periodically');
             isDegraded = true;
@@ -302,17 +297,11 @@ export function createDaemonStore({ settings, log }: IContainer) {
       };
 
       const rescanTimer = setInterval(() => {
-        // A deleted and recreated directory leaves the old watcher deaf.
-        void fs
-          .stat(directory)
-          .then(
-            stats => stats.ino !== watchedInode && closeWatcher(),
-            () => closeWatcher()
-          )
-          .then(() => {
-            arm();
-            schedule();
-          });
+        // A recreated directory can reuse its old inode while the old watcher
+        // stays deaf. Reopen unconditionally, without an asynchronous stat race.
+        closeWatcher();
+        arm();
+        schedule();
       }, RESCAN_INTERVAL_MS);
       rescanTimer.unref();
 

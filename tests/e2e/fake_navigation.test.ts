@@ -81,7 +81,6 @@ test('lays out offscreen environment values after scrolling, resizing and tab vi
   });
   await page.goto(FAKE_LAUNCH_PATH);
   await openProcessTab(page, 'api', 'Env');
-  const envPage = page.locator('[data-component="EnvPage"]');
   const row = page
     .locator('[data-component="EnvPanel"] dl > div')
     .filter({ hasText: 'ZZZ_WRAPPED_VALUE' });
@@ -100,11 +99,16 @@ test('lays out offscreen environment values after scrolling, resizing and tab vi
         })
       )
       .toBe(true);
-    const offset = await envPage.evaluate(element => element.scrollTop);
+    // content-visibility replaces estimated offscreen heights as rows are
+    // measured. Scroll anchoring can change scrollTop while keeping the same
+    // content on screen, so compare the reader's position within the row.
+    const offset = await row.evaluate(element => element.getBoundingClientRect().top);
     await page.getByRole('link', { name: 'Info', exact: true }).click();
     await page.getByRole('link', { name: 'Env', exact: true }).click();
     await expect(row.getByText(value, { exact: true })).toBeVisible();
-    await expect.poll(() => envPage.evaluate(element => element.scrollTop)).toBe(offset);
+    await expect
+      .poll(() => row.evaluate(element => element.getBoundingClientRect().top))
+      .toBe(offset);
   }
   expectNoPageError();
 });

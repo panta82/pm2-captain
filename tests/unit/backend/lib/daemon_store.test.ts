@@ -193,11 +193,15 @@ describe('daemonStore', () => {
     await expect(store.load()).resolves.toEqual([REMOTE]);
   });
 
-  it('watches again after its directory is replaced', async () => {
+  it('watches again after its directory is replaced even if its inode is reused', async () => {
     vi.useFakeTimers({ toFake: ['setInterval'] });
+    let stat: ReturnType<typeof vi.spyOn> | undefined;
     try {
       const { configDir, path, store, log } = await setup();
       await store.mutate(() => [LOCAL]);
+      // Make inode reuse deterministic; fs.watch still observes real deletion
+      // and recreation, so only reopening it can see subsequent file edits.
+      stat = vi.spyOn(fs, 'stat').mockResolvedValue(await fs.stat(configDir));
       const onHint = vi.fn();
       stops.push(await store.watch(onHint));
 
@@ -216,6 +220,7 @@ describe('daemonStore', () => {
         expect.stringContaining('Unable to create')
       );
     } finally {
+      stat?.mockRestore();
       vi.useRealTimers();
     }
   });
