@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import libPath from 'node:path';
@@ -15,6 +16,32 @@ export interface IAppImageInstallRequest {
 
 export type IAppImageInstallOutcome =
   { kind: 'installed' } | { kind: 'not-started'; message: string };
+
+/**
+ * Starts the outer AppImage directly, as electron-updater does. app.relaunch
+ * is unreliable inside AppImages (electron-userland/electron-builder#1727).
+ * The new process must outlive the old one and start outside its mount.
+ * Resolve only after exec succeeds, before main exits.
+ */
+export function launchAppImage(
+  appImagePath: string,
+  args: string[],
+  environment: NodeJS.ProcessEnv
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(appImagePath, args, {
+      cwd: libPath.dirname(appImagePath),
+      detached: true,
+      stdio: 'ignore',
+      env: { ...environment, APPIMAGE_SILENT_INSTALL: 'true' },
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
 
 async function sha512Base64(path: string) {
   const hash = createHash('sha512');

@@ -42,7 +42,7 @@ export interface IUpdateHooks {
   /** Lets the library quit the app for a macOS installation. */
   allowQuitForUpdate(): void;
   /** Starts the new version once it is installed; an AppImage gives its new file. */
-  relaunchAfterInstall(options?: { execPath: string }): void;
+  relaunchAfterInstall(options?: { execPath: string }): void | Promise<void>;
   /** The installation may be partial; the backend stays stopped. */
   showInstallRecovery(message: string): void;
 }
@@ -221,7 +221,7 @@ export function createUpdateController({
         : { kind: 'not-started', message: 'The update could not be installed.' };
     }
     if (outcome.kind === 'installed') {
-      hooks.relaunchAfterInstall();
+      await hooks.relaunchAfterInstall();
     } else if (outcome.kind === 'not-started') {
       await finishNotStarted(outcome.message);
     } else {
@@ -254,7 +254,7 @@ export function createUpdateController({
       log
     );
     if (outcome.kind === 'installed') {
-      hooks.relaunchAfterInstall({ execPath: appImagePath });
+      await hooks.relaunchAfterInstall({ execPath: appImagePath });
     } else {
       await finishNotStarted(outcome.message);
     }

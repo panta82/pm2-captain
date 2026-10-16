@@ -7,7 +7,7 @@
 // Usage: node update-test.mjs <executable> <feed URL> <expected version> [--expect-not-installed]
 import { chromium } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import libOs from 'node:os';
 import libPath from 'node:path';
@@ -17,6 +17,14 @@ import { assessSandbox, listAppProcesses, readProcessStatus } from '../sandbox-e
 const [executable, feedURL, expectedVersion, flag] = process.argv.slice(2);
 const expectInstalled = flag !== '--expect-not-installed';
 const root = mkdtempSync(libPath.join(libOs.tmpdir(), 'pm2c-update-test-'));
+// Keep failure evidence in the CI log; the temporary profile disappears with
+// the runner. Only the app log is read, never fake-control.json or its token.
+process.on('uncaughtExceptionMonitor', () => {
+  const path = libPath.join(root, 'profile', 'logs', 'main.log');
+  if (existsSync(path)) {
+    console.error(readFileSync(path, 'utf8').slice(-20_000));
+  }
+});
 
 const freePort = () =>
   new Promise(resolve => {
@@ -121,7 +129,7 @@ if (expectInstalled) {
   await Promise.race([
     exited,
     new Promise((_resolve, reject) =>
-      setTimeout(() => reject(new Error('The app did not exit to update')), 180_000)
+      setTimeout(() => reject(new Error('The app did not exit to update')), 180_000).unref()
     ),
   ]);
   await browser.close().catch(() => undefined);

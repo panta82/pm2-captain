@@ -16,6 +16,7 @@ import libOs from 'node:os';
 import libPath from 'node:path';
 
 import { IPC_CHANNELS } from '../shared/ipc_channels';
+import { launchAppImage } from './appimage_installer';
 import { BackendStartError, IBackendRun, createBackendHost } from './backend_host';
 import { createFileLog } from './desktop_log';
 import { createBackendEnvironment } from './environment';
@@ -144,11 +145,31 @@ const updates: IUpdateController =
       allowQuitForUpdate: () => {
         isQuitAllowed = true;
       },
-      relaunchAfterInstall: options => {
+      relaunchAfterInstall: async options => {
         log.info('Update installed; starting the new version');
         // The new instance waits for this one to release the single-instance lock.
         process.env[RELAUNCH_VARIABLE] = '1';
-        app.relaunch(options ? { execPath: options.execPath } : undefined);
+        if (options) {
+          try {
+            await launchAppImage(options.execPath, process.argv.slice(1), process.env);
+          } catch (error) {
+            log.error('The updated AppImage could not be started', { error });
+            phase = 'failed';
+            showStatus('Update installed', 'Close PM2 Captain and open the AppImage again.');
+            await dialog.showMessageBox({
+              type: 'error',
+              title: 'PM2 Captain',
+              message: 'The update was installed, but PM2 Captain could not restart.',
+              detail: 'Close this window and open the AppImage again to use the new version.',
+              buttons: ['Quit'],
+            });
+            isQuitAllowed = true;
+            app.quit();
+            return;
+          }
+        } else {
+          app.relaunch();
+        }
         isQuitAllowed = true;
         app.exit(0);
       },

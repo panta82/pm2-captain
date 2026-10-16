@@ -220,7 +220,16 @@ describe('update controller', () => {
         files: [{ url: 'PM2-Captain-x86_64.AppImage', sha512 }],
       });
 
-      await controller.install();
+      let started!: () => void;
+      hooks.relaunchAfterInstall.mockImplementation(
+        () => new Promise<void>(resolve => (started = resolve))
+      );
+      const finished = vi.fn();
+      const installing = controller.install().then(finished);
+      await vi.waitFor(() => expect(hooks.relaunchAfterInstall).toHaveBeenCalled());
+      expect(finished).not.toHaveBeenCalled();
+      started();
+      await installing;
 
       expect(updater.quitAndInstall).not.toHaveBeenCalled();
       expect(await fs.readFile(appImagePath, 'utf8')).toBe('new version');
