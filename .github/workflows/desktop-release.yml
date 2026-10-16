@@ -95,6 +95,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Electron downloads its development binary on demand. These tests launch
+      # that binary by path, so npm ci alone does not make it available.
+      - name: Install Electron for desktop tests
+        run: npx --no-install install-electron
       - uses: actions/download-artifact@v7
         with:
           name: shared-build
