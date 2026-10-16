@@ -101,6 +101,10 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.0.2` (2026-10-16)
+
+- Fix release validation of AppImage updates
+
 #### `2.0.1` (2026-10-16)
 
 - Fix restarting the AppImage after installing an update

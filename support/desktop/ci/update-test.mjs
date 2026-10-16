@@ -6,9 +6,8 @@
 //
 // Usage: node update-test.mjs <executable> <feed URL> <expected version> [--expect-not-installed]
 import { chromium } from '@playwright/test';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { createServer } from 'node:net';
 import libOs from 'node:os';
 import libPath from 'node:path';
 
@@ -25,15 +24,6 @@ process.on('uncaughtExceptionMonitor', () => {
     console.error(readFileSync(path, 'utf8').slice(-20_000));
   }
 });
-
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
 
 const waitFor = async (predicate, timeoutMs, what) => {
   const deadline = Date.now() + timeoutMs;
@@ -56,21 +46,37 @@ const captainPages = browser =>
       candidate => !candidate.isClosed() && /^http:\/\/127\.0\.0\.1:\d+\//.test(candidate.url())
     );
 
-/** The Captain page of whichever app instance listens on the DevTools port. */
-const connect = port =>
+/**
+ * Each app gets its own DevTools port. The replacement can start before the
+ * old instance has released its listening socket. A fixed port then fails to
+ * bind even though the replacement app itself starts successfully.
+ */
+const connect = (previousEndpoint = null) =>
   waitFor(
     async () => {
-      const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-      const page = browser
-        .contexts()
-        .flatMap(context => context.pages())
-        .find(candidate => /^http:\/\/127\.0\.0\.1:\d+\//.test(candidate.url()));
-      if (!page) {
-        await browser.close();
+      const [port, path] = readFileSync(
+        libPath.join(root, 'profile', 'DevToolsActivePort'),
+        'utf8'
+      ).split('\n');
+      if (!/^\d+$/.test(port) || !/^\/devtools\/browser\/[a-f0-9-]+$/.test(path)) {
         return null;
       }
-      await page.waitForFunction(() => window.pm2CaptainDesktop, null, { timeout: 30_000 });
-      return { browser, page };
+      const endpoint = `ws://127.0.0.1:${port}${path}`;
+      if (endpoint === previousEndpoint) {
+        return null;
+      }
+      const browser = await chromium.connectOverCDP(endpoint, { timeout: 5000 });
+      try {
+        const page = captainPages(browser)[0];
+        if (page) {
+          await page.waitForFunction(() => window.pm2CaptainDesktop, null, { timeout: 5000 });
+          return { browser, page, endpoint };
+        }
+      } catch {
+        // The window or its preload may still be starting.
+      }
+      await browser.close().catch(() => undefined);
+      return null;
     },
     90_000,
     'the app window'
@@ -78,8 +84,7 @@ const connect = port =>
 
 const updateState = page => page.evaluate(() => window.pm2CaptainDesktop.updates.getState());
 
-const port = await freePort();
-const app = spawn(executable, [`--remote-debugging-port=${port}`], {
+const app = spawn(executable, ['--remote-debugging-port=0'], {
   env: {
     // No --no-sandbox: assertSandboxed() checks that these runs have the sandbox.
     ...process.env,
@@ -92,27 +97,36 @@ const app = spawn(executable, [`--remote-debugging-port=${port}`], {
 });
 const exited = new Promise(resolve => app.once('exit', resolve));
 
-/** The instance on the DevTools port, and its descendants, must be sandboxed. */
-const assertSandboxed = () => {
-  const owner = execFileSync('ps', ['-A', '-o', 'pid=,args='])
-    .toString()
-    .split('\n')
-    .find(line => line.includes(`--remote-debugging-port=${port}`) && !line.includes('--type='));
-  const problems = owner
-    ? assessSandbox({
-        processes: listAppProcesses(Number(owner.trim().split(/\s+/)[0])),
-        readStatus: readProcessStatus,
-        platform: process.platform,
-        log: '',
-      })
-    : ['the app process was not found'];
+/** Identify the connected main process, not another app's command line. */
+const mainProcessId = async () => {
+  const session = await browser.newBrowserCDPSession();
+  try {
+    const { processInfo } = await session.send('SystemInfo.getProcessInfo');
+    const owner = processInfo.find(process => process.type === 'browser');
+    if (!owner) {
+      throw new Error('The connected app did not report its main process.');
+    }
+    return owner.id;
+  } finally {
+    await session.detach();
+  }
+};
+
+/** The connected instance and its descendants must be sandboxed. */
+const assertSandboxed = async () => {
+  const problems = assessSandbox({
+    processes: listAppProcesses(await mainProcessId()),
+    readStatus: readProcessStatus,
+    platform: process.platform,
+    log: '',
+  });
   if (problems.length) {
     throw new Error(`The app runs without its OS sandbox: ${problems.join('; ')}`);
   }
 };
 
-let { browser, page } = await connect(port);
-assertSandboxed();
+let { browser, page, endpoint } = await connect();
+await assertSandboxed();
 const before = await updateState(page);
 console.log(
   `Running ${before.currentVersion} (${before.installKind}); updating to ${expectedVersion}`
@@ -133,10 +147,10 @@ if (expectInstalled) {
     ),
   ]);
   await browser.close().catch(() => undefined);
-  // The new version starts with the same arguments, so it listens on the same port.
-  ({ browser, page } = await connect(port));
+  // Wait for a new endpoint, never a stale file left by the previous instance.
+  ({ browser, page, endpoint } = await connect(endpoint));
   const after = await updateState(page);
-  assertSandboxed();
+  await assertSandboxed();
   if (after.currentVersion !== expectedVersion) {
     throw new Error(`Expected ${expectedVersion} after the update, found ${after.currentVersion}`);
   }
@@ -153,7 +167,7 @@ if (expectInstalled) {
       // then in case one does not.
       if (Date.now() - connectedAt > 15_000) {
         await browser.close().catch(() => undefined);
-        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        browser = await chromium.connectOverCDP(endpoint, { timeout: 5000 });
         connectedAt = Date.now();
       }
       for (const candidate of captainPages(browser)) {
@@ -180,18 +194,12 @@ if (expectInstalled) {
     );
   }
   await page.getByText('api', { exact: true }).first().waitFor({ timeout: 60_000 });
-  assertSandboxed();
+  await assertSandboxed();
   console.log(
     `Not installed, as expected: ${refused.error.message} ${refused.currentVersion} carries on with a new backend at ${new URL(page.url()).origin}.`
   );
 }
 
+const currentMainPid = await mainProcessId();
 await browser.close().catch(() => undefined);
-// End whichever instance is running now: the one that owns the DevTools port.
-const owner = execFileSync('ps', ['-A', '-o', 'pid=,args='])
-  .toString()
-  .split('\n')
-  .find(line => line.includes(`--remote-debugging-port=${port}`) && !line.includes('--type='));
-if (owner) {
-  process.kill(Number(owner.trim().split(/\s+/)[0]), 'SIGTERM');
-}
+process.kill(currentMainPid, 'SIGTERM');
