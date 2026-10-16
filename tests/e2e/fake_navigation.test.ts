@@ -106,9 +106,12 @@ test('lays out offscreen environment values after scrolling, resizing and tab vi
     await page.getByRole('link', { name: 'Info', exact: true }).click();
     await page.getByRole('link', { name: 'Env', exact: true }).click();
     await expect(row.getByText(value, { exact: true })).toBeVisible();
+    // Restoring a fractional scroll offset can round by half a CSS pixel.
     await expect
-      .poll(() => row.evaluate(element => element.getBoundingClientRect().top))
-      .toBe(offset);
+      .poll(async () =>
+        Math.abs((await row.evaluate(element => element.getBoundingClientRect().top)) - offset)
+      )
+      .toBeLessThanOrEqual(1);
   }
   expectNoPageError();
 });
