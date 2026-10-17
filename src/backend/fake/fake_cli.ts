@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
+import { z } from 'zod';
 
 import { IContainer } from '../container';
+import { FakeCommandSchema } from './fake_commands';
 
 /** What `pm2-captain fake …` asks the running Captain for. */
 export type IFakeInvocation = { kind: 'state' } | { kind: 'commands'; commands: unknown[] };
@@ -19,6 +21,72 @@ function positionalFields(type: string) {
     return ['daemon', 'process'];
   }
   return [];
+}
+
+/** How a field value is written on the command line, such as `online|stopped` or `number`. */
+function describeValue(schema: z.ZodType): string {
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault) {
+    return describeValue(schema.unwrap() as z.ZodType);
+  }
+  if (schema instanceof z.ZodNullable) {
+    return `${describeValue(schema.unwrap() as z.ZodType)}|null`;
+  }
+  if (schema instanceof z.ZodUnion) {
+    return [...new Set(schema.options.map(option => describeValue(option as z.ZodType)))].join('|');
+  }
+  if (schema instanceof z.ZodEnum) {
+    return schema.options.join('|');
+  }
+  if (schema instanceof z.ZodLiteral) {
+    return String(schema.value);
+  }
+  if (schema instanceof z.ZodNumber) {
+    return 'number';
+  }
+  if (schema instanceof z.ZodBoolean) {
+    return 'true|false';
+  }
+  return schema instanceof z.ZodString ? 'text' : 'json';
+}
+
+/**
+ * Help rows for `pm2-captain fake --help`: every fake command in its short form,
+ * with its fields. Built from FakeCommandSchema, so it cannot fall behind it.
+ */
+export function describeFakeCommands(): { name: string; description: string }[] {
+  const rows = [{ name: 'state', description: 'Prints the fake world as JSON.' }];
+  for (const command of FakeCommandSchema.options) {
+    const { type, lines, ...fields } = command.shape as Record<string, z.ZodType>;
+    const commandType = String((type as z.ZodLiteral).value);
+    const positionals = positionalFields(commandType);
+    const isOptional = (key: string) => fields[key]?.safeParse(undefined).success === true;
+    const usage = [commandType];
+    for (const field of positionals) {
+      usage.push(isOptional(field) ? `[${field}]` : `<${field}>`);
+    }
+    const keyed = Object.entries(fields).filter(([key]) => !positionals.includes(key));
+    for (const [key] of keyed.filter(([key]) => !isOptional(key))) {
+      usage.push(`${key}=<value>`);
+    }
+    if (keyed.some(([key]) => isOptional(key))) {
+      usage.push('[field=value …]');
+    }
+    if (lines) {
+      usage.push('-- <line …>');
+    }
+    const fieldList = keyed.map(([key, schema]) => `${key}=${describeValue(schema)}`);
+    rows.push({
+      name: usage.join(' '),
+      description: [
+        command.description ?? '',
+        fieldList.length ? `Fields: ${fieldList.join(', ')}.` : '',
+        lines ? 'Lines come after --, or from file=<path>.' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    });
+  }
+  return rows;
 }
 
 async function readLines(path: string) {

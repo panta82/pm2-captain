@@ -164,7 +164,7 @@ pm2-captain fake update.reset
 
 `update.set` takes the updater's states: `idle`, `checking`, `available`, `downloading` (with `percent`), `downloaded`, `installing`, `error`, `disabled`. `pm2-captain fake state` shows the stored list under `registry` and the update under `update`; `world.reset` starts both over.
 
-All fields are listed in `src/backend/fake/fake_commands.ts`.
+`pm2-captain fake --help` lists every command with its fields, from `FakeCommandSchema` in `src/backend/fake/fake_commands.ts`.
 
 The same commands go over HTTP as JSON, one or an array of them, with the launch token as a bearer token:
 

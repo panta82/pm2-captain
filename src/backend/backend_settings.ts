@@ -4,17 +4,16 @@ import libPath from 'node:path';
 import { z } from 'zod';
 
 import type { IDaemonInput } from '../shared/contracts';
-import { DEFAULT_FAKE_SCENARIO } from './fake/fake_scenario';
+import type { ICliArgs } from './cli_args';
 
 export const ROOT_DIR = libPath.resolve(__dirname, '..', '..');
 export const PACKAGE_VERSION = z
   .object({ version: z.string().min(1) })
   .parse(JSON.parse(readFileSync(libPath.join(ROOT_DIR, 'package.json'), 'utf8'))).version;
 
-const SUBCOMMANDS = new Set(['ssh', 'fake']);
-const DEFAULT_PORT = 3212;
+export const DEFAULT_PORT = 3212;
 /** Fake mode has its own port, so it never lands on a Captain that shows real daemons. */
-const DEFAULT_FAKE_PORT = 3213;
+export const DEFAULT_FAKE_PORT = 3213;
 
 export const BackendSettingsSchema = z
   .object({
@@ -141,94 +140,11 @@ export function requestedDaemonInput(settings: IBackendSettings): IDaemonInput |
   return settings.pm2Home ? { kind: 'local', pm2Home: settings.pm2Home } : null;
 }
 
-export function loadBackendSettings(): IBackendSettings {
-  const args: {
-    port?: number;
-    pm2Home?: string;
-    open: boolean | null;
-    noAuth: boolean;
-    sshArgs: string[] | null;
-    fakeScenario: string | null;
-    fakeCommand: string[] | null;
-  } = {
-    open: null,
-    noAuth: false,
-    sshArgs: null,
-    fakeScenario: process.env.PM2_CAPTAIN_FAKE || null,
-    fakeCommand: null,
-  };
-  for (let index = 2; index < process.argv.length; index++) {
-    const argument = process.argv[index];
-    if (argument === 'ssh') {
-      args.sshArgs = process.argv.slice(index + 1);
-      if (!args.sshArgs.length) {
-        throw new Error('The ssh command requires a destination.');
-      }
-      break;
-    } else if (argument === 'fake') {
-      args.fakeCommand = process.argv.slice(index + 1);
-      if (!args.fakeCommand.length) {
-        throw new Error('The fake command requires something to do, for example "fake state".');
-      }
-      break;
-    } else if (argument === '--fake') {
-      // The scenario is optional, so another option or a subcommand can follow directly.
-      const next = process.argv[index + 1];
-      const hasScenario = next !== undefined && !next.startsWith('-') && !SUBCOMMANDS.has(next);
-      args.fakeScenario = hasScenario ? process.argv[++index] : DEFAULT_FAKE_SCENARIO;
-    } else if (argument === '--open') {
-      args.open = true;
-    } else if (argument === '--no-open') {
-      args.open = false;
-    } else if (argument === '--no-auth') {
-      args.noAuth = true;
-    } else if (argument === '--port' || argument === '-p') {
-      args.port = Number(process.argv[++index]);
-    } else if (argument === '--pm2-home') {
-      args.pm2Home = process.argv[++index];
-    } else if (argument === '--help' || argument === '-h') {
-      console.log(`Usage: pm2-captain [options]
-       pm2-captain [options] ssh <ssh arguments>
-       pm2-captain [options] fake <command>
-
-Options:
-  -p, --port <number>   HTTP port (default: ${DEFAULT_PORT}, or ${DEFAULT_FAKE_PORT} in fake mode)
-  --pm2-home <path>     Add the PM2 home at this path. With "ssh", the path is
-                        on the remote server.
-  --open                Always open a browser tab. By default a restart reuses
-                        the tab that is already open.
-  --no-open             Do not open a browser
-  --no-auth             Disable Captain authentication (use behind an authenticated proxy)
-  --fake [scenario]     Show simulated PM2 daemons instead of real ones, for
-                        testing. Scenarios: basic (default), busy, edge, multi,
-                        or the path to a JSON file.
-  -h, --help            Show this help
-
-Remote server:
-  pm2-captain ssh tk-dev
-  pm2-captain --port 3213 ssh -p 2222 user@example.com
-  pm2-captain --pm2-home /srv/pm2 ssh deploy@example.com
-
-Arguments after "ssh" are passed to your system SSH client. Captain uses its
-configuration, keys, agent, and jump hosts, and does not install anything on
-the remote server.
-
-Fake mode:
-  pm2-captain --fake busy
-  pm2-captain fake state
-  pm2-captain fake process.set local api status=errored
-  pm2-captain fake log.emit local api channel=err -- "Something broke"
-
-"fake <command>" controls the Captain that runs in fake mode on the same port.
-
-Daemons are saved in ${defaultConfigDir()}/daemons.json. On the
-first launch, Captain fills that list with the PM2 daemons it finds on this
-computer.`);
-      process.exit(0);
-    } else {
-      throw new Error(`Unknown option: ${argument}`);
-    }
-  }
+/** Settings for the npm command, from its parsed command line and the environment. */
+export function loadBackendSettings(args: ICliArgs): IBackendSettings {
+  const fakeScenario = args.fakeScenario ?? (process.env.PM2_CAPTAIN_FAKE || null);
+  const sshArgs = args.ssh?.sshArgs ?? null;
+  const fakeCommand = args.fake?.command ?? null;
 
   const ownSettings = BackendSettingsSchema.parse({
     nodeEnv: process.env.NODE_ENV || 'production',
@@ -236,28 +152,28 @@ computer.`);
       args.port ??
       (process.env.PM2_CAPTAIN_PORT
         ? Number(process.env.PM2_CAPTAIN_PORT)
-        : args.fakeScenario || args.fakeCommand
+        : fakeScenario || fakeCommand
           ? DEFAULT_FAKE_PORT
           : DEFAULT_PORT),
     configDir: defaultConfigDir(),
     // A remote path is resolved on the server. A local one is resolved here,
     // because a running Captain that receives the handoff has another cwd.
-    pm2Home: args.pm2Home && !args.sshArgs ? resolveLocalPath(args.pm2Home) : args.pm2Home || null,
+    pm2Home: args.pm2Home && !sshArgs ? resolveLocalPath(args.pm2Home) : args.pm2Home || null,
     environmentPm2Home: process.env.PM2_HOME || null,
     debug: process.env.DEBUG === 'true',
     serverDevMode: process.env.SERVER_DEV_MODE === 'true' || process.env.NODE_ENV === 'development',
     browserOpen:
-      args.open === false || (args.open === null && process.env.PM2_CAPTAIN_NO_OPEN === 'true')
+      args.open === false || (args.open === undefined && process.env.PM2_CAPTAIN_NO_OPEN === 'true')
         ? 'never'
         : args.open
           ? 'always'
           : 'auto',
-    noAuth: args.noAuth || process.env.PM2_CAPTAIN_NO_AUTH === 'true',
-    sshArgs: args.sshArgs,
+    noAuth: args.noAuth === true || process.env.PM2_CAPTAIN_NO_AUTH === 'true',
+    sshArgs,
     runtimeDaemonId: null,
     runtimeConnectionId: null,
-    fake: args.fakeScenario ? { scenario: args.fakeScenario } : null,
-    fakeCommand: args.fakeCommand,
+    fake: fakeScenario ? { scenario: fakeScenario } : null,
+    fakeCommand,
   });
 
   return {

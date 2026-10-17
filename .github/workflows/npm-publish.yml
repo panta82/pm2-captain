@@ -122,17 +122,19 @@ jobs:
       - name: Publish
         if: steps.plan.outputs.action == 'publish'
         run: npm publish "$RELEASE_DIR/pm2-captain-${RELEASE_TAG#v}.tgz" --ignore-scripts --access public
-      # The registry can take a moment to show a new version. A different
-      # archive or an npm failure fails at once.
+      # A successful publish can take several minutes to appear in registry
+      # reads. Retry absence only; a different archive or registry error fails
+      # at once.
       - name: npm has exactly this archive
         run: |
-          for _ in $(seq 12); do
+          for attempt in $(seq 60); do
             result="$(node support/release/release.mjs npm-plan "$RELEASE_DIR/pm2-captain-${RELEASE_TAG#v}.tgz" "$RELEASE_TAG")" || exit 1
             if [[ "$result" == already-published:* ]]; then
               echo "$result"
               exit 0
             fi
+            echo "Waiting for npm to show pm2-captain ${RELEASE_TAG#v} (check $attempt/60)."
             sleep 5
           done
-          echo "npm does not show pm2-captain ${RELEASE_TAG#v} a minute after publishing." >&2
+          echo "npm does not show pm2-captain ${RELEASE_TAG#v} after 60 checks, about five minutes after publishing." >&2
           exit 1

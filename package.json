@@ -1,6 +1,6 @@
 {
   "name": "pm2-captain",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "description": "A local web control room for PM2 processes and logs",
   "author": "Ivan Pantic",
   "repository": {
@@ -85,6 +85,7 @@
     "sonner": "2.0.7",
     "superjson": "2.2.6",
     "tailwind-merge": "3.6.0",
+    "talented-args": "0.4.0-beta",
     "zod": "4.4.3"
   },
   "devDependencies": {

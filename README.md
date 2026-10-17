@@ -46,11 +46,11 @@ in a web UI.
 
 Pick your build from the [releases page](https://github.com/panta82/pm2-captain/releases):
 
-| Your system                   | Download                                   | Install                                                                                                 |
-| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Debian or Ubuntu, x64         | `pm2-captain-desktop_<version>_amd64.deb`  | Open with your package manager.                                                                         |
-| Fedora, RHEL or openSUSE, x64 | `pm2-captain-desktop-<version>.x86_64.rpm` | Open with your package manager.                                                                         |
-| Other Linux, x64              | `PM2-Captain-x86_64.AppImage`              | Make the file executable, then open it.                                                                 |
+| Your system                   | Download                                   | Install                                 |
+| ----------------------------- | ------------------------------------------ | --------------------------------------- |
+| Debian or Ubuntu, x64         | `pm2-captain-desktop_<version>_amd64.deb`  | Open with your package manager.         |
+| Fedora, RHEL or openSUSE, x64 | `pm2-captain-desktop-<version>.x86_64.rpm` | Open with your package manager.         |
+| Other Linux, x64              | `PM2-Captain-x86_64.AppImage`              | Make the file executable, then open it. |
 
 macOS desktop builds will follow. The npm CLI remains available on macOS.
 
@@ -74,7 +74,7 @@ Desktop app logs are in these folders by default:
 | `--no-open`           | `PM2_CAPTAIN_NO_OPEN=true` | Off     | Do not open a browser automatically.                                                             |
 | `--no-auth`           | `PM2_CAPTAIN_NO_AUTH=true` | Off     | Disable Captain's launch-token session. Use only behind an authenticated proxy.                  |
 | `--fake [scenario]`   | `PM2_CAPTAIN_FAKE`         | Off     | Show simulated PM2 daemons instead of real ones. See [Fake mode](docs/development.md#fake-mode). |
-| `-h, --help`          | —                          | —       | Print CLI help and exit.                                                                         |
+| `-h, --help`          | —                          | —       | Print CLI help and exit. `ssh --help` and `fake --help` describe the subcommands.                |
 |                       | `DEBUG=true`               | Off     | Enable diagnostic service and request logs.                                                      |
 
 The `ssh <ssh arguments>` subcommand adds a remote PM2 daemon to Captain. You can also do this from the UI.
@@ -100,6 +100,10 @@ Read [this guide](docs/service_setup.md) for details.
 Read [development.md](docs/development.md) for more details.
 
 ## Version history
+
+#### `2.1.0` (2026-10-17)
+
+- Improve cli help screen, add help for subcommands and the fake mode
 
 #### `2.0.3` (2026-10-17)
 
