@@ -176,6 +176,15 @@ Only do this when a release is explicitly requested. What happens after that is 
 - Publishing the draft runs `npm-publish.yml`, which publishes exactly the attached tarball to npm with trusted publishing (OIDC, no token, no rebuild, no scripts). Before anything from the repository runs, it requires the run's `GITHUB_REF` to be the tag and `GITHUB_SHA` to be the recorded commit, and the tag to still peel to it; then it checks out that commit. npm provenance records the run's ref and commit, so retries run for the tag (`gh workflow run npm-publish.yml --ref vX.Y.Z -f tag=vX.Y.Z`), never for a branch. A rerun passes only if npm already has the identical archive. npm's trusted publisher names this workflow file, so do not rename it.
 - Never publish to npm by hand, and never publish a GitHub Release without the desktop files: the desktop app updates from the latest published release.
 
+The maintainer decides per release whether it gets a testing phase. When asked to release and publish once CI passes ("fire and forget"), push the tag, then hand the rest to a cheap background subagent, so the session doesn't wait on CI:
+
+1. Watch the tag's `desktop-release.yml` run (`gh run watch <id> --exit-status`). If it fails, stop and report the failed jobs. Never publish.
+2. Check the draft: not a prerelease, and every file for the enabled platforms is attached (the desktop builds, `latest-linux.yml`, `pm2-captain-<version>.tgz`, `pm2-captain-<version>-release.json`).
+3. Publish it with `gh release edit v<version> --draft=false --latest`. That starts `npm-publish.yml`. If no run appears within two minutes, start it with the retry command above.
+4. Watch the npm run, confirm `npm view pm2-captain@<version> version`, and report.
+
+Without that request, stop at the draft.
+
 ## General agent behavior
 
 - Do not ask the user to run checks or generation steps that can be run safely in this workspace.
