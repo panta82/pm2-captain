@@ -157,6 +157,62 @@ test('acts on a whole selection, and leaves Captain running', async ({ page, fak
   expect(await statuses()).toMatchObject({ api: 'online', mail: 'online' });
 });
 
+test('keeps selected processes visible while filtering and removes deselected nonmatches', async ({
+  page,
+  fake,
+}) => {
+  await fake.send({ type: 'world.reset', scenario: SELECTION_SCENARIO });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await openProcessTab(page, 'api', 'Info');
+  await sidebarLink(page, 'mail').click({ modifiers: ['Control'] });
+  await sidebarLink(page, 'billing').click({ modifiers: ['Control'] });
+  await expect(heading(page, '3 processes')).toBeVisible();
+
+  const navigation = page.getByRole('navigation', { name: 'Processes' });
+  const filter = page.getByPlaceholder('Filter processes…');
+  const checkBox = (name: string) => navigation.getByRole('checkbox', { name: `Select ${name}` });
+  await filter.fill('export');
+  await expect(navigation.getByRole('link')).toHaveText(['api', 'mail', 'billing', 'export']);
+  await expect(checkBox('api')).toBeChecked();
+  await expect(checkBox('mail')).toBeChecked();
+  await expect(checkBox('billing')).toBeChecked();
+  await expect(checkBox('export')).not.toBeChecked();
+  await expect(sidebarLink(page, 'export').locator('mark')).toHaveText('export');
+  await expect(
+    page.locator('[data-component="BulkProcessActions"]:visible').getByRole('button', {
+      name: 'Restart 3',
+      exact: true,
+    })
+  ).toBeVisible();
+
+  await checkBox('billing').click();
+  await expect(heading(page, '2 processes')).toBeVisible();
+  await expect(navigation.getByRole('link')).toHaveText(['api', 'mail', 'export']);
+
+  await filter.fill('no-such-process');
+  await expect(navigation.getByRole('link')).toHaveText(['api', 'mail']);
+  await expect(page.getByText('No processes match the filter.')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Regular expression' }).click();
+  await filter.fill('[');
+  await expect(page.getByText(/Invalid regular expression/)).toBeVisible();
+  await expect(navigation.getByRole('link')).toHaveText(['api', 'mail']);
+
+  // The open process stays visible too once the selection shrinks to one.
+  await checkBox('api').click();
+  await expect(heading(page, 'mail')).toBeVisible();
+  await expect(navigation.getByRole('link')).toHaveText(['mail']);
+
+  await page.getByRole('button', { name: 'Clear filter', exact: true }).click();
+  await expect(navigation.getByRole('link')).toHaveText([
+    'api',
+    'mail',
+    'billing',
+    'export',
+    'pm2-captain',
+  ]);
+});
+
 test('opens the rows picked in the status table once the key is let go', async ({ page, fake }) => {
   await fake.send({ type: 'world.reset', scenario: SELECTION_SCENARIO });
   await page.goto(FAKE_LAUNCH_PATH);

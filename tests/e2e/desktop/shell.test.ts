@@ -159,14 +159,15 @@ test('refuses the bridge to pages that are not the current Captain page', async 
       webPreferences: { preload, sandbox: true, contextIsolation: true },
     });
     await window.loadURL('data:text/html,<title>other</title>');
-    const outcome = await window.webContents.executeJavaScript(
-      'window.pm2CaptainDesktop.preferences.load().then(() => "allowed", () => "refused")'
-    );
+    const outcome = await window.webContents.executeJavaScript(`Promise.all([
+      window.pm2CaptainDesktop.preferences.load().then(() => "allowed", () => "refused"),
+      window.pm2CaptainDesktop.updates.skip("9.9.9").then(() => "allowed", () => "refused")
+    ])`);
     window.destroy();
     return outcome;
   }, preloadPath);
 
-  expect(result).toBe('refused');
+  expect(result).toEqual(['refused', 'refused']);
   await app.close();
 });
 
@@ -288,9 +289,9 @@ async function fakeCommand(...args: string[]) {
   return stdout.trim();
 }
 
-test('shows the simulated update in the banner and menu, and keeps installing it simulated', async () => {
+test('shows the simulated update in a toast and menu, and keeps installing it simulated', async () => {
   const { app, origin } = await launch();
-  const banner = (page: Page) => page.locator('[data-component="UpdateBanner"]');
+  const updateToast = (page: Page) => page.locator('[data-component="UpdateToast"]');
   const updateMenuLabel = () =>
     app.evaluate(({ Menu }) => {
       const labels: string[] = [];
@@ -307,12 +308,12 @@ test('shows the simulated update in the banner and menu, and keeps installing it
 
   expect(await fakeCommand('update.set', 'status=downloaded', 'version=9.9.9')).toBe('OK');
   const page = app.windows().find(candidate => candidate.url().startsWith(origin))!;
-  await expect(banner(page)).toContainText('PM2 Captain 9.9.9 is ready to install.');
+  await expect(updateToast(page)).toContainText('PM2 Captain 9.9.9 is ready to install.');
   await expect.poll(updateMenuLabel).toBe('Restart to Update to 9.9.9');
 
   // The install goes to the simulation through main and the backend; the app keeps running.
-  await banner(page).getByRole('button', { name: 'Restart to update' }).click();
-  await expect(banner(page)).toContainText('The simulated installation failed.');
+  await updateToast(page).getByRole('button', { name: 'Restart to update' }).click();
+  await expect(updateToast(page)).toContainText('The simulated installation failed.');
   expect(app.process().exitCode).toBeNull();
   expect(JSON.parse(await fakeCommand('state')).update).toMatchObject({
     status: 'downloaded',
@@ -320,7 +321,7 @@ test('shows the simulated update in the banner and menu, and keeps installing it
   });
 
   expect(await fakeCommand('update.reset')).toBe('OK');
-  await expect(banner(page)).toHaveCount(0);
+  await expect(updateToast(page)).toHaveCount(0);
   await expect.poll(updateMenuLabel).toBe('Check for Updates…');
 
   // A new backend after a crash has a new world, and the app follows it.
@@ -347,7 +348,7 @@ test('shows the simulated update in the banner and menu, and keeps installing it
   const restarted = app
     .windows()
     .find(candidate => /^http:/.test(candidate.url()) && !candidate.url().startsWith(origin))!;
-  await expect(banner(restarted)).toContainText('PM2 Captain 9.9.10 is ready to install.');
+  await expect(updateToast(restarted)).toContainText('PM2 Captain 9.9.10 is ready to install.');
 
   await app.close();
   // The control file goes away with the backend.
@@ -359,6 +360,53 @@ test('shows the simulated update in the banner and menu, and keeps installing it
       )
     )
     .toBe(false);
+});
+
+test('remembers a skipped update across launches and restores it from Check for Updates', async ({}, testInfo) => {
+  const first = await launch();
+  const firstToast = first.page.locator('[data-component="UpdateToast"]');
+  expect(await fakeCommand('update.set', 'status=downloaded', 'version=9.9.9')).toBe('OK');
+  await expect(firstToast).toContainText('PM2 Captain 9.9.9 is ready to install.');
+  await first.page.locator('[data-sonner-toast]').screenshot({
+    path: testInfo.outputPath('update-toast.png'),
+  });
+  await firstToast.getByRole('button', { name: 'Skip this version' }).click();
+  await expect(firstToast).toHaveCount(0);
+  await first.app.close();
+
+  const saved = JSON.parse(
+    await fs.readFile(libPath.join(root, 'profile/preferences.json'), 'utf8')
+  );
+  expect(saved.ui['pm2-captain-skipped-update-version']).toBe('9.9.9');
+  const second = await launch();
+  const secondToast = second.page.locator('[data-component="UpdateToast"]');
+  expect(await fakeCommand('update.set', 'status=downloaded', 'version=9.9.9')).toBe('OK');
+  await second.page.reload();
+  await expect(second.page.getByText('api', { exact: true }).first()).toBeVisible();
+  await expect(secondToast).toHaveCount(0);
+
+  const didCheck = await second.app.evaluate(({ Menu }) => {
+    const clickCheck = (items: Electron.MenuItem[]): boolean => {
+      for (const item of items) {
+        if (item.label === 'Check for Updates…' && item.enabled) {
+          item.click();
+          return true;
+        }
+        if (item.submenu && clickCheck(item.submenu.items)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    return clickCheck(Menu.getApplicationMenu()?.items ?? []);
+  });
+  expect(didCheck).toBe(true);
+  await expect(secondToast).toContainText('PM2 Captain 9.9.9 is ready to install.');
+  await secondToast.getByRole('button', { name: 'Skip this version' }).click();
+  await expect(secondToast).toHaveCount(0);
+  expect(await fakeCommand('update.set', 'status=downloaded', 'version=9.9.10')).toBe('OK');
+  await expect(secondToast).toContainText('PM2 Captain 9.9.10 is ready to install.');
+  await second.app.close();
 });
 
 /**

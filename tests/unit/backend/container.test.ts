@@ -45,6 +45,7 @@ describe('service lists', () => {
       'logManager',
     ]);
     expect(identifiers(replaced).sort()).toEqual([
+      'appUpdates',
       'daemonStore',
       'fakeControl',
       'fakeWorld',
@@ -53,10 +54,11 @@ describe('service lists', () => {
     ]);
   });
 
-  it('load the world before anything reads the daemon list from it', () => {
+  it('load the world before the services that read it', () => {
     const order = identifiers(FAKE_APP_SERVICES);
 
     expect(order.indexOf('fakeWorld')).toBeLessThan(order.indexOf('daemonStore'));
     expect(order.indexOf('fakeWorld')).toBeLessThan(order.indexOf('daemonManager'));
+    expect(order.indexOf('fakeWorld')).toBeLessThan(order.indexOf('appUpdates'));
   });
 });

@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 import { ILogStreamEvent } from '@shared/contracts';
 
+import type { IAppUpdateState } from '../../shared/desktop_bridge';
+import { AppUpdatesUnavailableError } from '../bl/app_updates';
 import {
   DaemonChangedError,
   DaemonConflictError,
@@ -84,25 +86,42 @@ export function createAppRouter(container: IContainer) {
   const trackTab = () =>
     container.settings.runtime === 'cli' ? container.captainLauncher.trackTab() : () => undefined;
 
-  // The simulated desktop update exists in fake mode only.
-  const fakeUpdates = () => {
-    if (!container.settings.fake) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Not available outside fake mode.' });
+  const withUpdateErrors = async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      if (error instanceof AppUpdatesUnavailableError) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: error.message,
+          cause: error,
+        });
+      }
+      throw error;
     }
-    return container.fakeWorld.updates;
   };
 
   return router({
-    /**
-     * Fake mode's simulated desktop update, so the browser can show the same
-     * update banner as the desktop app. Null outside fake mode.
-     */
-    fake: router({
-      update: protectedProcedure.query(() =>
-        container.settings.fake ? container.fakeWorld.updates.state : null
+    updates: router({
+      state: protectedProcedure.subscription(() =>
+        observable<IAppUpdateState | null>(emit => {
+          const updates = container.appUpdates;
+          if (updates.state === null) {
+            emit.next(null);
+            emit.complete();
+            return;
+          }
+          const unsubscribe = updates.onChange(state => emit.next(state));
+          emit.next(updates.state);
+          return unsubscribe;
+        })
       ),
-      checkUpdate: protectedProcedure.mutation(() => fakeUpdates().check()),
-      installUpdate: protectedProcedure.mutation(() => fakeUpdates().install()),
+      install: protectedProcedure.mutation(() =>
+        withUpdateErrors(() => container.appUpdates.install())
+      ),
+      skip: protectedProcedure
+        .input(z.object({ version: z.string().min(1).max(200) }))
+        .mutation(({ input }) => withUpdateErrors(() => container.appUpdates.skip(input.version))),
     }),
     session: router({
       /**

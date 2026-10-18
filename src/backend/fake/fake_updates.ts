@@ -1,4 +1,4 @@
-import type { IDesktopInstallKind, IDesktopUpdateState } from '../../shared/desktop_bridge';
+import type { IAppUpdateState, IDesktopInstallKind } from '../../shared/desktop_bridge';
 import { InvalidFakeCommandError } from './fake_commands';
 
 /** What a simulated installation does when the user starts it. */
@@ -15,7 +15,7 @@ const DEFAULT_INSTALL_OUTCOME: IFakeInstallOutcome = {
 
 /** The fields `update.set` accepts. The error is flat, like every fake command field. */
 export interface IFakeUpdateFields {
-  status: IDesktopUpdateState['status'];
+  status: IAppUpdateState['status'];
   version?: string | null;
   percent?: number | null;
   installKind?: IDesktopInstallKind;
@@ -24,11 +24,11 @@ export interface IFakeUpdateFields {
 }
 
 /**
- * A simulated desktop update, for the update banner and install action in fake
+ * A simulated desktop update, for the update notification and install action in fake
  * mode. Nothing here downloads, installs or restarts anything.
  */
 export function createFakeUpdates(currentVersion: string) {
-  const initialState = (): IDesktopUpdateState => ({
+  const initialState = (): IAppUpdateState => ({
     status: 'idle',
     currentVersion,
     installKind: 'appimage',
@@ -37,13 +37,14 @@ export function createFakeUpdates(currentVersion: string) {
     disabledReason: null,
     error: null,
     requiresAuthorization: false,
+    skippedVersion: null,
   });
   let state = initialState();
   let installOutcome = DEFAULT_INSTALL_OUTCOME;
   let checkCount = 0;
-  const listeners = new Set<(state: IDesktopUpdateState) => void>();
+  const listeners = new Set<(state: IAppUpdateState) => void>();
 
-  const setState = (next: IDesktopUpdateState) => {
+  const setState = (next: IAppUpdateState) => {
     state = next;
     for (const listener of listeners) {
       listener(state);
@@ -57,7 +58,7 @@ export function createFakeUpdates(currentVersion: string) {
 
     snapshot: () => ({ ...state, installOutcome, checkCount }),
 
-    onChange: (listener: (state: IDesktopUpdateState) => void) => {
+    onChange: (listener: (state: IAppUpdateState) => void) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -88,6 +89,7 @@ export function createFakeUpdates(currentVersion: string) {
             ? { phase: fields.errorPhase, message: fields.errorMessage }
             : null,
         requiresAuthorization: installKind === 'deb' || installKind === 'rpm',
+        skippedVersion: state.skippedVersion,
       });
     },
 
@@ -97,9 +99,18 @@ export function createFakeUpdates(currentVersion: string) {
       installOutcome = { ...DEFAULT_INSTALL_OUTCOME, ...outcome };
     },
 
-    /** The user asked to look for updates. The simulation keeps its state. */
+    /** A manual check restores a skipped notification without downloading anything. */
     check: () => {
       checkCount++;
+      if (state.skippedVersion !== null) {
+        setState({ ...state, skippedVersion: null });
+      }
+    },
+
+    skip: (version: string) => {
+      if (state.status === 'downloaded' && state.version === version) {
+        setState({ ...state, skippedVersion: version });
+      }
     },
 
     /** The user asked to install. Only a downloaded update can be installed. */
@@ -107,7 +118,7 @@ export function createFakeUpdates(currentVersion: string) {
       if (state.status !== 'downloaded') {
         return;
       }
-      setState({ ...state, status: 'installing', error: null });
+      setState({ ...state, status: 'installing', error: null, skippedVersion: null });
       if (installOutcome.outcome === 'fail') {
         setState({
           ...state,

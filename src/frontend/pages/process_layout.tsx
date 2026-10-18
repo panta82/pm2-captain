@@ -105,8 +105,13 @@ export function ProcessLayout() {
   }, [daemonId, isListLoaded, isMulti, navigate, pmIds, selectedProcesses, tab]);
 
   const filtered = useFilteredProcesses(daemonProcesses);
+  const visibleProcesses = useMemo(() => {
+    // Keep every action target visible, in the daemon's normal process order.
+    const visibleIds = new Set([...pmIds, ...filtered.processes.map(process => process.pmId)]);
+    return daemonProcesses.filter(process => visibleIds.has(process.pmId));
+  }, [daemonProcesses, filtered.processes, pmIds]);
   const listNotice =
-    filtered.error || (filtered.processes.length ? null : 'No processes match the filter.');
+    filtered.error || (visibleProcesses.length ? null : 'No processes match the filter.');
   const listNoticeElement = listNotice ? (
     <p className={cn('px-4 pt-4 font-mono text-xs', filtered.error ? 'text-danger' : 'text-muted')}>
       {listNotice}
@@ -174,7 +179,7 @@ export function ProcessLayout() {
             </div>
             {listNoticeElement}
             <ProcessNav
-              processes={filtered.processes}
+              processes={visibleProcesses}
               highlight={filtered.highlight}
               selectedDaemonId={daemonId}
               selectedIds={pmIds}
@@ -208,7 +213,7 @@ export function ProcessLayout() {
               <ProcessFilterField className="mb-3" />
               {listNoticeElement}
               <ProcessNav
-                processes={filtered.processes}
+                processes={visibleProcesses}
                 highlight={filtered.highlight}
                 selectedDaemonId={daemonId}
                 selectedIds={pmIds}

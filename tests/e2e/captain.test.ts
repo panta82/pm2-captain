@@ -211,10 +211,11 @@ test('shows one daemon at a time and manages daemons in the settings screen', as
     .getByRole('link', { name: 'captain-fixture', exact: true });
   expect((await processLink.boundingBox())?.height).toBe(48);
 
-  // The sidebar filters its own list while the open process stays in view.
+  // The filter keeps the open process in the sidebar even without a match.
   const sidebarFilter = sidebar.getByPlaceholder('Filter processes…');
   await sidebarFilter.fill('no-such-process');
-  await expect(sidebar.getByText('No processes match the filter.')).toBeVisible();
+  await expect(processLink).toBeVisible();
+  await expect(sidebar.getByText('No processes match the filter.')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'captain-fixture', exact: true })).toBeVisible();
   await sidebarFilter.fill('fixture');
   await expect(processLink.locator('mark')).toHaveText('fixture');

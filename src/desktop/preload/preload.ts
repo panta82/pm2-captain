@@ -3,9 +3,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type {
+  IAppUpdateState,
   IDesktopBridge,
   IDesktopPreferenceKey,
-  IDesktopUpdateState,
 } from '../../shared/desktop_bridge';
 import { IPC_CHANNELS } from '../shared/ipc_channels';
 
@@ -19,7 +19,7 @@ const bridge: IDesktopBridge = {
   updates: {
     getState: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
     onState: listener => {
-      const handler = (_event: unknown, state: IDesktopUpdateState) => listener(state);
+      const handler = (_event: unknown, state: IAppUpdateState) => listener(state);
       ipcRenderer.on(IPC_CHANNELS.updateState, handler);
       return () => {
         ipcRenderer.off(IPC_CHANNELS.updateState, handler);
@@ -27,6 +27,7 @@ const bridge: IDesktopBridge = {
     },
     check: () => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
     install: () => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+    skip: version => ipcRenderer.invoke(IPC_CHANNELS.skipUpdate, version),
   },
 };
 

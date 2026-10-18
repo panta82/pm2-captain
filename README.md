@@ -101,6 +101,11 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.2.0` (2026-10-18)
+
+- Filtering selected processes no longer hides them from view
+- Nicer version update notice, also allows you to skip a version
+
 #### `2.1.1` (2026-10-18)
 
 - Fix missing Linux menu and KDE title-bar icons by packaging standard icon sizes

@@ -19,6 +19,7 @@ const pm2DaemonImporter = importer('pm2Daemon', () => import('./lib/pm2_daemon')
 const processManagerImporter = importer('processManager', () => import('./bl/process_manager'));
 const logManagerImporter = importer('logManager', () => import('./bl/log_manager'));
 const daemonManagerImporter = importer('daemonManager', () => import('./bl/daemon_manager'));
+const appUpdatesImporter = importer('appUpdates', () => import('./bl/app_updates'));
 const sessionAuthImporter = importer('sessionAuth', () => import('./web/session_auth'));
 const captainLauncherImporter = importer('captainLauncher', () => import('./bl/captain_launcher'));
 const webServerImporter = importer('webServer', () => import('./web/web_server'));
@@ -30,6 +31,7 @@ const fakePm2HomeFinderImporter = importer(
   () => import('./fake/fake_pm2_home_finder')
 );
 const fakePm2DaemonImporter = importer('pm2Daemon', () => import('./fake/fake_pm2_daemon'));
+const fakeAppUpdatesImporter = importer('appUpdates', () => import('./fake/fake_app_updates'));
 // Fake mode only.
 const fakeWorldImporter = importer('fakeWorld', () => import('./fake/fake_world'));
 const fakeControlImporter = importer('fakeControl', () => import('./fake/fake_control'));
@@ -47,6 +49,7 @@ export const SERVICES = [
   processManagerImporter,
   logManagerImporter,
   daemonManagerImporter,
+  appUpdatesImporter,
   sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,
@@ -61,6 +64,7 @@ export const APP_SERVICES = [
   daemonStoreImporter,
   pm2HomeFinderImporter,
   daemonManagerImporter,
+  appUpdatesImporter,
   sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,
@@ -88,6 +92,7 @@ export const FAKE_APP_SERVICES = [
   fakeDaemonStoreImporter,
   fakePm2HomeFinderImporter,
   daemonManagerImporter,
+  fakeAppUpdatesImporter,
   sessionAuthImporter,
   captainLauncherImporter,
   webServerImporter,

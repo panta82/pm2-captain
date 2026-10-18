@@ -171,7 +171,7 @@ export const ProcessNav = memo(
       const currentIndex = processes.findIndex(
         process => process.daemonId === selectedDaemonId && process.pmId === cursorId
       );
-      // A filter can hide the open process; the arrows then enter the list at the top.
+      // A stale cursor enters the refreshed process list at the top.
       const nextIndex =
         currentIndex < 0
           ? 0

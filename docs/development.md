@@ -151,7 +151,9 @@ pm2-captain fake registry.fail reason=invalid
 pm2-captain fake registry.recover
 ```
 
-The `update.*` commands drive a simulated desktop update, so the update banner and its install button can be seen in the browser too. Nothing is downloaded or installed; a simulated installation fails unless told to stay installing.
+The `update.*` commands drive a simulated desktop update, so the persistent update toast and its install button can be seen in the browser too. **Skip this version** hides that version. The desktop remembers the choice across restarts; **Check for Updates** in the Help menu restores the notification, and a different version appears automatically. Background checks preserve the skip. The browser simulation keeps its choice in memory until `update.reset` or `world.reset`. Nothing is downloaded or installed; a simulated installation fails unless told to stay installing.
+
+The UI uses one updates API for state subscriptions and installation. Its frontend adapter selects trusted desktop IPC or the authenticated `updates` tRPC routes. The backend selects the `appUpdates` service through the container: a regular browser has no updates, while fake mode substitutes the simulation. Components never select fake behavior. State changes are streamed so even immediate installation failures reach the notification controller; real desktop installation stays in Electron main behind the preload bridge.
 
 ```bash
 pm2-captain fake update.set status=downloaded version=9.9.9

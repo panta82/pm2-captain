@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe('desktop preferences', () => {
-  it('keeps the four UI preferences and the window across launches, privately', async () => {
+  it('keeps UI preferences and the window across launches, privately', async () => {
     const directory = libPath.join(root, 'profile');
     const store = createPreferenceStore(directory);
     expect(store.setUi('pm2-captain-selected-daemon', '830f902f-c88b-4ed8-8051-c3a81c44ed87')).toBe(
@@ -25,6 +25,7 @@ describe('desktop preferences', () => {
     expect(store.setUi('pm2-captain-process-tab', 'logs')).toBe(true);
     expect(store.setUi('pm2-captain:process-sidebar-width', '320')).toBe(true);
     expect(store.setUi('pm2-captain-matrix-only-differences', 'true')).toBe(true);
+    expect(store.setUi('pm2-captain-skipped-update-version', '1.2.3-beta.1')).toBe(true);
     store.setWindow({ x: 10, y: 20, width: 1200, height: 800, isMaximized: false });
     store.flush();
 
@@ -34,6 +35,7 @@ describe('desktop preferences', () => {
       'pm2-captain-process-tab': 'logs',
       'pm2-captain:process-sidebar-width': '320',
       'pm2-captain-matrix-only-differences': 'true',
+      'pm2-captain-skipped-update-version': '1.2.3-beta.1',
     });
     expect(reloaded.window()).toEqual({
       x: 10,
@@ -54,6 +56,8 @@ describe('desktop preferences', () => {
     expect(store.setUi('pm2-captain-process-tab', 'settings')).toBe(false);
     expect(store.setUi('pm2-captain-selected-daemon', '../../etc')).toBe(false);
     expect(store.setUi('pm2-captain:process-sidebar-width', 320)).toBe(false);
+    expect(store.setUi('pm2-captain-skipped-update-version', '../../etc')).toBe(false);
+    expect(store.setUi('pm2-captain-skipped-update-version', '1'.repeat(201))).toBe(false);
     expect(store.ui()).toEqual({});
   });
 

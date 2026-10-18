@@ -5,5 +5,6 @@ export const IPC_CHANNELS = {
   getUpdateState: 'pm2-captain:updates:get-state',
   checkForUpdates: 'pm2-captain:updates:check',
   installUpdate: 'pm2-captain:updates:install',
+  skipUpdate: 'pm2-captain:updates:skip',
   updateState: 'pm2-captain:updates:state',
 } as const;

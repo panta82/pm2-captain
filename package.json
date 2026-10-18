@@ -1,6 +1,6 @@
 {
   "name": "pm2-captain",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "A local web control room for PM2 processes and logs",
   "author": "Ivan Pantic",
   "repository": {

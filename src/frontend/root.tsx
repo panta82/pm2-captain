@@ -24,7 +24,7 @@ import { DaemonManagerProvider } from '@/components/daemon_manager';
 import { ProcessFilterField } from '@/components/process_filter_field';
 import { RegistryWarning } from '@/components/registry_warning';
 import { RestartOverlay } from '@/components/restart_overlay';
-import { UpdateNotice } from '@/components/update_banner';
+import { UpdateNotice } from '@/components/update_notice';
 
 import type { IDesktopPreferenceKey } from '@shared/desktop_bridge';
 

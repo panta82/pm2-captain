@@ -8,6 +8,7 @@ export const DESKTOP_PREFERENCE_KEYS = [
   'pm2-captain-process-tab',
   'pm2-captain:process-sidebar-width',
   'pm2-captain-matrix-only-differences',
+  'pm2-captain-skipped-update-version',
 ] as const;
 
 export type IDesktopPreferenceKey = (typeof DESKTOP_PREFERENCE_KEYS)[number];
@@ -43,6 +44,12 @@ export interface IDesktopUpdateState {
   requiresAuthorization: boolean;
 }
 
+/** The updater state and the user's remembered notification choice. */
+export interface IAppUpdateState extends IDesktopUpdateState {
+  /** Hidden until a manual check, an installation, or a different version appears. */
+  skippedVersion: string | null;
+}
+
 /**
  * What the desktop preload exposes to the renderer as `window.pm2CaptainDesktop`.
  * Business operations stay on the HTTP API; this only covers what the shell owns.
@@ -53,10 +60,11 @@ export interface IDesktopBridge {
     set(key: IDesktopPreferenceKey, value: string): void;
   };
   updates: {
-    getState(): Promise<IDesktopUpdateState>;
-    onState(listener: (state: IDesktopUpdateState) => void): () => void;
+    getState(): Promise<IAppUpdateState>;
+    onState(listener: (state: IAppUpdateState) => void): () => void;
     check(): Promise<void>;
     install(): Promise<void>;
+    skip(version: string): Promise<void>;
   };
 }
 
@@ -77,6 +85,8 @@ export function isValidDesktopPreference(
       return /^\d{1,4}$/.test(value);
     case 'pm2-captain-matrix-only-differences':
       return value === 'true' || value === 'false';
+    case 'pm2-captain-skipped-update-version':
+      return value === '' || /^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(value);
     default:
       return false;
   }

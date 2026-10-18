@@ -86,4 +86,22 @@ describe('fake updates', () => {
       installOutcome: { outcome: 'fail', message: 'The simulated installation failed.' },
     });
   });
+
+  it('keeps a skipped version through state changes until a manual check or installation', () => {
+    const updates = createFakeUpdates('1.0.0');
+    updates.set({ status: 'downloaded', version: '1.1.0' });
+    updates.skip('1.0.1');
+    expect(updates.state.skippedVersion).toBeNull();
+    updates.skip('1.1.0');
+    updates.set({ status: 'downloaded', version: '1.1.0' });
+    expect(updates.state.skippedVersion).toBe('1.1.0');
+    updates.set({ status: 'downloaded', version: '1.2.0' });
+    expect(updates.state.version).not.toBe(updates.state.skippedVersion);
+    updates.skip('1.2.0');
+    updates.check();
+    expect(updates.state.skippedVersion).toBeNull();
+    updates.skip('1.2.0');
+    updates.install();
+    expect(updates.state.skippedVersion).toBeNull();
+  });
 });

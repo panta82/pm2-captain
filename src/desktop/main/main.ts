@@ -25,7 +25,8 @@ import { createLinuxInstaller, manualInstallCommand } from './linux_installer';
 import { createMainWindow, openExternalLink, statusPageURL } from './main_window';
 import { createPreferenceStore } from './preferences';
 import { createSimulatedUpdateController } from './simulated_updates';
-import { IUpdateController, createUpdateController, selectUpdateMode } from './updates';
+import { createUpdateNotifications } from './update_notifications';
+import { createUpdateController, selectUpdateMode } from './updates';
 
 const RELEASES_URL = 'https://github.com/panta82/pm2-captain/releases';
 const ISSUES_URL = 'https://github.com/panta82/pm2-captain/issues';
@@ -123,7 +124,7 @@ const simulatedUpdates =
       })
     : null;
 
-const updates: IUpdateController =
+const updateSource =
   simulatedUpdates ??
   createUpdateController({
     log,
@@ -176,6 +177,8 @@ const updates: IUpdateController =
       showInstallRecovery: message => void showInstallRecovery(message),
     },
   });
+
+const updates = createUpdateNotifications({ source: updateSource, preferences, log });
 
 // ---------------------------------------------------------------------------
 // Window and backend
@@ -458,19 +461,25 @@ async function offerMoveToApplications() {
 // IPC and menu
 
 function registerIpc() {
-  const handle = (channel: string, handler: () => unknown) => {
-    ipcMain.handle(channel, event => {
+  const handle = (channel: string, handler: (...args: unknown[]) => unknown) => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
       if (!isTrustedSender(event, trusted)) {
         log.warn('Rejected IPC from an untrusted sender', { channel });
         throw new Error('Not allowed.');
       }
-      return handler();
+      return handler(...args);
     });
   };
   handle(IPC_CHANNELS.loadPreferences, () => preferences.ui());
   handle(IPC_CHANNELS.getUpdateState, () => updates.state);
   handle(IPC_CHANNELS.checkForUpdates, () => updates.check());
   handle(IPC_CHANNELS.installUpdate, () => updates.install());
+  handle(IPC_CHANNELS.skipUpdate, (version: unknown) => {
+    if (typeof version !== 'string' || version.length === 0 || version.length > 200) {
+      throw new Error('Invalid update version.');
+    }
+    return updates.skip(version);
+  });
   ipcMain.on(IPC_CHANNELS.setPreference, (event, key: unknown, value: unknown) => {
     if (
       !isTrustedSender(event, trusted) ||
@@ -490,7 +499,7 @@ function registerIpc() {
 
 function updateMenuItem(): MenuItemConstructorOptions {
   const state = updates.state;
-  if (state.status === 'downloaded') {
+  if (state.status === 'downloaded' && state.version !== state.skippedVersion) {
     return {
       label: state.requiresAuthorization
         ? `Install Update ${state.version} (Asks for Your Password)…`
