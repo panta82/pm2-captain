@@ -101,6 +101,11 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.1.1` (2026-10-18)
+
+- Fix missing Linux menu and KDE title-bar icons by packaging standard icon sizes
+- Verify icon sizes and paths in AppImage, DEB and RPM builds
+
 #### `2.1.0` (2026-10-17)
 
 - Improve cli help screen, add help for subcommands and the fake mode

@@ -50,7 +50,9 @@ linux:
       arch: [x64]
     - target: rpm
       arch: [x64]
-  icon: src/frontend/public/pm2-captain-logo.png
+  # A single PNG is copied at its original size. The 2048px source logo lands
+  # outside hicolor's standard directories, so menu and KDE window icons fail.
+  icon: support/desktop/resources/icons
   category: Development
   synopsis: Desktop control room for PM2 processes and logs
   # Confirm before the first public release; Debian requires a maintainer address.

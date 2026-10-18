@@ -154,10 +154,39 @@ function verifyFuses(label, executable) {
   });
 }
 
+/** Icons must be in hicolor's standard size directories to be found by menu and window themes. */
+function verifyLinuxIcons(label, root, desktopEntry) {
+  check(
+    /^Icon=pm2-captain-desktop$/m.test(desktopEntry),
+    `${label}: desktop entry uses the packaged icon name`
+  );
+  check(
+    /^StartupWMClass=pm2-captain-desktop$/m.test(desktopEntry),
+    `${label}: desktop entry matches the window class`
+  );
+  for (const size of [16, 24, 32, 48, 64, 96, 128, 256, 512]) {
+    const path = libPath.join(
+      root,
+      `usr/share/icons/hicolor/${size}x${size}/apps/${PACKAGE_NAME}.png`
+    );
+    const png = existsSync(path) ? readFileSync(path) : null;
+    check(
+      png !== null &&
+        png.length >= 24 &&
+        png.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) &&
+        png.toString('ascii', 12, 16) === 'IHDR' &&
+        png.readUInt32BE(16) === size &&
+        png.readUInt32BE(20) === size,
+      `${label}: ${size}px menu icon exists with matching PNG dimensions`
+    );
+  }
+}
+
 /** Checks the desktop entry and that nothing claims the npm command's name. */
 function verifyLinuxFiles(label, root, installScripts) {
   const desktopEntryPath = libPath.join(root, 'usr/share/applications', `${PACKAGE_NAME}.desktop`);
   const desktopEntry = existsSync(desktopEntryPath) ? readFileSync(desktopEntryPath, 'utf8') : '';
+  verifyLinuxIcons(label, root, desktopEntry);
   check(
     desktopEntry.includes(`Exec="/${INSTALL_DIR}/${PACKAGE_NAME}"`),
     `${label}: desktop entry runs ${PACKAGE_NAME}`
@@ -300,6 +329,19 @@ async function verifyLinux() {
     verifyResources('appimage', libPath.join(root, 'resources'), null);
     const desktopEntry = readdirSync(root).find(file => file.endsWith('.desktop'));
     const entry = desktopEntry ? readFileSync(libPath.join(root, desktopEntry), 'utf8') : '';
+    verifyLinuxIcons('appimage', root, entry);
+    const mainIcon = libPath.join(root, `${PACKAGE_NAME}.png`);
+    const directoryIcon = libPath.join(root, '.DirIcon');
+    const themeIcon = libPath.join(
+      root,
+      `usr/share/icons/hicolor/512x512/apps/${PACKAGE_NAME}.png`
+    );
+    check(
+      [mainIcon, directoryIcon, themeIcon].every(path => existsSync(path)) &&
+        readFileSync(mainIcon).equals(readFileSync(themeIcon)) &&
+        readFileSync(directoryIcon).equals(readFileSync(themeIcon)),
+      'appimage: root icon and .DirIcon resolve to the 512px theme icon'
+    );
     check(!entry.includes('--no-sandbox'), 'appimage: desktop entry keeps the sandbox');
     // Our launcher replaces the executable, so AppRun's --no-sandbox never reaches Electron.
     check(

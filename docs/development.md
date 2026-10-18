@@ -205,7 +205,9 @@ npm run desktop:verify        # artifacts and update manifests
 
 Each Linux target gets its own electron-builder run. Concurrent builds share a directory and can overwrite the `package-type` file used to select the updater. `support/desktop/package-linux.mjs` merges the separate manifests into `latest-linux.yml`. RPM builds need `rpmbuild`.
 
-The artifact verifier checks manifest sizes and SHA-512 hashes, package types, identities, fuses and contents. Linux packages must install `pm2-captain-desktop`, never shadow `/usr/bin/pm2-captain`.
+`npm run generate:icons` generates the web icons and the Linux icon set in `support/desktop/resources/icons` from `src/frontend/public/pm2-captain-logo.png`. Keep the Linux sizes from 16 to 512 pixels: electron-builder copies a single PNG at its original size, and the 2048-pixel source logo falls outside hicolor's standard directories. KDE also uses the desktop entry's themed icon for window decorations.
+
+The artifact verifier checks manifest sizes and SHA-512 hashes, package types, identities, fuses, contents and Linux icon sizes and paths. Linux packages must install `pm2-captain-desktop`, never shadow `/usr/bin/pm2-captain`.
 
 ## Desktop tests
 
