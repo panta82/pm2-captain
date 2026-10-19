@@ -187,88 +187,107 @@ test('refuses the bridge to pages that are not the current Captain page', async 
   await app.close();
 });
 
-/** The find bar's view over the Captain window, and what it shows. */
+/**
+ * The find bar's view over the Captain window, and what it shows. The window is
+ * found by its page, and focus is checked within each page: a CI display may
+ * never give the window itself the system focus.
+ */
 function findBarState(app: ElectronApplication) {
   return app.evaluate(async ({ BrowserWindow, WebContentsView }) => {
-    const window = BrowserWindow.getAllWindows().find(candidate => candidate.isVisible())!;
+    const window = BrowserWindow.getAllWindows().find(candidate =>
+      candidate.webContents.getURL().startsWith('http://127.0.0.1:')
+    )!;
     const view = window.contentView.children.find(
       (child): child is Electron.WebContentsView =>
         child instanceof WebContentsView && child.webContents !== window.webContents
     );
     // The view is made when the bar is first opened.
     if (!view) {
-      return { isVisible: false, isFocused: false, isPageFocused: true, count: '' };
+      return { isVisible: false, isQuerySelected: false, count: '' };
     }
     return {
       isVisible: view.getVisible(),
-      isFocused: view.webContents.isFocused(),
-      isPageFocused: window.webContents.isFocused(),
-      count: (await view.webContents.executeJavaScript(
-        `document.getElementById('count').textContent`
-      )) as string,
+      ...((await view.webContents.executeJavaScript(`(() => {
+        const input = document.getElementById('query');
+        return {
+          isQuerySelected: document.activeElement === input && input.selectionStart === 0 &&
+            input.selectionEnd === input.value.length,
+          count: document.getElementById('count').textContent,
+        };
+      })()`)) as { isQuerySelected: boolean; count: string }),
     };
   });
 }
 
-/** Types into the find bar, or presses a key there, as the user would. */
-function inFindBar(
-  app: ElectronApplication,
-  input: { text?: string; key?: string; modifiers?: Array<'control' | 'shift'> }
-) {
-  return app.evaluate(({ BrowserWindow, WebContentsView }, { text, key, modifiers = [] }) => {
-    const window = BrowserWindow.getAllWindows().find(candidate => candidate.isVisible())!;
+/** Runs a script in the find bar's page, which has none of its own. */
+function inFindBar(app: ElectronApplication, script: string) {
+  return app.evaluate(async ({ BrowserWindow, WebContentsView }, script) => {
+    const window = BrowserWindow.getAllWindows().find(candidate =>
+      candidate.webContents.getURL().startsWith('http://127.0.0.1:')
+    )!;
     const view = window.contentView.children.find(
       (child): child is Electron.WebContentsView =>
         child instanceof WebContentsView && child.webContents !== window.webContents
     )!;
-    if (text) {
-      void view.webContents.insertText(text);
-    }
-    if (key) {
-      view.webContents.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
-      view.webContents.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
-    }
-  }, input);
+    await view.webContents.executeJavaScript(script);
+  }, script);
 }
+
+/** Types into the find bar, as its preload sees typing. */
+const typeInFindBar = (text: string) => `(() => {
+  const input = document.getElementById('query');
+  input.value = ${JSON.stringify(text)};
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`;
+
+/** Presses a key in the find bar's text box. */
+const pressInFindBar = (key: string, modifiers: { ctrlKey?: boolean; shiftKey?: boolean } = {}) =>
+  `document.getElementById('query').dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({
+    key,
+    code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+    bubbles: true,
+    cancelable: true,
+    ...modifiers,
+  })}))`;
 
 test('finds in the page with a find bar of its own, after the filter box', async () => {
   const { app, page } = await launch();
   const filter = page.getByPlaceholder('Filter processes…').first();
+  const isFilterActive = () => filter.evaluate(element => element === document.activeElement);
 
   await page.keyboard.press('Control+f');
-  await expect(filter).toBeFocused();
+  await expect.poll(isFilterActive).toBe(true);
   await page.keyboard.press('Control+f');
-  await expect
-    .poll(() => findBarState(app))
-    .toMatchObject({ isVisible: true, isFocused: true, count: '' });
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, count: '' });
 
   // The bar's own text is not part of the page, so only the page's matches count.
-  await inFindBar(app, { text: 'worker' });
+  await inFindBar(app, typeInFindBar('worker'));
   await expect.poll(async () => (await findBarState(app)).count).toMatch(/^1\/[1-9]\d*$/);
   const total = (await findBarState(app)).count.split('/')[1];
   if (total !== '1') {
-    await inFindBar(app, { key: 'Enter' });
+    await inFindBar(app, pressInFindBar('Enter'));
     await expect.poll(async () => (await findBarState(app)).count).toBe(`2/${total}`);
   }
 
-  // Ctrl+Shift+F goes back to the filter box, leaving the bar open; Ctrl+F returns.
-  await inFindBar(app, { key: 'F', modifiers: ['control', 'shift'] });
-  await expect(filter).toBeFocused();
-  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: false });
+  // Ctrl+Shift+F goes back to the filter box, leaving the bar open.
+  await inFindBar(app, pressInFindBar('F', { ctrlKey: true, shiftKey: true }));
+  await expect.poll(isFilterActive).toBe(true);
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true });
+  // Ctrl+F returns to it, with its text selected again.
+  await inFindBar(app, `document.getElementById('query').setSelectionRange(0, 0)`);
   await page.keyboard.press('Control+f');
-  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: true });
+  await expect.poll(() => findBarState(app)).toMatchObject({ isQuerySelected: true });
   // From elsewhere in the page too.
-  await page.locator('body').click({ position: { x: 600, y: 600 } });
+  await inFindBar(app, `document.getElementById('query').setSelectionRange(0, 0)`);
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
   await page.keyboard.press('Control+f');
-  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: true });
+  await expect.poll(() => findBarState(app)).toMatchObject({ isQuerySelected: true });
 
-  await inFindBar(app, { key: 'Escape' });
-  await expect
-    .poll(() => findBarState(app))
-    .toMatchObject({ isVisible: false, isPageFocused: true });
+  await inFindBar(app, pressInFindBar('Escape'));
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: false });
   // The first Ctrl+F goes to the filter box again.
   await page.keyboard.press('Control+f');
-  await expect(filter).toBeFocused();
+  await expect.poll(isFilterActive).toBe(true);
   await app.close();
 });
 
