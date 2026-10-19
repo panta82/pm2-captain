@@ -96,11 +96,11 @@ export function ProcessMatrix({
           <table className="w-full border-separate border-spacing-0 font-mono text-[13px]">
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-30 h-12 w-52 min-w-52 border-b border-line bg-surface-control" />
+                <th className="sticky top-0 left-0 z-30 h-12 w-52 min-w-52 border-r border-b border-line bg-surface-control" />
                 {processes.map(process => (
                   <th
                     key={process.pmId}
-                    className="sticky top-0 z-20 h-12 max-w-80 min-w-48 border-b border-l border-line bg-surface-control px-4 text-left font-sans text-sm font-semibold"
+                    className="sticky top-0 z-20 h-12 max-w-80 min-w-48 border-r border-b border-line bg-surface-control px-4 text-left font-sans text-sm font-semibold"
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       <i
@@ -139,7 +139,7 @@ export function ProcessMatrix({
                   </th>
                 ))}
                 {/* Takes the leftover width, so the process columns keep their size. */}
-                <th className="sticky top-0 z-20 w-full border-b border-l border-line bg-surface-control" />
+                <th className="sticky top-0 z-20 w-full border-b border-line bg-surface-control" />
               </tr>
             </thead>
             <tbody>
@@ -219,7 +219,7 @@ function MatrixGroup({
         <tr key={row.label} data-differs={row.diff.isSame ? undefined : true}>
           <th
             scope="row"
-            className="sticky left-0 z-10 h-9 w-52 min-w-52 border-b border-line/60 bg-surface-plane pr-4 pl-4 text-left font-normal break-all text-cyan sm:pl-7"
+            className="sticky left-0 z-10 h-9 w-52 min-w-52 border-r border-b border-line/60 bg-surface-plane pr-4 pl-4 text-left font-normal break-all text-cyan sm:pl-7"
           >
             {row.diff.isSame ? null : (
               <span className="mr-1.5 text-warning" title="The selected processes differ here">
@@ -236,7 +236,7 @@ function MatrixGroup({
                 data-odd={isOdd || undefined}
                 title={value || undefined}
                 className={cn(
-                  'h-9 max-w-80 min-w-48 truncate border-b border-l border-line/60 px-4',
+                  'h-9 max-w-80 min-w-48 truncate border-r border-b border-line/60 px-4',
                   isOdd && 'text-warning shadow-[inset_3px_0_0_var(--color-warning)]',
                   !value && 'text-muted'
                 )}
@@ -245,7 +245,7 @@ function MatrixGroup({
               </td>
             );
           })}
-          <td className="border-b border-l border-line/60" />
+          <td className="border-b border-line/60" />
         </tr>
       ))}
     </>
