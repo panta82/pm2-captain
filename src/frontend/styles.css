@@ -125,3 +125,31 @@ button:disabled {
 .typing-dots ellipse:nth-child(3) {
   animation-delay: 0.66s;
 }
+
+/*
+ * A table row draws no outline, so a focusable row's keyboard focus ring is
+ * drawn by its cells: the top and bottom edges on each, the sides on the ends.
+ */
+.row-focus-ring:focus-visible {
+  --row-ring: color-mix(in srgb, var(--color-cyan) 70%, transparent);
+}
+
+.row-focus-ring:focus-visible > td {
+  box-shadow:
+    inset 0 2px 0 var(--row-ring),
+    inset 0 -2px 0 var(--row-ring);
+}
+
+.row-focus-ring:focus-visible > td:first-child {
+  box-shadow:
+    inset 2px 0 0 var(--row-ring),
+    inset 0 2px 0 var(--row-ring),
+    inset 0 -2px 0 var(--row-ring);
+}
+
+.row-focus-ring:focus-visible > td:last-child {
+  box-shadow:
+    inset -2px 0 0 var(--row-ring),
+    inset 0 2px 0 var(--row-ring),
+    inset 0 -2px 0 var(--row-ring);
+}

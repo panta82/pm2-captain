@@ -12,6 +12,7 @@ import { type MouseEvent, startTransition, useEffect, useMemo, useRef, useState 
 import { toast } from 'sonner';
 
 import { useDaemonSelection } from '@/lib/daemon_selection';
+import { useShortcutHandler } from '@/lib/keyboard_shortcuts';
 import { useFilteredProcesses, useProcessListFilter } from '@/lib/process_list_filter';
 import { processLink } from '@/lib/process_route';
 import { selectRange } from '@/lib/process_selection';
@@ -150,6 +151,7 @@ export function StatusPage() {
   // Rows picked with Ctrl+click or Shift+click. They open together once the key is let go.
   const [pickedIds, setPickedIds] = useState<number[]>([]);
   const pickAnchorRef = useRef<number | null>(null);
+  const tableBodyRef = useRef<HTMLTableSectionElement>(null);
   const query = trpc.processes.list.useQuery(undefined, {
     refetchInterval: 2_000,
   });
@@ -318,6 +320,26 @@ export function StatusPage() {
     };
   }, [navigate, pickedIds, selectedDaemonId]);
 
+  /** Moves the focus to the next or previous row; Enter opens it. */
+  const focusRow = (offset: 1 | -1) => {
+    const rows = Array.from(
+      tableBodyRef.current?.querySelectorAll<HTMLElement>('tr[tabindex]') ?? []
+    );
+    if (!rows.length) {
+      return false;
+    }
+    const current = rows.findIndex(row => row === document.activeElement);
+    // Without a focused row, the first step lands on the first or the last one.
+    const next = current < 0 ? (offset > 0 ? 0 : rows.length - 1) : current + offset;
+    const row = rows[Math.min(Math.max(next, 0), rows.length - 1)];
+    row.focus();
+    row.scrollIntoView({ block: 'nearest' });
+    return true;
+  };
+  useShortcutHandler(['process.next', 'process.previous'], actionId =>
+    focusRow(actionId === 'process.next' ? 1 : -1)
+  );
+
   // PM2 IDs repeat across daemons, so rows picked on one daemon mean nothing on the next.
   useEffect(() => {
     pickAnchorRef.current = null;
@@ -446,7 +468,7 @@ export function StatusPage() {
                 </tr>
               ))}
             </thead>
-            <tbody>
+            <tbody ref={tableBodyRef} data-process-list>
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
                   <td
@@ -464,7 +486,7 @@ export function StatusPage() {
                     key={row.id}
                     tabIndex={0}
                     className={cn(
-                      'h-[54px] cursor-pointer border-b border-line/70 hover:bg-panel focus:bg-panel focus:outline-none',
+                      'h-[54px] cursor-pointer border-b border-line/70 hover:bg-panel focus:bg-panel focus:outline-none row-focus-ring',
                       pickedIds.includes(row.original.pmId) && 'bg-panel-hover hover:bg-panel-hover'
                     )}
                     // Shift+click would otherwise select the text between two rows.
@@ -481,8 +503,20 @@ export function StatusPage() {
                       void navigate(processLink(row.original.daemonId, [row.original.pmId]));
                     }}
                     onKeyDown={event => {
+                      if (event.target !== event.currentTarget) {
+                        return;
+                      }
                       if (event.key === 'Enter') {
                         navigate(processLink(row.original.daemonId, [row.original.pmId]));
+                      } else if (
+                        (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+                        !event.altKey &&
+                        !event.ctrlKey &&
+                        !event.metaKey &&
+                        !event.shiftKey
+                      ) {
+                        event.preventDefault();
+                        focusRow(event.key === 'ArrowDown' ? 1 : -1);
                       }
                     }}
                   >
@@ -501,7 +535,7 @@ export function StatusPage() {
           </table>
         </div>
       ) : (
-        <div className="grid gap-3 p-3">
+        <div className="grid gap-3 p-3" data-process-list>
           {filterResult.processes.length === 0 ? (
             <div className="rounded-xl border border-line bg-panel px-4 py-8 text-center font-mono text-sm text-muted">
               {processFilter.search ? 'No processes match the filter.' : 'No PM2 processes found.'}

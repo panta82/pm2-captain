@@ -55,3 +55,8 @@ export function compactPath(path: string | null): string {
   const home = path.match(/^\/home\/[^/]+/)?.[0];
   return home ? path.replace(home, '~') : path;
 }
+
+/** Whether an element is rendered: not inside a hidden tab, a closed drawer or a narrow-screen variant. */
+export function isShown(element: Element): boolean {
+  return typeof element.checkVisibility === 'function' ? element.checkVisibility() : true;
+}

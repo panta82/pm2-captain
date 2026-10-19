@@ -20,6 +20,7 @@ import { launchAppImage } from './appimage_installer';
 import { BackendStartError, IBackendRun, createBackendHost } from './backend_host';
 import { createFileLog } from './desktop_log';
 import { createBackendEnvironment } from './environment';
+import { IFindBar, createFindBar } from './find_bar';
 import { ITrustedPage, isTrustedSender } from './ipc_trust';
 import { createLinuxInstaller, manualInstallCommand } from './linux_installer';
 import { createMainWindow, openExternalLink, statusPageURL } from './main_window';
@@ -60,6 +61,8 @@ let phase: IPhase = 'starting';
 let mainWindow: BrowserWindow | null = null;
 /** The window and origin that IPC accepts. Null while no backend page is shown. */
 let trusted: ITrustedPage | null = null;
+/** The find bar of the current Captain window. */
+let findBar: IFindBar | null = null;
 let isQuitAllowed = false;
 let restartAttempts: number[] = [];
 
@@ -226,10 +229,29 @@ async function openWindowFor(run: IBackendRun) {
   }
   mainWindow = created.window;
   trusted = { window: created.window, origin: created.origin };
+  const createdFindBar = createFindBar({
+    window: created.window,
+    preloadPath: libPath.join(__dirname, 'find_bar_preload.js'),
+    // The page asks for the bar again with Ctrl+F while it is open.
+    onOpenChange: isOpen => {
+      if (trusted?.window === created.window) {
+        created.window.webContents.send(IPC_CHANNELS.findBarState, isOpen);
+      }
+    },
+    onBack: () => {
+      if (trusted?.window === created.window) {
+        created.window.webContents.send(IPC_CHANNELS.findBarBack);
+      }
+    },
+  });
+  findBar = createdFindBar;
   created.window.on('closed', () => {
     if (mainWindow === created.window) {
       mainWindow = null;
       trusted = null;
+    }
+    if (findBar === createdFindBar) {
+      findBar = null;
     }
   });
   if (previous && !previous.isDestroyed()) {
@@ -489,6 +511,20 @@ function registerIpc() {
       log.warn('Rejected a preference change');
     }
   });
+  ipcMain.on(IPC_CHANNELS.openFindBar, event => {
+    if (isTrustedSender(event, trusted)) {
+      findBar?.open();
+    } else {
+      log.warn('Rejected a find bar request');
+    }
+  });
+  ipcMain.on(IPC_CHANNELS.stepFindBar, (event, isForward: unknown) => {
+    if (isTrustedSender(event, trusted) && typeof isForward === 'boolean') {
+      findBar?.step(isForward);
+    } else {
+      log.warn('Rejected a find bar request');
+    }
+  });
   updates.onState(state => {
     if (trusted && !trusted.window.isDestroyed()) {
       trusted.window.webContents.send(IPC_CHANNELS.updateState, state);
@@ -570,7 +606,54 @@ function buildMenu() {
           },
         ]
       : [{ label: 'File', submenu: [{ role: 'quit' as const }] }]),
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        ...(isMac ? [{ role: 'pasteAndMatchStyle' as const }] : []),
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        // The page owns these keys: its first Ctrl+F goes to a filter box, and
+        // the keys can be changed. The menu only shows them; on macOS, where
+        // they cannot be left unregistered, the page handles them first.
+        {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          registerAccelerator: false,
+          click: () => {
+            if (trusted) {
+              findBar?.open();
+            }
+          },
+        },
+        {
+          label: 'Find Next',
+          accelerator: 'CmdOrCtrl+G',
+          registerAccelerator: false,
+          click: () => {
+            if (trusted) {
+              findBar?.step(true);
+            }
+          },
+        },
+        {
+          label: 'Find Previous',
+          accelerator: 'Shift+CmdOrCtrl+G',
+          registerAccelerator: false,
+          click: () => {
+            if (trusted) {
+              findBar?.step(false);
+            }
+          },
+        },
+      ],
+    },
     {
       label: 'View',
       submenu: [

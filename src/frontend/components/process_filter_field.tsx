@@ -1,3 +1,4 @@
+import { focusProcessList } from '@/lib/keyboard_shortcuts';
 import { useProcessListFilter } from '@/lib/process_list_filter';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,10 @@ export function ProcessFilterField({ className }: { className?: string }) {
       onCaseSensitiveChange={filter.setCaseSensitive}
       regex={filter.regex}
       onRegexChange={filter.setRegex}
+      findStep={1}
+      // Type, then go on to the processes that are left.
+      onGoToList={focusProcessList}
+      onLeave={focusProcessList}
       placeholder="Filter processes…"
       className={cn('w-full max-w-none sm:w-full', className)}
     />

@@ -24,6 +24,12 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+## Keyboard shortcuts
+
+The actions and their default keys are in `src/shared/keybindings.ts`, with separate defaults for the desktop app and a browser tab, which keeps more keys for itself. The backend reads the user's `keybindings.json` (`src/backend/lib/keybinding_store.ts`) and serves it as `settings.keybindings`. `KeyboardShortcutsProvider` (`src/frontend/components/keyboard_shortcuts.tsx`) matches every key press against the keys in effect, in one capture-phase window listener. Letters and digits match the typed character, or the physical key on layouts that type something else there, such as Cyrillic.
+
+Most actions press a control: give it `data-shortcut="<action>"` and a `<ShortcutHint action="<action>" />`, the pill shown while Ctrl is held. The shortcut then does exactly what a click does, on the first such control on screen. Actions without a single control register a handler with `useShortcutHandler`. A filter box opts into Ctrl+F with `findStep`. Ctrl+F goes from box to box on screen, ordered by step and then by position (the process filter, then each log search box), and after the last one finds in the page; Ctrl+Shift+F goes back, also from the desktop find bar (`src/frontend/lib/page_find.ts`). Keys without Ctrl or Alt, such as `1` or End, are left to text boxes. An open dialog keeps every key except Ctrl+F.
+
 ## The desktop app
 
 ```bash
@@ -47,7 +53,9 @@ npm run desktop:dev -- --real --no-sandbox
 
 Electron main holds a single-instance lock per profile and starts the backend with `utilityProcess.fork`, using Electron's Node runtime. The backend binds to `127.0.0.1` on an OS-assigned port. It generates a token per run and sends it only to main, which sets an HttpOnly, SameSite=Strict session cookie before loading the UI. Each backend run gets an in-memory browser session. The desktop app never reads or writes the npm CLI's launch-token or tab files.
 
-The renderer has Node integration off, context isolation on, no permissions, and navigation restricted to the backend origin. HTTPS links open in the system browser. The preload bridge exposes UI preferences and update controls only to the current Captain page's main frame. Other operations use the same HTTP API as the browser UI. Packaged builds disable the RunAsNode, NODE_OPTIONS and inspector fuses, and load only from `app.asar`.
+The renderer has Node integration off, context isolation on, no permissions, and navigation restricted to the backend origin. HTTPS links open in the system browser. The preload bridge exposes UI preferences, update controls and the find bar only to the current Captain page's main frame. Other operations use the same HTTP API as the browser UI. Packaged builds disable the RunAsNode, NODE_OPTIONS and inspector fuses, and load only from `app.asar`.
+
+The find bar is a `WebContentsView` of its own over the window's top-right corner (`src/desktop/main/find_bar.ts`), made when first opened. It searches the Captain page with `webContents.findInPage`, like a browser's Ctrl+F; being outside the page, its text never matches itself. Its page is a script-free `data:` URL that its own sandboxed preload (`find_bar_preload.ts`) wires up. Main listens to it only on that view's `webContents.ipc`, from its main frame, and checks every value. The Captain page can only open the bar or step through matches, through the bridge. Preloads run in the renderer, so `src/desktop/preload/tsconfig.json` checks them with DOM types, which Electron main does not get.
 
 Main restarts an unexpectedly exited backend up to three times in two minutes, without replaying process actions. On quit it stops the backend and its SSH children, escalating after ten seconds. The backend also shuts down if its parent disappears. Startup must check whether quit began while awaiting the backend or window, so it cannot resume the UI during shutdown.
 

@@ -188,7 +188,7 @@ async function run() {
       require: typeof window.require,
       cookie: document.cookie,
     }));
-    check(surface.bridge.join(',') === 'preferences,updates', 'the preload bridge is present');
+    check(surface.bridge.join(',') === 'preferences,updates,find', 'the preload bridge is present');
     check(surface.require === 'undefined', 'the page has no Node access');
     check(surface.cookie === '', 'the session cookie is HttpOnly');
     const session = await page.context().newCDPSession(page);

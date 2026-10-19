@@ -12,7 +12,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Toaster } from 'sonner';
 
 import { DaemonSelectionProvider } from '@/lib/daemon_selection';
+import { PROCESS_LIST_ATTRIBUTE, focusProcessList, isTypingTarget } from '@/lib/keyboard_shortcuts';
 import { LogSearchProvider } from '@/lib/log_search';
+import { modalRoot } from '@/lib/page_find';
 import { readPreference, writePreference } from '@/lib/preferences';
 import { ProcessListFilterProvider } from '@/lib/process_list_filter';
 import { isProcessTab, processLink } from '@/lib/process_route';
@@ -21,6 +23,7 @@ import { trpc } from '@/lib/trpc';
 
 import { AppHeader } from '@/components/app_header';
 import { DaemonManagerProvider } from '@/components/daemon_manager';
+import { KeyboardShortcutsProvider } from '@/components/keyboard_shortcuts';
 import { ProcessFilterField } from '@/components/process_filter_field';
 import { RegistryWarning } from '@/components/registry_warning';
 import { RestartOverlay } from '@/components/restart_overlay';
@@ -62,6 +65,33 @@ function RootLayout() {
     () => ({ search, caseSensitive, regex, setSearch, setCaseSensitive, setRegex }),
     [search, caseSensitive, regex]
   );
+
+  // Escape that nothing else used: from a control outside the process list,
+  // such as the daemon picker, or from nowhere, back to the list; there, it
+  // clears the process filter. A menu or box that handled the key keeps it.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const hasModifier = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+      if (
+        event.key !== 'Escape' ||
+        hasModifier ||
+        event.defaultPrevented ||
+        isTypingTarget(event.target) ||
+        modalRoot()
+      ) {
+        return;
+      }
+      const isInList = document.activeElement?.closest(`[${PROCESS_LIST_ATTRIBUTE}]`);
+      if (!isInList && focusProcessList()) {
+        event.preventDefault();
+      } else if (search) {
+        event.preventDefault();
+        setSearch('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [search]);
 
   const storeDaemonId = useCallback((daemonId: string) => {
     setStoredDaemonId(daemonId);
@@ -137,36 +167,38 @@ function RootLayout() {
       <ProcessListFilterProvider value={processListFilter}>
         <LogSearchProvider>
           <DaemonManagerProvider>
-            <div
-              data-component="RootLayout"
-              className="flex h-svh min-h-0 flex-col overflow-hidden bg-surface-plane text-white"
-            >
-              <UpdateNotice />
-              {list.data?.registryWarning ? (
-                <RegistryWarning message={list.data.registryWarning} />
-              ) : null}
-              {!processDetailOpen ? (
-                <AppHeader
-                  data={list.data}
-                  loading={list.isPending && !list.data}
-                  failed={list.isError}
-                  filter={<ProcessFilterField />}
+            <KeyboardShortcutsProvider>
+              <div
+                data-component="RootLayout"
+                className="flex h-svh min-h-0 flex-col overflow-hidden bg-surface-plane text-white"
+              >
+                <UpdateNotice />
+                {list.data?.registryWarning ? (
+                  <RegistryWarning message={list.data.registryWarning} />
+                ) : null}
+                {!processDetailOpen ? (
+                  <AppHeader
+                    data={list.data}
+                    loading={list.isPending && !list.data}
+                    failed={list.isError}
+                    filter={<ProcessFilterField />}
+                  />
+                ) : null}
+                <Outlet />
+                <RestartOverlay />
+                <Toaster
+                  theme="dark"
+                  position="bottom-left"
+                  toastOptions={{
+                    style: {
+                      background: 'var(--color-panel)',
+                      border: '1px solid var(--color-line)',
+                      color: '#fff',
+                    },
+                  }}
                 />
-              ) : null}
-              <Outlet />
-              <RestartOverlay />
-              <Toaster
-                theme="dark"
-                position="bottom-left"
-                toastOptions={{
-                  style: {
-                    background: 'var(--color-panel)',
-                    border: '1px solid var(--color-line)',
-                    color: '#fff',
-                  },
-                }}
-              />
-            </div>
+              </div>
+            </KeyboardShortcutsProvider>
           </DaemonManagerProvider>
         </LogSearchProvider>
       </ProcessListFilterProvider>

@@ -11,6 +11,7 @@ const loggerImporter = importer('logger', () => import('./lib/logger'));
 const logImporter = importer('log', () => import('./lib/logger'), 'logDefinition');
 const appImporter = importer('app', () => import('./lib/app'));
 const daemonStoreImporter = importer('daemonStore', () => import('./lib/daemon_store'));
+const keybindingStoreImporter = importer('keybindingStore', () => import('./lib/keybinding_store'));
 const pm2HomeFinderImporter = importer('pm2HomeFinder', () => import('./lib/pm2_home_finder'));
 const sshConnectionImporter = importer('sshConnection', () => import('./lib/ssh_connection'));
 const pm2ClientImporter = importer('pm2Client', () => import('./lib/pm2_client'));
@@ -41,6 +42,7 @@ export const SERVICES = [
   logImporter,
   appImporter,
   daemonStoreImporter,
+  keybindingStoreImporter,
   pm2HomeFinderImporter,
   sshConnectionImporter,
   pm2ClientImporter,
@@ -62,6 +64,7 @@ export const APP_SERVICES = [
   logImporter,
   appImporter,
   daemonStoreImporter,
+  keybindingStoreImporter,
   pm2HomeFinderImporter,
   daemonManagerImporter,
   appUpdatesImporter,
@@ -90,6 +93,8 @@ export const FAKE_APP_SERVICES = [
   appImporter,
   fakeWorldImporter,
   fakeDaemonStoreImporter,
+  // The user's keys are no simulation: fake mode reads them too.
+  keybindingStoreImporter,
   fakePm2HomeFinderImporter,
   daemonManagerImporter,
   fakeAppUpdatesImporter,

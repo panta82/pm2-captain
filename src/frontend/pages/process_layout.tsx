@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import { BulkActionProvider } from '@/lib/bulk_action';
 import { useConnectionReplaced } from '@/lib/daemon_connection';
+import { focusProcessList, useShortcutAria, useShortcutHandler } from '@/lib/keyboard_shortcuts';
 import { useFilteredProcesses } from '@/lib/process_list_filter';
 import { getProcessTab, processLink, processRouteApi, setProcessTab } from '@/lib/process_route';
 import { formatPmIds } from '@/lib/process_selection';
@@ -20,6 +21,7 @@ import { ProcessFilterField } from '@/components/process_filter_field';
 import { ProcessNav } from '@/components/process_nav';
 import { ProcessTabs } from '@/components/process_tabs';
 import { ResizableSidebar } from '@/components/resizable_sidebar';
+import { ShortcutHint } from '@/components/shortcut_hint';
 import { TruncatedText } from '@/components/truncated_text';
 import { Button, Skeleton } from '@/components/ui';
 
@@ -112,6 +114,28 @@ export function ProcessLayout() {
   }, [daemonProcesses, filtered.processes, pmIds]);
   const listNotice =
     filtered.error || (visibleProcesses.length ? null : 'No processes match the filter.');
+
+  // Ctrl+Down and Ctrl+Up move to the process after or before the selection, in
+  // the sidebar's order, and focus the sidebar, where the arrow keys go on.
+  useShortcutHandler(['process.next', 'process.previous'], actionId => {
+    const selectedIndexes = visibleProcesses
+      .map((process, index) => (pmIds.includes(process.pmId) ? index : -1))
+      .filter(index => index >= 0);
+    if (!selectedIndexes.length) {
+      return false;
+    }
+    const nextIndex =
+      actionId === 'process.next'
+        ? Math.min(Math.max(...selectedIndexes) + 1, visibleProcesses.length - 1)
+        : Math.max(Math.min(...selectedIndexes) - 1, 0);
+    void navigate(processLink(daemonId, [visibleProcesses[nextIndex].pmId], sidebarTab));
+    focusProcessList();
+  });
+  const tabShortcuts = {
+    info: useShortcutAria('tab.info'),
+    env: useShortcutAria('tab.env'),
+    logs: useShortcutAria('tab.logs'),
+  };
   const listNoticeElement = listNotice ? (
     <p className={cn('px-4 pt-4 font-mono text-xs', filtered.error ? 'text-danger' : 'text-muted')}>
       {listNotice}
@@ -227,7 +251,22 @@ export function ProcessLayout() {
             </div>
           </div>
         ) : null}
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main
+          className="flex min-w-0 flex-1 flex-col overflow-hidden"
+          // Escape in the open process goes back to the process list, unless
+          // something in it used the key, such as a search box with text.
+          onKeyDown={event => {
+            const hasModifier = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+            if (
+              event.key === 'Escape' &&
+              !event.defaultPrevented &&
+              !hasModifier &&
+              focusProcessList()
+            ) {
+              event.preventDefault();
+            }
+          }}
+        >
           <div className="lg:hidden">
             <AppHeader data={list.data} loading={false} failed={false} />
           </div>
@@ -308,10 +347,15 @@ export function ProcessLayout() {
                         process={process}
                         compact
                         daemonAvailable={isDaemonAvailable}
+                        hasShortcut
                       />
                     </div>
                     <div className="hidden sm:block">
-                      <ProcessActions process={process} daemonAvailable={isDaemonAvailable} />
+                      <ProcessActions
+                        process={process}
+                        daemonAvailable={isDaemonAvailable}
+                        hasShortcut
+                      />
                     </div>
                   </>
                 ) : null}
@@ -341,9 +385,15 @@ export function ProcessLayout() {
                       className:
                         'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
                     }}
-                    className="border-b px-5 py-2.5 text-sm font-semibold"
+                    className="relative border-b px-5 py-2.5 text-sm font-semibold"
+                    data-shortcut="tab.info"
+                    aria-keyshortcuts={tabShortcuts.info}
                   >
                     Info
+                    <ShortcutHint
+                      action="tab.info"
+                      className="top-1/2 right-0.5 -translate-y-1/2 px-1"
+                    />
                   </Link>
                   <Link
                     {...processLink(daemonId, pmIds, 'env')}
@@ -353,9 +403,15 @@ export function ProcessLayout() {
                       className:
                         'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
                     }}
-                    className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                    className="relative border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                    data-shortcut="tab.env"
+                    aria-keyshortcuts={tabShortcuts.env}
                   >
                     Env
+                    <ShortcutHint
+                      action="tab.env"
+                      className="top-1/2 right-0.5 -translate-y-1/2 px-1"
+                    />
                   </Link>
                   {isMulti ? null : (
                     <Link
@@ -366,9 +422,15 @@ export function ProcessLayout() {
                         className:
                           'border-b-line bg-surface-menu text-control-muted hover:bg-panel hover:text-white',
                       }}
-                      className="border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                      className="relative border-b border-l border-line px-5 py-2.5 text-sm font-semibold"
+                      data-shortcut="tab.logs"
+                      aria-keyshortcuts={tabShortcuts.logs}
                     >
                       Logs
+                      <ShortcutHint
+                        action="tab.logs"
+                        className="top-1/2 right-0.5 -translate-y-1/2 px-1"
+                      />
                     </Link>
                   )}
                 </div>

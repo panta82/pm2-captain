@@ -57,8 +57,10 @@ export function TruncatedText({ text, className }: { text: string; className?: s
     }
 
     const close = () => setIsOpen(false);
+    // Capture, so Escape only closes the overlay, ahead of the page's own use of it.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         close();
       }
     };
@@ -70,11 +72,11 @@ export function TruncatedText({ text, className }: { text: string; className?: s
       close();
     };
 
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('resize', close);
     return () => {
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('resize', close);
     };

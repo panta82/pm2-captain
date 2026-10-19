@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "include": ["./", "../shared", "../backend"],
-  "exclude": ["../../node_modules", "../frontend", "../../dist"],
+  "exclude": ["../../node_modules", "../frontend", "../../dist", "./preload"],
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "../",

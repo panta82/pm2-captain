@@ -66,6 +66,16 @@ export interface IDesktopBridge {
     install(): Promise<void>;
     skip(version: string): Promise<void>;
   };
+  /** The window's find bar, which searches the page like a browser's Ctrl+F. */
+  find: {
+    /** Opens the find bar, or focuses it, with its text selected. */
+    open(): void;
+    /** Goes to the next or previous match, opening the find bar if needed. */
+    step(isForward: boolean): void;
+    onOpenChange(listener: (isOpen: boolean) => void): () => void;
+    /** Ctrl+Shift+F in the find bar, which hands the focus back to the page's filter boxes. */
+    onBack(listener: () => void): () => void;
+  };
 }
 
 /** Accepts only values the renderer could have written itself. */

@@ -96,7 +96,13 @@ export function EnvPage() {
   const environment = processes[0].environment ?? [];
 
   return (
-    <div data-component="EnvPage" className="flex-1 overflow-auto p-4 sm:p-7">
+    <div
+      data-component="EnvPage"
+      // PROCESS_PANE_ATTRIBUTE: Enter in the process list comes here.
+      data-process-pane
+      tabIndex={-1}
+      className="flex-1 overflow-auto p-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan/70 sm:p-7"
+    >
       <div className="mx-auto max-w-[1280px] space-y-4">
         {environment.length ? (
           <EnvPanel environment={environment} />

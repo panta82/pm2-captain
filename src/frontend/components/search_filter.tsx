@@ -1,8 +1,12 @@
 import { CaseSensitive, Funnel, Loader2, Regex, Search, X } from 'lucide-react';
+import { useRef } from 'react';
 
 import type { IDebouncePhase } from '@/lib/debounce';
+import { useShortcutAria, useShortcutHintsVisible } from '@/lib/keyboard_shortcuts';
+import { nextFindTarget, previousFindTarget } from '@/lib/page_find';
 import { cn } from '@/lib/utils';
 
+import { ShortcutHint } from '@/components/shortcut_hint';
 import { Button } from '@/components/ui';
 
 function TypingDots({ className }: { className?: string }) {
@@ -35,6 +39,9 @@ export function SearchFilter({
   isFilter,
   onIsFilterChange,
   hasSearchIcon = true,
+  findStep,
+  onGoToList,
+  onLeave,
   placeholder,
   className,
 }: {
@@ -51,9 +58,28 @@ export function SearchFilter({
   /** Omit where a box always filters. */
   onIsFilterChange?: (next: boolean) => void;
   hasSearchIcon?: boolean;
+  /** Its place in the Ctrl+F order (FIND_TARGET_ATTRIBUTE). Omit for a box Ctrl+F skips. */
+  findStep?: number;
+  /** Down or Enter in the box: on to the list it filters. */
+  onGoToList?: () => void;
+  /** Escape in an empty box. Without it, the box only loses the focus. */
+  onLeave?: () => void;
   placeholder: string;
   className?: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const findShortcut = useShortcutAria('find');
+  // Hints mark only the boxes that Ctrl+F and Ctrl+Shift+F would go to now.
+  const areHintsVisible = useShortcutHintsVisible();
+  let findHint: 'find' | 'find.back' | null = null;
+  if (areHintsVisible && findStep !== undefined && inputRef.current) {
+    if (nextFindTarget() === inputRef.current) {
+      findHint = 'find';
+    } else if (previousFindTarget() === inputRef.current) {
+      findHint = 'find.back';
+    }
+  }
+
   return (
     <div
       data-component="SearchFilter"
@@ -67,12 +93,32 @@ export function SearchFilter({
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
         ) : null}
         <input
+          ref={inputRef}
           value={draft}
+          // Ctrl+F finds its box by this attribute (FIND_TARGET_ATTRIBUTE).
+          data-find-target={findStep}
+          aria-keyshortcuts={findStep === undefined ? undefined : findShortcut}
           onChange={event => onDraftChange(event.target.value)}
           onKeyDown={event => {
-            if (event.key === 'Escape' && draft) {
+            const hasModifier = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+            if (
+              (event.key === 'ArrowDown' || event.key === 'Enter') &&
+              onGoToList &&
+              !hasModifier
+            ) {
               event.preventDefault();
-              onDraftChange('');
+              onGoToList();
+            } else if (event.key === 'Escape') {
+              // The first Escape clears the box, the next one leaves it.
+              if (draft) {
+                event.preventDefault();
+                onDraftChange('');
+              } else if (onLeave) {
+                event.preventDefault();
+                onLeave();
+              } else {
+                event.currentTarget.blur();
+              }
             }
           }}
           placeholder={placeholder}
@@ -106,6 +152,9 @@ export function SearchFilter({
           >
             <X className="size-3.5" strokeWidth={2.5} />
           </button>
+        ) : null}
+        {findHint ? (
+          <ShortcutHint action={findHint} className="top-1/2 right-1.5 -translate-y-1/2" />
         ) : null}
       </div>
       <Button

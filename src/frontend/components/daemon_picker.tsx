@@ -2,12 +2,14 @@ import { ChevronDown, Settings2 } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { useDaemonSelection } from '@/lib/daemon_selection';
+import { useShortcutAria } from '@/lib/keyboard_shortcuts';
 import { cn } from '@/lib/utils';
 
 import type { IProcessListResult } from '@shared/contracts';
 
 import { useDaemonManager } from './daemon_manager';
 import { DAEMON_OPTION_LIST_CLASS, DaemonOption, DaemonStatusIcon } from './daemon_option';
+import { ShortcutHint } from './shortcut_hint';
 
 const VIEWPORT_MARGIN = 12;
 
@@ -26,6 +28,7 @@ export function DaemonPicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const selectedDaemon = daemons.find(daemon => daemon.daemonId === selectedDaemonId);
+  const shortcut = useShortcutAria('daemon.picker');
 
   // The menu is fixed so the sidebar's overflow clipping cannot cut it off.
   // Keep it under the trigger, at least as wide, and inside the viewport.
@@ -104,8 +107,10 @@ export function DaemonPicker({
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label={selectedDaemon ? `Daemon: ${selectedDaemon.label}` : 'Daemon'}
+        aria-keyshortcuts={shortcut}
+        data-shortcut="daemon.picker"
         title={selectedDaemon?.label}
-        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border border-line bg-input px-2.5 font-mono text-xs text-white hover:bg-input-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan aria-expanded:border-cyan/60 aria-expanded:bg-input-focus"
+        className="relative flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border border-line bg-input px-2.5 font-mono text-xs text-white hover:bg-input-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan aria-expanded:border-cyan/60 aria-expanded:bg-input-focus"
         onClick={() => setIsOpen(current => !current)}
         onKeyDown={event => {
           if (event.key === 'ArrowDown') {
@@ -122,6 +127,7 @@ export function DaemonPicker({
           className={cn('size-3.5 shrink-0 text-muted', isOpen && 'rotate-180')}
           aria-hidden
         />
+        <ShortcutHint action="daemon.picker" className="top-1/2 right-1.5 -translate-y-1/2" />
       </button>
       {isOpen ? (
         <div

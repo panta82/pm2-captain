@@ -1,6 +1,6 @@
 {
   "name": "pm2-captain",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "A local web control room for PM2 processes and logs",
   "author": "Ivan Pantic",
   "repository": {
@@ -38,7 +38,7 @@
     "build:frontend": "vite build",
     "build:backend": "node support/build-backend.mjs",
     "generate:icons": "bash support/generate-icons.sh",
-    "typecheck": "tsc --noEmit --project src/backend/tsconfig.json && tsc --noEmit --project src/frontend/tsconfig.json && tsc --noEmit --project src/desktop/tsconfig.json && tsc --noEmit --project tests/tsconfig.json",
+    "typecheck": "tsc --noEmit --project src/backend/tsconfig.json && tsc --noEmit --project src/frontend/tsconfig.json && tsc --noEmit --project src/desktop/tsconfig.json && tsc --noEmit --project src/desktop/preload/tsconfig.json && tsc --noEmit --project tests/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

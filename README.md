@@ -41,6 +41,7 @@ in a web UI.
 - Multiple PM2 daemons, local and remote (via SSH)
 - Start/stop/restart multiple apps at once
 - Filter or highlight logs, pause, download
+- Keyboard shortcuts, shown on screen while Ctrl is held, and find in page in the desktop app
 
 ## Desktop builds
 
@@ -89,6 +90,24 @@ The app keeps its config file in `~/.config/pm2-captain/daemons.json` (or `$XDG_
 
 The configured daemons are shared between the desktop app and any npm `pm2-captain` instances or services. The instances will sync the changes between themselves.
 
+## Keyboard shortcuts
+
+Hold `Ctrl` (`⌘` on a Mac) to see the shortcuts on the screen. Press `?` for the full list.|
+
+To change the keys, create `~/.config/pm2-captain/keybindings.json` (or `$XDG_CONFIG_HOME/pm2-captain/keybindings.json`):
+
+```json
+{
+  "bindings": {
+    "tab.logs": "Alt+L",
+    "find": ["Mod+F", "/"],
+    "daemon.picker": null
+  }
+}
+```
+
+In the example above, we define an override for switching to the log tab, add 2 shortcuts for the "find" action, and remove the shortcut for the daemon picker. You can find available action names in the help screen (`?`). Supported modifiers: `Mod` (Ctrl or ⌘), `Alt`, `Shift`, `Meta`.
+
 ## Service setup
 
 You can setup PM2 captain as a permanent service on your server.
@@ -101,6 +120,12 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.3.0` (2026-10-19)
+
+- Rework keyboard navigation. Add customizable keyboard shortcuts.
+- Add Ctrl+F to the desktop app
+- Fix visual glitch with table fixed column
+
 #### `2.2.0` (2026-10-18)
 
 - Filtering selected processes no longer hides them from view
@@ -109,7 +134,7 @@ Read [development.md](docs/development.md) for more details.
 #### `2.1.1` (2026-10-18)
 
 - Fix missing Linux menu and KDE title-bar icons by packaging standard icon sizes
-- Verify icon sizes and paths in AppImage, DEB and RPM builds
+- Verify icon sizes and paths in AppImage, DEB, and RPM builds
 
 #### `2.1.0` (2026-10-17)
 
@@ -117,7 +142,7 @@ Read [development.md](docs/development.md) for more details.
 
 #### `2.0.3` (2026-10-17)
 
-- First desktop release for Linux: DEB, RPM and AppImage, with in-app updates
+- First desktop release for Linux: DEB, RPM, and AppImage, with in-app updates
 - Simulate settings-file conflicts and updates in fake mode
 - macOS desktop builds will follow
 

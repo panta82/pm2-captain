@@ -43,13 +43,14 @@ for (const part of ['backend', 'shared', 'frontend']) {
   });
 }
 
-// Main and preload are bundled, electron-updater included, so it is never an
-// npm dependency. The preload runs sandboxed and must be a single file.
+// Main and the preloads are bundled, electron-updater included, so it is never
+// an npm dependency. A preload runs sandboxed and must be a single file.
 await build({
   absWorkingDir: rootDir,
   entryPoints: {
     main: 'src/desktop/main/main.ts',
     preload: 'src/desktop/preload/preload.ts',
+    find_bar_preload: 'src/desktop/preload/find_bar_preload.ts',
   },
   outdir: libPath.join(stageDir, 'dist/desktop'),
   bundle: true,

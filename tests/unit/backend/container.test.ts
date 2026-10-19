@@ -21,6 +21,7 @@ describe('service lists', () => {
           'logger',
           'log',
           'app',
+          'keybindingStore',
           'daemonManager',
           'sessionAuth',
           'captainLauncher',

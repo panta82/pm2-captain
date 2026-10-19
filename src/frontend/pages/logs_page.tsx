@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 
 import { type IHighlightLayer, compileSearchTerms, getSearchColorStyle } from '@/lib/highlight';
+import { isTypingTarget, useShortcutHandler } from '@/lib/keyboard_shortcuts';
 import { MAX_SEARCH_TERMS, useLogSearch } from '@/lib/log_search';
 import { processRouteApi } from '@/lib/process_route';
 import { trpc } from '@/lib/trpc';
@@ -20,6 +21,7 @@ import { cn, formatTimestamp } from '@/lib/utils';
 
 import { Highlighted } from '@/components/highlighted';
 import { SearchFilter } from '@/components/search_filter';
+import { ShortcutHint } from '@/components/shortcut_hint';
 import { Button, ToggleGroup } from '@/components/ui';
 
 import type { ILogEntry, ILogView } from '@shared/contracts';
@@ -595,6 +597,23 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
     userScrollUntilRef.current = performance.now() + USER_SCROLL_WINDOW_MS;
   };
 
+  // End is the corner button's Jump to latest, which also follows new lines again.
+  useShortcutHandler('logs.latest', () => {
+    jumpToLatest();
+  });
+
+  // The keyboard scrolls the list when it was clicked last, without focusing it,
+  // so its own key events would miss Page Down and friends.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isTypingTarget(event.target)) {
+        markUserScroll();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const cornerButtonStyle = {
     right: scrollbarSize.width,
     bottom: scrollbarSize.height,
@@ -655,6 +674,9 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
                 isFilter={term.isFilter}
                 onIsFilterChange={next => logSearch.updateTerm(term.id, { isFilter: next })}
                 hasSearchIcon={false}
+                // Ctrl+F comes here after the process filter in the sidebar.
+                findStep={2}
+                onGoToList={() => scrollRef.current?.focus()}
                 placeholder={term.isFilter ? 'Filter loaded logs…' : 'Highlight loaded logs…'}
                 className="max-w-full min-w-0 flex-1 sm:w-[22rem] sm:max-w-full sm:flex-none"
               />
@@ -788,14 +810,19 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
             onClick={jumpToLatest}
           >
             <ArrowDown className="size-4" strokeWidth={2.25} />
+            <ShortcutHint action="logs.latest" className="right-0 bottom-full mb-1.5" />
           </button>
         )}
         <div
           ref={scrollRef}
-          className="h-full min-h-0 overflow-auto [overflow-anchor:none]"
+          // Enter in a search box or the process list comes here, where the keys
+          // scroll the lines (PROCESS_PANE_ATTRIBUTE).
+          data-process-pane
+          tabIndex={0}
+          aria-label="Log lines"
+          className="h-full min-h-0 overflow-auto [overflow-anchor:none] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan/70"
           onWheel={markUserScroll}
           onTouchMove={markUserScroll}
-          onKeyDown={markUserScroll}
           onPointerDown={() => {
             // Covers dragging the scrollbar, which sends no events while it moves.
             isPointerDownRef.current = true;

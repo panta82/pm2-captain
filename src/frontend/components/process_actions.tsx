@@ -2,11 +2,13 @@ import { LoaderCircle, Play, RotateCw, Square } from 'lucide-react';
 import { memo } from 'react';
 import { toast } from 'sonner';
 
+import { useShortcutAria } from '@/lib/keyboard_shortcuts';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
 import type { IProcessDetail, IProcessSummary } from '@shared/contracts';
 
+import { ShortcutHint } from './shortcut_hint';
 import { Button } from './ui';
 
 export const ProcessActions = memo(
@@ -14,12 +16,16 @@ export const ProcessActions = memo(
     process,
     compact = false,
     daemonAvailable = true,
+    hasShortcut = false,
   }: {
     process: IProcessSummary | IProcessDetail;
     compact?: boolean;
     daemonAvailable?: boolean;
+    /** The process page's buttons, which the restart shortcut presses; not each row's. */
+    hasShortcut?: boolean;
   }) {
     const utils = trpc.useUtils();
+    const restartShortcut = useShortcutAria('process.restart');
     const action = trpc.processes.action.useMutation({
       onSuccess: async (result, variables) => {
         const completedAction = {
@@ -58,9 +64,12 @@ export const ProcessActions = memo(
       >
         <Button
           variant="primary"
-          className={primaryButtonClass}
+          className={cn(primaryButtonClass, hasShortcut && 'relative')}
           disabled={!daemonAvailable || action.isPending}
           title={!daemonAvailable ? 'Daemon is not connected' : undefined}
+          // The shortcut presses this button, so it starts a stopped process.
+          data-shortcut={hasShortcut ? 'process.restart' : undefined}
+          aria-keyshortcuts={hasShortcut ? restartShortcut : undefined}
           onClick={() =>
             action.mutate({
               daemonId: process.daemonId,
@@ -78,6 +87,9 @@ export const ProcessActions = memo(
             <RotateCw className={iconClass} />
           )}
           {stopped ? 'Start' : 'Restart'}
+          {hasShortcut ? (
+            <ShortcutHint action="process.restart" className="-top-2.5 -right-2" />
+          ) : null}
         </Button>
         <Button
           className={buttonClass}
@@ -112,6 +124,7 @@ export const ProcessActions = memo(
   },
   (prev, next) =>
     prev.compact === next.compact &&
+    prev.hasShortcut === next.hasShortcut &&
     prev.daemonAvailable === next.daemonAvailable &&
     prev.process.daemonId === next.process.daemonId &&
     // A daemon moved to another location can show the same IDs and names; the

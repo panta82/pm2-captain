@@ -2,6 +2,8 @@ import { useNavigate, useRouter } from '@tanstack/react-router';
 import { Check } from 'lucide-react';
 import { type KeyboardEvent, type MouseEvent, memo, useEffect, useMemo, useRef } from 'react';
 
+import { focusProcessPane } from '@/lib/keyboard_shortcuts';
+import { useProcessListFilter } from '@/lib/process_list_filter';
 import { type ProcessTab, processLink } from '@/lib/process_route';
 import { formatPmIds, selectRange, toggleSelection } from '@/lib/process_selection';
 import { cn } from '@/lib/utils';
@@ -9,6 +11,10 @@ import { cn } from '@/lib/utils';
 import { Highlighted } from '@/components/highlighted';
 
 import type { IProcessSummary } from '@shared/contracts';
+
+/** The row the arrow keys move from, ringed while the list has keyboard focus. */
+const CURSOR_CLASS =
+  'group-focus-visible/nav:outline-2 group-focus-visible/nav:-outline-offset-2 group-focus-visible/nav:outline-cyan/70';
 
 export const ProcessNav = memo(
   function ProcessNav({
@@ -38,6 +44,7 @@ export const ProcessNav = memo(
     autoFocus?: boolean;
   }) {
     const navigate = useNavigate();
+    const filter = useProcessListFilter();
     // The router itself, unlike `Link`, does not subscribe this list to location changes.
     const router = useRouter();
     const processKey = processes.map(process => `${process.daemonId}:${process.pmId}`).join(',');
@@ -79,12 +86,15 @@ export const ProcessNav = memo(
     }, [autoFocus]);
 
     useEffect(() => {
-      if (!keepFocusRef.current) {
-        return;
-      }
+      // A selection made here keeps the focus here. One made elsewhere, such as
+      // with Alt+Down, only scrolls the list to it.
+      const isOwnSelection = keepFocusRef.current;
       keepFocusRef.current = false;
-      navRef.current?.focus();
-      const cursorIndex = processes.findIndex(process => process.pmId === cursorRef.current);
+      if (isOwnSelection) {
+        navRef.current?.focus();
+      }
+      const cursorId = isOwnSelection ? cursorRef.current : selectedIds[selectedIds.length - 1];
+      const cursorIndex = processes.findIndex(process => process.pmId === cursorId);
       navRef.current?.children[cursorIndex]?.scrollIntoView({ block: 'nearest' });
       // Only a changed selection moves the focus; the process list itself refreshes every 2 s.
     }, [selectedDaemonId, selectionKey]);
@@ -133,8 +143,11 @@ export const ProcessNav = memo(
     const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        // The first Escape narrows a selection to one process, the next one leaves.
-        if (isMulti) {
+        // Escape clears the process filter first, then narrows a selection to
+        // one process, and then leaves.
+        if (filter.search) {
+          filter.setSearch('');
+        } else if (isMulti) {
           openSelection([getCursor()], getCursor(), getCursor());
         } else {
           void navigate({ to: '/' });
@@ -158,6 +171,8 @@ export const ProcessNav = memo(
         }
         event.preventDefault();
         onItemClick?.();
+        // Into the open process's tab, where the keys scroll it; Escape comes back.
+        focusProcessPane();
         return;
       }
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
@@ -190,14 +205,20 @@ export const ProcessNav = memo(
     };
 
     const orderedIds = () => processes.map(process => process.pmId);
+    // Read during render: every move of the cursor also changes the selection,
+    // which renders the list again.
+    const cursorRowId = getCursor();
 
     return (
       <nav
         data-component="ProcessNav"
+        // PROCESS_LIST_ATTRIBUTE: Down in the process filter comes here.
+        data-process-list
         ref={navRef}
         aria-label="Processes"
+        // One tab stop for the whole list; the arrow keys move within it.
         tabIndex={0}
-        className={cn('outline-none', className)}
+        className={cn('group/nav outline-none', className)}
         // Shift+click would otherwise select the text between two processes.
         onMouseDown={event => {
           if (event.shiftKey) {
@@ -227,7 +248,11 @@ export const ProcessNav = memo(
               isMulti={isMulti}
               href={href}
               highlight={highlight}
-              className={cn(itemClassName, isSelected ? selectedItemClassName : idleItemClassName)}
+              className={cn(
+                itemClassName,
+                isSelected ? selectedItemClassName : idleItemClassName,
+                isSelected && process.pmId === cursorRowId && CURSOR_CLASS
+              )}
             />
           );
         })}
@@ -325,6 +350,7 @@ const ProcessNavRow = memo(function ProcessNavRow({
       <a
         href={href}
         aria-current={isSelected && !isMulti ? 'page' : undefined}
+        tabIndex={-1}
         className="flex h-full min-w-0 flex-1 items-center gap-3 pr-3 pl-5"
       >
         {label}
@@ -334,6 +360,7 @@ const ProcessNavRow = memo(function ProcessNavRow({
         role="checkbox"
         aria-checked={isSelected}
         aria-label={`Select ${name}`}
+        tabIndex={-1}
         className={cn(
           'mr-5 grid size-[18px] shrink-0 place-items-center rounded-[4px] border border-line hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan',
           isSelected && 'bg-surface-control text-control-muted'

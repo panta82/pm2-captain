@@ -2,11 +2,13 @@ import { LoaderCircle, type LucideIcon, Play, RotateCw, Square } from 'lucide-re
 import { useEffect, useState } from 'react';
 
 import { useBulkAction } from '@/lib/bulk_action';
+import { useShortcutAria } from '@/lib/keyboard_shortcuts';
 import { bulkActionTargets, stopConfirmationKey } from '@/lib/process_selection';
 import { cn } from '@/lib/utils';
 
 import type { IProcessAction, IProcessSummary } from '@shared/contracts';
 
+import { ShortcutHint } from './shortcut_hint';
 import { Button } from './ui';
 
 /** How long the Stop button waits for its confirming second click. */
@@ -23,6 +25,7 @@ export function BulkProcessActions({
   daemonAvailable?: boolean;
 }) {
   const bulkAction = useBulkAction();
+  const restartShortcut = useShortcutAria('process.restart');
   const startCount = bulkActionTargets('start', processes).length;
   const restartCount = bulkActionTargets('restart', processes).length;
   const stopTargets = bulkActionTargets('stop', processes);
@@ -60,10 +63,12 @@ export function BulkProcessActions({
   ) => (
     <Button
       variant={variant}
-      className={sizeClass}
+      className={cn(sizeClass, action === 'restart' && 'relative')}
       disabled={!daemonAvailable || !count || bulkAction.runningAction !== null}
       title={!daemonAvailable ? 'Daemon is not connected' : title}
       onClick={() => bulkAction.run(action, processes)}
+      data-shortcut={action === 'restart' ? 'process.restart' : undefined}
+      aria-keyshortcuts={action === 'restart' ? restartShortcut : undefined}
     >
       {bulkAction.runningAction === action ? (
         <LoaderCircle className={cn(iconClass, 'animate-spin')} />
@@ -72,6 +77,9 @@ export function BulkProcessActions({
       )}
       {label}
       {count ? <span className="font-mono font-medium tabular-nums">{count}</span> : null}
+      {action === 'restart' ? (
+        <ShortcutHint action="process.restart" className="-top-2.5 -right-2" />
+      ) : null}
     </Button>
   );
 

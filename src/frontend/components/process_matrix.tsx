@@ -91,7 +91,12 @@ export function ProcessMatrix({
           </Button>
         </ToggleGroup>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        // PROCESS_PANE_ATTRIBUTE: Enter in the process list comes here.
+        data-process-pane
+        tabIndex={-1}
+        className="min-h-0 flex-1 overflow-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan/70"
+      >
         {visibleGroups.length ? (
           <table className="w-full border-separate border-spacing-0 font-mono text-[13px]">
             <thead>

@@ -72,10 +72,14 @@ const restartAfterBuild = name => {
   }
 };
 
-// Main and preload, bundled.
+// Main and the preloads, bundled.
 const shellBuilder = await context({
   absWorkingDir: rootDir,
-  entryPoints: { main: 'src/desktop/main/main.ts', preload: 'src/desktop/preload/preload.ts' },
+  entryPoints: {
+    main: 'src/desktop/main/main.ts',
+    preload: 'src/desktop/preload/preload.ts',
+    find_bar_preload: 'src/desktop/preload/find_bar_preload.ts',
+  },
   outdir: devDir,
   bundle: true,
   platform: 'node',

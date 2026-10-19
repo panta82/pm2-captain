@@ -29,6 +29,24 @@ const bridge: IDesktopBridge = {
     install: () => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
     skip: version => ipcRenderer.invoke(IPC_CHANNELS.skipUpdate, version),
   },
+  find: {
+    open: () => ipcRenderer.send(IPC_CHANNELS.openFindBar),
+    step: isForward => ipcRenderer.send(IPC_CHANNELS.stepFindBar, isForward),
+    onOpenChange: listener => {
+      const handler = (_event: unknown, isOpen: boolean) => listener(isOpen);
+      ipcRenderer.on(IPC_CHANNELS.findBarState, handler);
+      return () => {
+        ipcRenderer.off(IPC_CHANNELS.findBarState, handler);
+      };
+    },
+    onBack: listener => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC_CHANNELS.findBarBack, handler);
+      return () => {
+        ipcRenderer.off(IPC_CHANNELS.findBarBack, handler);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('pm2CaptainDesktop', bridge);

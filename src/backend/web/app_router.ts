@@ -123,6 +123,9 @@ export function createAppRouter(container: IContainer) {
         .input(z.object({ version: z.string().min(1).max(200) }))
         .mutation(({ input }) => withUpdateErrors(() => container.appUpdates.skip(input.version))),
     }),
+    settings: router({
+      keybindings: protectedProcedure.query(() => container.keybindingStore.read()),
+    }),
     session: router({
       /**
        * Held open by every tab that has no log stream, so the launcher knows

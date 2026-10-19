@@ -125,7 +125,11 @@ test('shows the bundled backend in a locked-down window', async () => {
       require: typeof (window as unknown as { require?: unknown }).require,
       process: typeof (window as unknown as { process?: unknown }).process,
     }))
-  ).toEqual({ bridge: ['preferences', 'updates'], require: 'undefined', process: 'undefined' });
+  ).toEqual({
+    bridge: ['preferences', 'updates', 'find'],
+    require: 'undefined',
+    process: 'undefined',
+  });
 
   // Leaving the backend's origin is blocked and handed to the system browser,
   // which is recorded here instead of started.
@@ -168,6 +172,103 @@ test('refuses the bridge to pages that are not the current Captain page', async 
   }, preloadPath);
 
   expect(result).toEqual(['refused', 'refused']);
+  // Nor may it open the Captain window's find bar.
+  await app.evaluate(async ({ BrowserWindow }, preload) => {
+    const window = new BrowserWindow({
+      show: false,
+      webPreferences: { preload, sandbox: true, contextIsolation: true },
+    });
+    await window.loadURL('data:text/html,<title>other</title>');
+    await window.webContents.executeJavaScript('window.pm2CaptainDesktop.find.open()');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    window.destroy();
+  }, preloadPath);
+  expect(await findBarState(app)).toMatchObject({ isVisible: false });
+  await app.close();
+});
+
+/** The find bar's view over the Captain window, and what it shows. */
+function findBarState(app: ElectronApplication) {
+  return app.evaluate(async ({ BrowserWindow, WebContentsView }) => {
+    const window = BrowserWindow.getAllWindows().find(candidate => candidate.isVisible())!;
+    const view = window.contentView.children.find(
+      (child): child is Electron.WebContentsView =>
+        child instanceof WebContentsView && child.webContents !== window.webContents
+    );
+    // The view is made when the bar is first opened.
+    if (!view) {
+      return { isVisible: false, isFocused: false, isPageFocused: true, count: '' };
+    }
+    return {
+      isVisible: view.getVisible(),
+      isFocused: view.webContents.isFocused(),
+      isPageFocused: window.webContents.isFocused(),
+      count: (await view.webContents.executeJavaScript(
+        `document.getElementById('count').textContent`
+      )) as string,
+    };
+  });
+}
+
+/** Types into the find bar, or presses a key there, as the user would. */
+function inFindBar(
+  app: ElectronApplication,
+  input: { text?: string; key?: string; modifiers?: Array<'control' | 'shift'> }
+) {
+  return app.evaluate(({ BrowserWindow, WebContentsView }, { text, key, modifiers = [] }) => {
+    const window = BrowserWindow.getAllWindows().find(candidate => candidate.isVisible())!;
+    const view = window.contentView.children.find(
+      (child): child is Electron.WebContentsView =>
+        child instanceof WebContentsView && child.webContents !== window.webContents
+    )!;
+    if (text) {
+      void view.webContents.insertText(text);
+    }
+    if (key) {
+      view.webContents.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+      view.webContents.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+    }
+  }, input);
+}
+
+test('finds in the page with a find bar of its own, after the filter box', async () => {
+  const { app, page } = await launch();
+  const filter = page.getByPlaceholder('Filter processes…').first();
+
+  await page.keyboard.press('Control+f');
+  await expect(filter).toBeFocused();
+  await page.keyboard.press('Control+f');
+  await expect
+    .poll(() => findBarState(app))
+    .toMatchObject({ isVisible: true, isFocused: true, count: '' });
+
+  // The bar's own text is not part of the page, so only the page's matches count.
+  await inFindBar(app, { text: 'worker' });
+  await expect.poll(async () => (await findBarState(app)).count).toMatch(/^1\/[1-9]\d*$/);
+  const total = (await findBarState(app)).count.split('/')[1];
+  if (total !== '1') {
+    await inFindBar(app, { key: 'Enter' });
+    await expect.poll(async () => (await findBarState(app)).count).toBe(`2/${total}`);
+  }
+
+  // Ctrl+Shift+F goes back to the filter box, leaving the bar open; Ctrl+F returns.
+  await inFindBar(app, { key: 'F', modifiers: ['control', 'shift'] });
+  await expect(filter).toBeFocused();
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: false });
+  await page.keyboard.press('Control+f');
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: true });
+  // From elsewhere in the page too.
+  await page.locator('body').click({ position: { x: 600, y: 600 } });
+  await page.keyboard.press('Control+f');
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true, isFocused: true });
+
+  await inFindBar(app, { key: 'Escape' });
+  await expect
+    .poll(() => findBarState(app))
+    .toMatchObject({ isVisible: false, isPageFocused: true });
+  // The first Ctrl+F goes to the filter box again.
+  await page.keyboard.press('Control+f');
+  await expect(filter).toBeFocused();
   await app.close();
 });
 

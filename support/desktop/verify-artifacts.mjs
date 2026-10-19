@@ -114,6 +114,7 @@ function verifyResources(label, resourcesDir, expectedPackageType) {
   for (const required of [
     '/dist/desktop/main.js',
     '/dist/desktop/preload.js',
+    '/dist/desktop/find_bar_preload.js',
     '/dist/desktop/backend/desktop_backend.js',
     '/dist/backend/app.js',
     '/dist/frontend/index.html',
