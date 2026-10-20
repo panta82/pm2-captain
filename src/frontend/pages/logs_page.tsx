@@ -780,7 +780,14 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
         </div>
       ) : null}
 
-      <div className={cn('relative min-h-0 flex-1', isFilterPending && 'opacity-80')}>
+      {/* The lines' focus ring is drawn here, above the corner button, which would
+          otherwise cover its edge. */}
+      <div
+        className={cn(
+          'relative min-h-0 flex-1 after:pointer-events-none after:absolute after:inset-0 after:z-20 has-[[data-process-pane]:focus-visible]:after:outline-2 has-[[data-process-pane]:focus-visible]:after:-outline-offset-2 has-[[data-process-pane]:focus-visible]:after:outline-cyan/70',
+          isFilterPending && 'opacity-80'
+        )}
+      >
         {/* Docked in the corner inside the scrollbars: a flat anchor while new lines
             scroll into view, a raised key to get back to them otherwise. */}
         {isFollowing && !dropped ? (
@@ -820,7 +827,7 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
           data-process-pane
           tabIndex={0}
           aria-label="Log lines"
-          className="h-full min-h-0 overflow-auto [overflow-anchor:none] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cyan/70"
+          className="h-full min-h-0 overflow-auto [overflow-anchor:none] focus-visible:outline-none"
           onWheel={markUserScroll}
           onTouchMove={markUserScroll}
           onPointerDown={() => {

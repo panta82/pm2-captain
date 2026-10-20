@@ -120,6 +120,10 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.4.0` (2026-10-20)
+
+- Fix the log corner button covering the focused log pane's border
+
 #### `2.3.0` (2026-10-19)
 
 - Rework keyboard navigation. Add customizable keyboard shortcuts.
