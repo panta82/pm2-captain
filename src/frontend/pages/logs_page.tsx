@@ -110,7 +110,7 @@ const LogRow = memo(function LogRow({
         <button
           type="button"
           className="select-none text-left text-muted underline-offset-2 hover:text-cyan hover:underline"
-          title="Clear filter and show surrounding log context"
+          title="Stop filtering and show surrounding log context"
           onClick={() => onReveal(entry.id)}
         >
           {timestamp}
@@ -186,7 +186,7 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
   const [dropped, setDropped] = useState(0);
   const [wrap, setWrap] = useState(true);
   const logSearch = useLogSearch(daemonId, numericId);
-  const { terms, getDraft, setDraft } = logSearch;
+  const { terms, getDraft, setDraft, updateTerm } = logSearch;
   const searchBoxesRef = useRef<HTMLDivElement>(null);
   const shouldFocusNewBoxRef = useRef(false);
   // Keep the boxes snappy; defer the expensive re-filter/highlight pass.
@@ -430,14 +430,15 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
       setFollowing(false);
       pendingJumpIdRef.current = entryId;
       setFocusedEntryId(entryId);
-      // Only the filters hide the neighbours; highlights stay.
+      // Only the filters hide the neighbours. They keep their text and go on
+      // highlighting, so the match stays easy to spot among them.
       for (const term of terms) {
         if (term.isFilter && (getDraft(term) || term.search)) {
-          setDraft(term.id, '');
+          updateTerm(term.id, { isFilter: false });
         }
       }
     },
-    [getDraft, setDraft, setFollowing, terms]
+    [getDraft, setFollowing, terms, updateTerm]
   );
 
   const downloadFilteredLogs = useCallback(() => {
@@ -521,7 +522,7 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
     }
   }, [virtualizer, wrap]);
 
-  // After clearing a filter, scroll the chosen line into full-context view.
+  // Once no filter hides lines, scroll the chosen line into full-context view.
   useLayoutEffect(() => {
     const entryId = pendingJumpIdRef.current;
     if (!entryId || isFiltered) {

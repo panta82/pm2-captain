@@ -249,14 +249,21 @@ test('filters the loaded lines and jumps from a match to its surroundings', asyn
   await filter.fill('needle [12]00$');
   await expect(count).toHaveText('2/250');
 
-  // The timestamp of a match clears the filter and shows the line among its neighbours.
+  // The timestamp of a match stops the filtering and shows the line among its
+  // neighbours. The search stays, now only highlighting.
   await page
     .locator('[data-component="LogRow"]')
     .filter({ hasText: 'needle 200' })
-    .getByTitle('Clear filter and show surrounding log context')
+    .getByTitle('Stop filtering and show surrounding log context')
     .click();
-  await expect(filter).toHaveValue('');
+  await expect(page.getByPlaceholder('Highlight loaded logs…')).toHaveValue('needle [12]00$');
+  await expect(
+    page.getByRole('main').getByRole('button', { name: 'Filter lines' })
+  ).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTitle('Loaded lines')).toHaveText('250');
+  await expect(
+    page.locator('[data-component="LogRow"] mark', { hasText: 'needle 200' })
+  ).toBeInViewport();
   await expect(page.getByText(line(199, 'hay 199'))).toBeInViewport();
   await expect(page.getByText(line(200, 'needle 200'))).toBeInViewport();
   await expect(page.getByText(line(201, 'hay 201'))).toBeInViewport();
