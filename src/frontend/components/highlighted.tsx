@@ -40,11 +40,14 @@ export function Highlighted({
     }
     const highlight =
       segment.layer >= firstHighlightLayer ? highlights[segment.layer - firstHighlightLayer] : null;
+    // A mark takes no more room than its text, so the line does not move as a
+    // search is typed: no side padding, and a text shadow stands in for bold,
+    // which is wider in proportional fonts.
     return (
       <mark
         key={key}
         className={cn(
-          'rounded-[2px] px-0.5 font-semibold text-accent-ink [box-decoration-break:clone]',
+          'rounded-[2px] text-accent-ink [box-decoration-break:clone] [text-shadow:0.3px_0_0_currentColor,-0.3px_0_0_currentColor]',
           highlight ? 'bg-(--mark)' : 'bg-highlight'
         )}
         style={highlight ? getSearchColorStyle(highlight.color) : undefined}
