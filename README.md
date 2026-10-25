@@ -120,6 +120,15 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.5.0` (2026-10-25)
+
+- Link web addresses in log lines
+- Add a right-click menu to the desktop app
+- Parse ANSI colors in logs and show them in the view
+- Change how clicking a filtered log line works: it now disables the filter, instead of cancelling the search.
+- Fix layout shift in highlighting
+- Improve focusing behavior between search logs input and process list filter. From logs, we now jump to the filter logs, instead of to the process list.
+
 #### `2.4.0` (2026-10-20)
 
 - Fix the log corner button covering the focused log pane's border
