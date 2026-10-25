@@ -73,6 +73,14 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run test:e2e
+      # Failed jobs are rerun for flaky tests, so each attempt keeps its own traces.
+      - name: Keep the traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 7
       - run: npm run test:package
       # The npm package from this same tested build. It is attached to the draft,
       # and npm-publish.yml publishes exactly this file.
@@ -114,6 +122,13 @@ jobs:
       - run: npm run desktop:verify -- --targets appimage,deb,rpm
       - name: Electron flows against the staged app
         run: npx playwright install --with-deps chromium && xvfb-run -a npm run test:desktop
+      - name: Keep the traces of failed desktop tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-playwright-traces-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 7
       - name: Packaged app smoke test, outside the checkout
         run: |
           smoke="$RUNNER_TEMP/smoke"
