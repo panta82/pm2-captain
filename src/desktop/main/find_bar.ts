@@ -5,6 +5,7 @@
 import { type BrowserWindow, type IpcMainEvent, WebContentsView, app } from 'electron';
 
 import { FIND_BAR_CHANNELS, type IFindBarResult, type IFindBarShow } from '../shared/ipc_channels';
+import { attachContextMenu } from './context_menu';
 
 /** The view's size, with room around the bar for its shadow. */
 const WIDTH = 372;
@@ -131,6 +132,7 @@ export function createFindBar({
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', event => event.preventDefault());
     contents.on('will-attach-webview', event => event.preventDefault());
+    attachContextMenu(contents, window, null);
 
     // Only the bar's own page may drive the search, and only with plain values.
     const isFromBar = (event: IpcMainEvent) => event.senderFrame === contents.mainFrame;

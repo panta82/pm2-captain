@@ -3,13 +3,17 @@ import libPath from 'node:path';
 
 import { AUTH_COOKIE_NAME } from '../../shared/session';
 import type { IBackendRun } from './backend_host';
+import { attachContextMenu } from './context_menu';
 import type { IFileLog } from './desktop_log';
 import type { IPreferenceStore } from './preferences';
 
 const BACKGROUND_COLOR = '#041522';
 const DEFAULT_SIZE = { width: 1400, height: 900 };
 
-/** Opens a link in the system browser. Only web links leave the app. */
+/**
+ * Opens a link in the system browser. Only web links leave the app; plain http
+ * too, as logs often point at a development server on localhost.
+ */
 export function openExternalLink(url: string, log: IFileLog) {
   let parsed: URL;
   try {
@@ -17,10 +21,10 @@ export function openExternalLink(url: string, log: IFileLog) {
   } catch {
     return;
   }
-  if (parsed.protocol === 'https:') {
+  if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
     void shell.openExternal(parsed.toString());
   } else {
-    log.warn('Blocked a link that is not https', { protocol: parsed.protocol });
+    log.warn('Blocked a link that is not http or https', { protocol: parsed.protocol });
   }
 }
 
@@ -120,6 +124,7 @@ export async function createMainWindow({
     }
   });
   contents.on('will-attach-webview', event => event.preventDefault());
+  attachContextMenu(contents, window, url => openExternalLink(url, log));
 
   const rememberBounds = () => {
     if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) {

@@ -124,7 +124,7 @@ const LogRow = memo(function LogRow({
           entry.channel === 'err' && 'text-[#ff8c9e]'
         )}
       >
-        <Highlighted text={entry.text} regex={null} highlights={highlights} />
+        <Highlighted text={entry.text} regex={null} highlights={highlights} hasLinks />
       </span>
     </div>
   );

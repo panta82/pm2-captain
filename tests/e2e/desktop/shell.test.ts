@@ -146,9 +146,15 @@ test('shows the bundled backend in a locked-down window', async () => {
   expect(
     await app.evaluate(() => (globalThis as unknown as { openedLinks: string[] }).openedLinks)
   ).toEqual(['https://example.com/']);
+  // A new window becomes a system browser tab too, for plain http as well, such
+  // as a development server's address in a log. Other schemes stay blocked.
   await page.evaluate(() => window.open('http://127.0.0.1:1/'));
+  await page.evaluate(() => window.open('file:///etc/passwd'));
   await page.waitForTimeout(300);
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  expect(
+    await app.evaluate(() => (globalThis as unknown as { openedLinks: string[] }).openedLinks)
+  ).toEqual(['https://example.com/', 'http://127.0.0.1:1/']);
 
   await app.close();
 });

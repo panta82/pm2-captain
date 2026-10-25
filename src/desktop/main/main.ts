@@ -18,6 +18,7 @@ import libPath from 'node:path';
 import { IPC_CHANNELS } from '../shared/ipc_channels';
 import { launchAppImage } from './appimage_installer';
 import { BackendStartError, IBackendRun, createBackendHost } from './backend_host';
+import { attachContextMenu } from './context_menu';
 import { createFileLog } from './desktop_log';
 import { createBackendEnvironment } from './environment';
 import { IFindBar, createFindBar } from './find_bar';
@@ -198,6 +199,7 @@ function ensureWindowForStatus() {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   const window = mainWindow;
+  attachContextMenu(window.webContents, window, null);
   window.on('closed', () => {
     if (mainWindow === window) {
       mainWindow = null;

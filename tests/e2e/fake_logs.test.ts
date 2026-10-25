@@ -346,6 +346,39 @@ test('combines search boxes that filter or only highlight, each in its own color
   expectNoPageError();
 });
 
+test('turns web addresses in log lines into links that keep the search marks', async ({
+  page,
+  fake,
+}) => {
+  const expectNoPageError = failOnPageError(page);
+  await fake.send({
+    type: 'log.history',
+    daemon: 'local',
+    process: 'api',
+    lines: [
+      line(1, 'For help, see: https://nodejs.org/en/docs/inspector'),
+      line(2, 'Listening on http://localhost:3000/.'),
+      line(3, 'Mirrored to ftp://files.example'),
+    ],
+  });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await openProcessTab(page, 'api', 'Logs');
+  const links = page.locator('[data-component="LogRow"] a');
+  await expect(links).toHaveCount(2);
+  await expect(links.nth(0)).toHaveAttribute('href', 'https://nodejs.org/en/docs/inspector');
+  await expect(links.nth(0)).toHaveAttribute('target', '_blank');
+  // The full stop ends the sentence, not the address.
+  await expect(links.nth(1)).toHaveText('http://localhost:3000/');
+
+  // A match that starts before a link keeps its mark on both sides of the edge.
+  await page.getByPlaceholder('Filter loaded logs…').fill('see: https');
+  await expect(page.getByTitle('Filtered / loaded lines')).toHaveText('1/3');
+  await expect(page.locator('[data-component="LogRow"] mark')).toHaveText(['see: ', 'https']);
+  await expect(links).toHaveText(['https://nodejs.org/en/docs/inspector']);
+  await expect(links.locator('mark')).toHaveText('https');
+  expectNoPageError();
+});
+
 test('shows Following in the corner, and Jump to latest after scrolling up', async ({
   page,
   fake,
