@@ -386,6 +386,41 @@ test('turns web addresses in log lines into links that keep the search marks', a
   expectNoPageError();
 });
 
+test('shows terminal colors, and searches the text without their escape codes', async ({
+  page,
+  fake,
+}) => {
+  const expectNoPageError = failOnPageError(page);
+  const esc = '\x1b';
+  await fake.send({
+    type: 'log.history',
+    daemon: 'local',
+    process: 'api',
+    lines: [
+      line(
+        1,
+        `modules by path ${esc}[1m./src/extension/${esc}[39m${esc}[22m 116 KiB ${esc}[1m${esc}[33m[built]${esc}[39m${esc}[22m`
+      ),
+      line(2, 'plain line'),
+    ],
+  });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await openProcessTab(page, 'api', 'Logs');
+  expect(await logLines(page)).toEqual([
+    line(1, 'modules by path ./src/extension/ 116 KiB [built]'),
+    line(2, 'plain line'),
+  ]);
+  const built = page.locator('[data-component="LogRow"] span[style]', { hasText: '[built]' });
+  await expect(built).toHaveCSS('font-weight', '600');
+  await expect(built).toHaveCSS('color', 'rgb(246, 183, 0)');
+
+  // A search matches across the codes between the words, and marks both sides.
+  await page.getByPlaceholder('Filter loaded logs…').fill('extension/ 116');
+  await expect(page.getByTitle('Filtered / loaded lines')).toHaveText('1/2');
+  await expect(page.locator('[data-component="LogRow"] mark')).toHaveText(['extension/', ' 116']);
+  expectNoPageError();
+});
+
 test('shows Following in the corner, and Jump to latest after scrolling up', async ({
   page,
   fake,

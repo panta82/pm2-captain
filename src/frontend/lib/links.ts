@@ -1,16 +1,8 @@
-import type { IHighlightSegment } from '@/lib/highlight';
-
 /** A web address found in text, by character offsets. */
 export type ITextLink = {
   start: number;
   end: number;
   url: string;
-};
-
-/** A run of highlight segments that all lie inside one link, or outside any. */
-export type ILinkedSegments = {
-  link: ITextLink | null;
-  segments: IHighlightSegment[];
 };
 
 // A link runs up to whitespace, a quote, an angle bracket or a control
@@ -58,41 +50,4 @@ export function findLinks(text: string): ITextLink[] {
     }
   }
   return links;
-}
-
-/**
- * Groups highlight segments by the link they lie in. A segment that crosses
- * a link's edge is cut there, so a search match can start before a link and
- * end inside it.
- */
-export function groupSegmentsByLink(
-  segments: readonly IHighlightSegment[],
-  links: readonly ITextLink[]
-): ILinkedSegments[] {
-  const groups: ILinkedSegments[] = [];
-  let offset = 0;
-  let linkIndex = 0;
-  for (const segment of segments) {
-    let start = 0;
-    while (start < segment.text.length) {
-      const position = offset + start;
-      while (linkIndex < links.length && links[linkIndex].end <= position) {
-        linkIndex += 1;
-      }
-      const next = links[linkIndex];
-      const link = next && next.start <= position ? next : null;
-      const boundary = link ? link.end : (next?.start ?? Infinity);
-      const end = Math.min(segment.text.length, boundary - offset);
-      const piece = { text: segment.text.slice(start, end), layer: segment.layer };
-      const last = groups.at(-1);
-      if (last && last.link === link) {
-        last.segments.push(piece);
-      } else {
-        groups.push({ link, segments: [piece] });
-      }
-      start = end;
-    }
-    offset += segment.text.length;
-  }
-  return groups;
 }

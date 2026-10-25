@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildHighlightRegex, getHighlightSegments } from '../../../../src/frontend/lib/highlight';
-import { findLinks, groupSegmentsByLink } from '../../../../src/frontend/lib/links';
+import { findLinks } from '../../../../src/frontend/lib/links';
 
 const urlsIn = (text: string) => findLinks(text).map(link => link.url);
 
@@ -47,38 +46,5 @@ describe('findLinks', () => {
   it('ignores other schemes, addresses without a scheme, and incomplete ones', () => {
     expect(urlsIn('ftp://x.io file:///etc/passwd javascript:alert(1) www.x.io')).toEqual([]);
     expect(urlsIn('https:// and http://...')).toEqual([]);
-  });
-});
-
-describe('groupSegmentsByLink', () => {
-  it('cuts a match that crosses the edge of a link', () => {
-    const text = 'see: https://x.io/a now';
-    const segments = getHighlightSegments(text, [
-      buildHighlightRegex('see: https', { caseSensitive: false, regex: false }),
-    ]);
-    const groups = groupSegmentsByLink(segments, findLinks(text));
-
-    expect(groups).toEqual([
-      { link: null, segments: [{ text: 'see: ', layer: 0 }] },
-      {
-        link: { start: 5, end: 19, url: 'https://x.io/a' },
-        segments: [
-          { text: 'https', layer: 0 },
-          { text: '://x.io/a', layer: null },
-        ],
-      },
-      { link: null, segments: [{ text: ' now', layer: null }] },
-    ]);
-  });
-
-  it('keeps neighboring links apart', () => {
-    const text = 'https://a.io https://b.io';
-    const groups = groupSegmentsByLink(getHighlightSegments(text, []), findLinks(text));
-
-    expect(groups.map(group => [group.link?.url ?? null, group.segments])).toEqual([
-      ['https://a.io', [{ text: 'https://a.io', layer: null }]],
-      [null, [{ text: ' ', layer: null }]],
-      ['https://b.io', [{ text: 'https://b.io', layer: null }]],
-    ]);
   });
 });

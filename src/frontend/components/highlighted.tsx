@@ -1,34 +1,41 @@
 import { Fragment } from 'react';
 
+import { type IAnsiRun, getAnsiStyle } from '@/lib/ansi';
 import {
   type IHighlightLayer,
   type IHighlightSegment,
   getHighlightSegments,
   getSearchColorStyle,
 } from '@/lib/highlight';
-import { findLinks, groupSegmentsByLink } from '@/lib/links';
+import { findLinks } from '@/lib/links';
+import { groupConsecutive, splitRichText } from '@/lib/rich_text';
 import { cn } from '@/lib/utils';
 
 const NO_HIGHLIGHTS: readonly IHighlightLayer[] = [];
+const NO_STYLES: readonly IAnsiRun[] = [];
 
 /**
  * Paint filter matches in the highlight green and each highlight term in its own color.
- * With `hasLinks`, web addresses in the text also become links.
+ * With `hasLinks`, web addresses in the text also become links; `styles` color
+ * the text as a terminal would.
  */
 export function Highlighted({
   text,
   regex,
   highlights = NO_HIGHLIGHTS,
   hasLinks = false,
+  styles = NO_STYLES,
 }: {
   text: string;
   /** The active filter; its matches win where they overlap a highlight. */
   regex: RegExp | null;
   highlights?: readonly IHighlightLayer[];
   hasLinks?: boolean;
+  /** Styled runs of the text, from the escape codes `parseAnsi` took out of it. */
+  styles?: readonly IAnsiRun[];
 }) {
   const links = hasLinks ? findLinks(text) : [];
-  if (!regex && !highlights.length && !links.length) {
+  if (!regex && !highlights.length && !links.length && !styles.length) {
     return text;
   }
 
@@ -57,21 +64,31 @@ export function Highlighted({
     );
   };
   const segments = getHighlightSegments(text, regex ? [regex, ...regexes] : regexes);
-  if (!links.length) {
-    return <>{segments.map((segment, index) => renderSegment(segment, `h-${index}`))}</>;
-  }
+  const pieces = splitRichText(segments, links, styles);
 
+  // Links hold styled runs, which hold marks. A mark keeps its own colors in
+  // a colored run, so it reads the same everywhere.
   return (
     <>
-      {groupSegmentsByLink(segments, links).map(({ link, segments: linkSegments }, groupIndex) => {
-        const content = linkSegments.map((segment, index) =>
-          renderSegment(segment, `h-${groupIndex}-${index}`)
+      {groupConsecutive(pieces, piece => piece.link).map(({ key: link, items }, linkIndex) => {
+        const content = groupConsecutive(items, piece => piece.style).map(
+          ({ key: style, items: styled }, styleIndex) => {
+            const key = `${linkIndex}-${styleIndex}`;
+            const marks = styled.map((piece, index) => renderSegment(piece, `h-${key}-${index}`));
+            return style ? (
+              <span key={`s-${key}`} style={getAnsiStyle(style)}>
+                {marks}
+              </span>
+            ) : (
+              <Fragment key={`t-${key}`}>{marks}</Fragment>
+            );
+          }
         );
         return link ? (
           // Out of the tab order, which would otherwise step through every link
           // on screen; not draggable, so a drag that starts on it selects text.
           <a
-            key={`l-${groupIndex}`}
+            key={`l-${linkIndex}`}
             href={link.url}
             target="_blank"
             rel="noreferrer"
@@ -82,7 +99,7 @@ export function Highlighted({
             {content}
           </a>
         ) : (
-          <Fragment key={`t-${groupIndex}`}>{content}</Fragment>
+          <Fragment key={`u-${linkIndex}`}>{content}</Fragment>
         );
       })}
     </>

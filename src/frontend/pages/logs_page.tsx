@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
+import { type IAnsiText, parseAnsi } from '@/lib/ansi';
 import { type IHighlightLayer, compileSearchTerms, getSearchColorStyle } from '@/lib/highlight';
 import { isTypingTarget, useShortcutHandler } from '@/lib/keyboard_shortcuts';
 import { MAX_SEARCH_TERMS, useLogSearch } from '@/lib/log_search';
@@ -30,6 +31,20 @@ const MAX_LOADED_LINES = 20_000;
 const MAX_PAUSED_LINES = 5_000;
 const CORNER_BUTTON_SIZE = 30; // the Following/Jump button; logs end above it
 const USER_SCROLL_WINDOW_MS = 500; // how long after wheel, touch or keys a scroll is the user's
+
+// Each loaded line is parsed once: the search runs over all of them on every
+// change, and a row renders again as it scrolls back into view.
+const parsedTexts = new WeakMap<ILogEntry, IAnsiText>();
+
+/** A line's text without its terminal escape codes, and the styles they set. */
+function parseEntryText(entry: ILogEntry) {
+  let parsed = parsedTexts.get(entry);
+  if (!parsed) {
+    parsed = parseAnsi(entry.text);
+    parsedTexts.set(entry, parsed);
+  }
+  return parsed;
+}
 
 function hasSameLogEntries(previous: ILogEntry[], next: ILogEntry[]) {
   // History IDs change on every read. Compare snapshots, never deduplicate
@@ -86,6 +101,7 @@ const LogRow = memo(function LogRow({
   onMeasure?: (element: HTMLDivElement | null) => void;
 }) {
   const timestamp = useMemo(() => formatTimestamp(entry.timestamp), [entry.timestamp]);
+  const { text, runs } = parseEntryText(entry);
 
   return (
     <div
@@ -124,7 +140,7 @@ const LogRow = memo(function LogRow({
           entry.channel === 'err' && 'text-[#ff8c9e]'
         )}
       >
-        <Highlighted text={entry.text} regex={null} highlights={highlights} hasLinks />
+        <Highlighted text={text} regex={null} highlights={highlights} hasLinks styles={runs} />
       </span>
     </div>
   );
@@ -418,7 +434,7 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
     return entries.filter(entry =>
       filters.every(filter => {
         filter.lastIndex = 0;
-        return filter.test(entry.text);
+        return filter.test(parseEntryText(entry).text);
       })
     );
   }, [compiledSearch, entries]);

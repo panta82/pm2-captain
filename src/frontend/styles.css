@@ -54,6 +54,29 @@
   --color-mark-teal: #3ee0c8;
 }
 
+/*
+ * Terminal colors for the escape codes in log lines, in code order. Black is
+ * lifted to stay readable on the plane; the others lean on Captain's accents.
+ */
+@theme static {
+  --color-ansi-black: #4a6378;
+  --color-ansi-red: var(--color-danger);
+  --color-ansi-green: var(--color-online);
+  --color-ansi-yellow: var(--color-warning);
+  --color-ansi-blue: #4d9dff;
+  --color-ansi-magenta: #c792ea;
+  --color-ansi-cyan: var(--color-cyan);
+  --color-ansi-white: #d8e8f5;
+  --color-ansi-bright-black: var(--color-muted);
+  --color-ansi-bright-red: #ff8c9e;
+  --color-ansi-bright-green: #6bf0a3;
+  --color-ansi-bright-yellow: #ffe066;
+  --color-ansi-bright-blue: #82b8ff;
+  --color-ansi-bright-magenta: #e0a8ff;
+  --color-ansi-bright-cyan: #7fdbff;
+  --color-ansi-bright-white: #ffffff;
+}
+
 :root {
   font-family: var(--font-sans);
   background: var(--color-surface-plane);
