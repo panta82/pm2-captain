@@ -93,6 +93,32 @@ describe('Ctrl+F in a browser tab', () => {
     expect(document.activeElement).toBe(processFilter);
   });
 
+  it('starts at the boxes nearest the focus', async () => {
+    const { runFind, runFindBack } = await load();
+    const sidebar = document.createElement('nav');
+    const logsPage = document.createElement('section');
+    document.body.append(sidebar, logsPage);
+    const processFilter = addFilter(1, 'api', sidebar);
+    const logBox = addFilter(2, 'webpack', logsPage);
+    const logLines = document.createElement('div');
+    logLines.tabIndex = 0;
+    logsPage.append(logLines);
+    const processLink = document.createElement('a');
+    processLink.href = '#api';
+    sidebar.append(processLink);
+
+    logLines.focus();
+    expect(runFind()).toBe(true);
+    expect(document.activeElement).toBe(logBox);
+    // From there the order is as always.
+    expect(runFindBack()).toBe(true);
+    expect(document.activeElement).toBe(processFilter);
+
+    processLink.focus();
+    expect(runFind()).toBe(true);
+    expect(document.activeElement).toBe(processFilter);
+  });
+
   it('leaves a page without a filter box to the browser', async () => {
     const { runFind, runFindBack } = await load();
     expect(runFind()).toBe(false);

@@ -88,6 +88,11 @@ test('steps through the filter boxes with Ctrl+F, then leaves find to the browse
   await page.keyboard.press('Control+Shift+F');
   await expect(processFilter(page)).toBeFocused();
   expect(await wasTaken()).toBe(true);
+
+  // From the log lines, Ctrl+F starts at the log search instead.
+  await page.getByLabel('Log lines').click();
+  await page.keyboard.press('Control+f');
+  await expect(logBoxes.nth(0)).toBeFocused();
   assertNoErrors();
 });
 
