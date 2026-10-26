@@ -297,6 +297,30 @@ test('finds in the page with a find bar of its own, after the filter box', async
   await app.close();
 });
 
+test('returns from the log lines to the log filter while page find stays open', async () => {
+  const { app, page } = await launch();
+  await page.getByText('api', { exact: true }).first().click();
+  await page.getByRole('link', { name: 'Logs' }).click();
+  const filter = page.getByPlaceholder('Filter loaded logs…');
+  const isFilterActive = () => filter.evaluate(element => element === document.activeElement);
+
+  await filter.focus();
+  await page.keyboard.press('Control+f');
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true });
+
+  await filter.click();
+  await filter.press('Enter');
+  await expect
+    .poll(() =>
+      page.getByLabel('Log lines').evaluate(element => element === document.activeElement)
+    )
+    .toBe(true);
+  await page.keyboard.press('Control+f');
+  await expect.poll(isFilterActive).toBe(true);
+  await expect.poll(() => findBarState(app)).toMatchObject({ isVisible: true });
+  await app.close();
+});
+
 test('keeps UI preferences although the port changes on every launch', async () => {
   const first = await launch();
   await first.page.getByText('api', { exact: true }).first().click();

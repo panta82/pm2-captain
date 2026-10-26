@@ -34,8 +34,8 @@ function findSteps() {
 
 /**
  * The filter box Ctrl+F goes to now, or null when the page's find comes next.
- * From outside the boxes it starts at the first box near the focus, unless the
- * desktop find bar is still open: then it goes back there.
+ * From outside the boxes it starts at the first box near the focus. Without a
+ * nearby box, it returns to the desktop find bar if it is still open.
  */
 export function nextFindTarget(): HTMLInputElement | null {
   const steps = findSteps();
@@ -44,17 +44,21 @@ export function nextFindTarget(): HTMLInputElement | null {
   if (index >= 0) {
     return steps[index + 1] ?? null;
   }
-  if (desktopBridge && isFindBarOpen) {
-    return null;
-  }
   // The closest area around the focus that has boxes: the log search from the
-  // log lines, the process filter from the process list, the first box from
-  // anywhere else.
-  for (let area = active; area; area = area.parentElement) {
+  // log lines, the process filter from the process list. Page roots do not
+  // define a nearby box, so an open desktop find bar still wins elsewhere.
+  for (
+    let area = active;
+    area && area !== document.body && area !== document.documentElement;
+    area = area.parentElement
+  ) {
     const nearest = steps.find(step => area.contains(step));
     if (nearest) {
       return nearest;
     }
+  }
+  if (desktopBridge && isFindBarOpen) {
+    return null;
   }
   return steps[0] ?? null;
 }

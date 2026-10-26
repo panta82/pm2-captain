@@ -120,6 +120,10 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.5.1` (2026-10-26)
+
+- Fix Ctrl+F returning to the log filter after Enter moves focus into the logs, even when the desktop's page search is open
+
 #### `2.5.0` (2026-10-25)
 
 - Link web addresses in log lines

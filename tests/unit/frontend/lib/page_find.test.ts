@@ -183,6 +183,38 @@ describe('Ctrl+F in the desktop app', () => {
     expect(document.activeElement).toBe(firstLogBox);
   });
 
+  it('returns to nearby filter boxes while the find bar stays open', async () => {
+    const { bar, setOpen } = fakeFindBar();
+    const { nextFindTarget, runFind } = await load(bar);
+    const sidebar = document.createElement('nav');
+    const logsPage = document.createElement('section');
+    document.body.append(sidebar, logsPage);
+    const processFilter = addFilter(1, 'api', sidebar);
+    const logBox = addFilter(2, 'error', logsPage);
+    const logLines = document.createElement('div');
+    logLines.tabIndex = 0;
+    logsPage.append(logLines);
+    sidebar.tabIndex = 0;
+
+    logBox.focus();
+    runFind();
+    expect(bar.open).toHaveBeenCalledTimes(1);
+    setOpen(true);
+
+    // Enter moves from the log filter into the lines, leaving the find bar open.
+    logBox.focus();
+    logLines.focus();
+    expect(nextFindTarget()).toBe(logBox);
+    expect(runFind()).toBe(true);
+    expect(document.activeElement).toBe(logBox);
+    expect([logBox.selectionStart, logBox.selectionEnd]).toEqual([0, 5]);
+    expect(bar.open).toHaveBeenCalledTimes(1);
+
+    sidebar.focus();
+    expect(runFind()).toBe(true);
+    expect(document.activeElement).toBe(processFilter);
+  });
+
   it('comes back from the find bar to the last filter box', async () => {
     const { bar, setOpen, back } = fakeFindBar();
     await load(bar);

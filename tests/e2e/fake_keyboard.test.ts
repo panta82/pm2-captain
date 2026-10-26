@@ -149,6 +149,8 @@ test('goes from a filter box into its list, and clears the process filter with E
   await openProcessTab(page, 'mailer', 'Logs');
   await page.getByPlaceholder('Filter loaded logs…').press('Enter');
   await expect(page.getByLabel('Log lines')).toBeFocused();
+  await page.keyboard.press('Control+f');
+  await expect(page.getByPlaceholder('Filter loaded logs…')).toBeFocused();
 
   // The list is one tab stop: from the filter's buttons, Tab lands on it.
   await processFilter(page).focus();
