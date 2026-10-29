@@ -8,7 +8,12 @@ import { cn } from '@/lib/utils';
 import type { IProcessListResult } from '@shared/contracts';
 
 import { useDaemonManager } from './daemon_manager';
-import { DAEMON_OPTION_LIST_CLASS, DaemonOption, DaemonStatusIcon } from './daemon_option';
+import {
+  DAEMON_OPTION_LIST_CLASS,
+  DaemonOption,
+  DaemonStatusIcon,
+  daemonColorStyle,
+} from './daemon_option';
 import { ShortcutHint } from './shortcut_hint';
 
 const VIEWPORT_MARGIN = 12;
@@ -119,8 +124,13 @@ export function DaemonPicker({
           }
         }}
       >
-        {selectedDaemon ? <DaemonStatusIcon status={selectedDaemon.status} /> : null}
-        <span className={cn('min-w-0 flex-1 truncate text-left', !selectedDaemon && 'text-muted')}>
+        {selectedDaemon ? (
+          <DaemonStatusIcon status={selectedDaemon.status} color={selectedDaemon.color} />
+        ) : null}
+        <span
+          className={cn('min-w-0 flex-1 truncate text-left', !selectedDaemon && 'text-muted')}
+          style={daemonColorStyle(selectedDaemon?.color ?? null)}
+        >
           {selectedDaemon?.label ?? 'No daemons'}
         </span>
         <ChevronDown

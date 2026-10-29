@@ -7,6 +7,19 @@ export type ILogChannel = 'out' | 'err' | 'shared';
 export type IDaemonKind = 'local' | 'ssh';
 export type IDaemonStatus = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'error';
 
+/** Colors a user can give a daemon, to tell production from development at a glance. */
+export const DAEMON_COLORS = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'teal',
+  'blue',
+  'violet',
+  'pink',
+] as const;
+export type IDaemonColor = (typeof DAEMON_COLORS)[number];
+
 /** A PM2 home directory on the computer that runs Captain. */
 export interface ILocalDaemonConfig {
   daemonId: string;
@@ -14,6 +27,7 @@ export interface ILocalDaemonConfig {
   /** Absolute path. */
   pm2Home: string;
   label?: string;
+  color?: IDaemonColor;
 }
 
 /** A PM2 home on a server reached with the system SSH client. */
@@ -24,6 +38,7 @@ export interface ISshDaemonConfig {
   /** Absolute or `~`-relative remote path. Omitted: the remote PM2_HOME, else ~/.pm2. */
   pm2Home?: string;
   label?: string;
+  color?: IDaemonColor;
   lastKnownHostname?: string;
   lastKnownUsername?: string;
 }
@@ -44,6 +59,7 @@ export interface IDaemonSummary {
   connectionId: string;
   kind: IDaemonKind;
   label: string;
+  color: IDaemonColor | null;
   hostname: string | null;
   username: string | null;
   status: IDaemonStatus;

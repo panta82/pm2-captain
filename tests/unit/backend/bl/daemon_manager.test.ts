@@ -378,7 +378,7 @@ describe('daemonManager', () => {
     expect(daemonStore.save).not.toHaveBeenCalled();
   });
 
-  it('renames a daemon without reconnecting it', async () => {
+  it('renames and recolors a daemon without reconnecting it', async () => {
     const { manager, daemonStore } = await startManager();
 
     const updated = await manager.update(
@@ -387,14 +387,15 @@ describe('daemonManager', () => {
         kind: 'ssh',
         sshArgs: ['deploy@one.example.com'],
         label: 'staging',
+        color: 'yellow',
       },
       expectedOf(storedDaemons[1])
     );
 
-    expect(updated).toMatchObject({ label: 'staging', status: 'online' });
+    expect(updated).toMatchObject({ label: 'staging', color: 'yellow', status: 'online' });
     expect(daemonStore.save).toHaveBeenCalledWith([
       storedDaemons[0],
-      { ...storedDaemons[1], label: 'staging' },
+      { ...storedDaemons[1], label: 'staging', color: 'yellow' },
       storedDaemons[2],
     ]);
     expect(mocked.containers).toHaveLength(3);
@@ -577,13 +578,23 @@ describe('daemonManager', () => {
     await expect(
       manager.remove(storedDaemons[0].daemonId, expectedOf(storedDaemons[0]))
     ).rejects.toBeInstanceOf(DaemonChangedError);
+
+    // A color is something the form edits, so changing it elsewhere conflicts too.
+    daemonStore.edit([storedDaemons[0], { ...storedDaemons[1], color: 'red' }, storedDaemons[2]]);
+    await expect(
+      manager.update(
+        storedDaemons[1].daemonId,
+        { kind: 'ssh', sshArgs: ['deploy@one.example.com'], label: 'mine' },
+        expectedOf(storedDaemons[1])
+      )
+    ).rejects.toBeInstanceOf(DaemonChangedError);
     expect(daemonStore.save).not.toHaveBeenCalled();
 
     // Remembered host names are not something the form edits.
     await manager.update(
       storedDaemons[1].daemonId,
       { kind: 'ssh', sshArgs: ['deploy@one.example.com'], label: 'one' },
-      { kind: 'ssh', sshArgs: ['deploy@one.example.com'] }
+      { kind: 'ssh', sshArgs: ['deploy@one.example.com'], color: 'red' }
     );
   });
 

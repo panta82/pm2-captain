@@ -206,6 +206,7 @@ export function ProcessLayout() {
               processes={visibleProcesses}
               highlight={filtered.highlight}
               selectedDaemonId={daemonId}
+              daemonColor={selectedDaemon?.color}
               selectedIds={pmIds}
               tab={sidebarTab}
               autoFocus
@@ -240,6 +241,7 @@ export function ProcessLayout() {
                 processes={visibleProcesses}
                 highlight={filtered.highlight}
                 selectedDaemonId={daemonId}
+                daemonColor={selectedDaemon?.color}
                 selectedIds={pmIds}
                 tab={sidebarTab}
                 autoFocus

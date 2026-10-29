@@ -2,8 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
 
-import { ILogStreamEvent } from '@shared/contracts';
-
+import { DAEMON_COLORS, ILogStreamEvent } from '../../shared/contracts';
 import type { IAppUpdateState } from '../../shared/desktop_bridge';
 import { AppUpdatesUnavailableError } from '../bl/app_updates';
 import {
@@ -30,12 +29,14 @@ export const daemonInputSchema = z.discriminatedUnion('kind', [
     kind: z.literal('local'),
     pm2Home: z.string().trim().min(1),
     label: z.string().trim().min(1).optional(),
+    color: z.enum(DAEMON_COLORS).optional(),
   }),
   z.object({
     kind: z.literal('ssh'),
     sshArgs: z.array(z.string()).min(1),
     pm2Home: z.string().trim().min(1).optional(),
     label: z.string().trim().min(1).optional(),
+    color: z.enum(DAEMON_COLORS).optional(),
   }),
 ]);
 

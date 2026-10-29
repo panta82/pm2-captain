@@ -120,6 +120,12 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.6.0` (2026-10-29)
+
+- Give each daemon a color in the daemon settings, to tell production from development at a glance
+- Show the daemon's name, server icon and process names in its color
+- Captains older than 2.6.0 that share `daemons.json` drop the colors when they save it
+
 #### `2.5.1` (2026-10-26)
 
 - Fix Ctrl+F returning to the log filter after Enter moves focus into the logs, even when the desktop's page search is open

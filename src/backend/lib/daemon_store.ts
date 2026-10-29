@@ -4,7 +4,7 @@ import libPath from 'node:path';
 import { lock } from 'proper-lockfile';
 import { z } from 'zod';
 
-import { IDaemonConfig, IDaemonInput } from '../../shared/contracts';
+import { DAEMON_COLORS, IDaemonConfig, IDaemonInput } from '../../shared/contracts';
 import { IContainer } from '../container';
 import { define } from '../framework/dependency_injection';
 
@@ -14,6 +14,7 @@ const DaemonConfigSchema = z.discriminatedUnion('kind', [
     kind: z.literal('local'),
     pm2Home: z.string().startsWith('/'),
     label: z.string().min(1).optional(),
+    color: z.enum(DAEMON_COLORS).optional(),
   }),
   z.object({
     daemonId: z.string().uuid(),
@@ -21,6 +22,7 @@ const DaemonConfigSchema = z.discriminatedUnion('kind', [
     sshArgs: z.array(z.string()).min(1),
     pm2Home: z.string().min(1).optional(),
     label: z.string().min(1).optional(),
+    color: z.enum(DAEMON_COLORS).optional(),
     lastKnownHostname: z.string().min(1).optional(),
     lastKnownUsername: z.string().min(1).optional(),
   }),

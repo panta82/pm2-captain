@@ -55,6 +55,22 @@
 }
 
 /*
+ * Daemon colors, which a user picks to tell daemons apart, such as production
+ * from development. Components pick them by name at runtime, so they are always
+ * emitted. They share the search box hues and read on every surface.
+ */
+@theme static {
+  --color-daemon-red: var(--color-mark-red);
+  --color-daemon-orange: var(--color-mark-orange);
+  --color-daemon-yellow: var(--color-mark-yellow);
+  --color-daemon-green: var(--color-mark-green);
+  --color-daemon-teal: var(--color-mark-teal);
+  --color-daemon-blue: var(--color-mark-blue);
+  --color-daemon-violet: var(--color-mark-violet);
+  --color-daemon-pink: var(--color-mark-pink);
+}
+
+/*
  * Terminal colors for the escape codes in log lines, in code order. Black is
  * lifted to stay readable on the plane; the others lean on Captain's accents.
  */

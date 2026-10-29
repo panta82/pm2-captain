@@ -1,9 +1,14 @@
 import { LoaderCircle, Server, ServerOff } from 'lucide-react';
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, CSSProperties } from 'react';
 
 import { cn } from '@/lib/utils';
 
-import type { IDaemonStatus, IDaemonSummary, IProcessSummary } from '@shared/contracts';
+import type {
+  IDaemonColor,
+  IDaemonStatus,
+  IDaemonSummary,
+  IProcessSummary,
+} from '@shared/contracts';
 
 import { ProcessCounts } from './process_counts';
 
@@ -14,15 +19,23 @@ import { ProcessCounts } from './process_counts';
 export const DAEMON_OPTION_LIST_CLASS =
   'grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2.5';
 
+/** Text color for a daemon the user gave a color. Without one, the element keeps its own. */
+export function daemonColorStyle(color: IDaemonColor | null): CSSProperties | undefined {
+  return color ? { color: `var(--color-daemon-${color})` } : undefined;
+}
+
 /**
  * Connection state of a daemon. Deliberately not a dot: dots mean process status
  * everywhere else, including the list this sits next to.
  */
 export function DaemonStatusIcon({
   status,
+  color = null,
   className,
 }: {
   status: IDaemonStatus;
+  /** The daemon's color, shown while it is online. Other states keep their warning colors. */
+  color?: IDaemonColor | null;
   className?: string;
 }) {
   const isConnecting = status === 'connecting' || status === 'reconnecting';
@@ -32,6 +45,7 @@ export function DaemonStatusIcon({
     <Icon
       data-component="DaemonStatusIcon"
       aria-hidden
+      style={status === 'online' ? daemonColorStyle(color) : undefined}
       className={cn(
         'size-3.5 shrink-0',
         status === 'online'
@@ -69,8 +83,8 @@ export function DaemonOption({
         className
       )}
     >
-      <DaemonStatusIcon status={daemon.status} />
-      <span className="truncate" title={daemon.label}>
+      <DaemonStatusIcon status={daemon.status} color={daemon.color} />
+      <span className="truncate" title={daemon.label} style={daemonColorStyle(daemon.color)}>
         {daemon.label}
       </span>
       <span className="text-[10px] uppercase text-muted">

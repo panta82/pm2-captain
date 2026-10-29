@@ -42,6 +42,38 @@ test('follows renames and removals made outside Captain', async ({ page, fake })
   await expect(processRow(page, 'api')).toBeVisible();
 });
 
+test('colors a daemon from its form and follows colors changed outside Captain', async ({
+  page,
+  fake,
+}) => {
+  await page.goto(FAKE_LAUNCH_PATH);
+  await expect(processRow(page, 'api')).toBeVisible();
+  const picker = page.getByRole('button', { name: /^Daemon: / });
+  const pickerLabel = picker.getByText(/^captain@fake-host/);
+  await picker.click();
+  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
+
+  await dialog.getByRole('radio', { name: 'red' }).check();
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+  expect((await fake.state()).registry.daemons?.[0].color).toBe('red');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  // --color-daemon-red
+  await expect(pickerLabel).toHaveCSS('color', 'rgb(255, 107, 107)');
+  await expect(processRow(page, 'api').getByText('api', { exact: true })).toHaveCSS(
+    'color',
+    'rgb(255, 107, 107)'
+  );
+
+  await fake.send({ type: 'registry.edit', daemon: 'local', color: 'blue' });
+  // --color-daemon-blue
+  await expect(pickerLabel).toHaveCSS('color', 'rgb(92, 184, 255)');
+
+  await fake.send({ type: 'registry.edit', daemon: 'local', color: null });
+  await expect(pickerLabel).toHaveCSS('color', 'rgb(255, 255, 255)');
+});
+
 test('leaves a process page when its daemon is moved elsewhere', async ({ page, fake }) => {
   const original = (await fake.state()).daemons[0].pm2Home!;
   await page.goto(FAKE_LAUNCH_PATH);

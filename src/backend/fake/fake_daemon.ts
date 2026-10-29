@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ProcessDescription } from 'pm2';
 
-import type { IDaemonConfig } from '../../shared/contracts';
+import type { IDaemonColor, IDaemonConfig } from '../../shared/contracts';
 import { resolveLocalPath } from '../backend_settings';
 import { IFileCursor, IReverseLinePage } from '../lib/log_file_reader';
 import { IPM2LogEvent, Pm2DaemonUnavailableError } from '../lib/pm2_client';
@@ -94,6 +94,7 @@ export class FakeDaemon {
   readonly daemonId: string;
   readonly location: IFakeLocation;
   readonly label: string | null;
+  readonly color: IDaemonColor | null;
   readonly isRegistered: boolean;
   _fields: Required<IFakeDaemonFields>;
   _processes: IFakeProcess[] = [];
@@ -112,6 +113,7 @@ export class FakeDaemon {
     this.key = input.key;
     this.daemonId = daemonIdFor(input.key);
     this.label = input.label ?? null;
+    this.color = input.color ?? null;
     this.isRegistered = input.isRegistered ?? true;
     this._fields = {
       isUp: input.isUp ?? true,
@@ -145,15 +147,18 @@ export class FakeDaemon {
 
   /** How Captain stores this daemon when the scenario registers it. */
   get config(): IDaemonConfig {
-    const label = this.label ? { label: this.label } : {};
+    const appearance = {
+      ...(this.label ? { label: this.label } : {}),
+      ...(this.color ? { color: this.color } : {}),
+    };
     return this.location.kind === 'local'
-      ? { daemonId: this.daemonId, kind: 'local', pm2Home: this.location.pm2Home, ...label }
+      ? { daemonId: this.daemonId, kind: 'local', pm2Home: this.location.pm2Home, ...appearance }
       : {
           daemonId: this.daemonId,
           kind: 'ssh',
           sshArgs: this.location.sshArgs,
           ...(this.location.pm2Home ? { pm2Home: this.location.pm2Home } : {}),
-          ...label,
+          ...appearance,
         };
   }
 
@@ -321,6 +326,7 @@ export class FakeDaemon {
     daemonId: this.daemonId,
     ...this.location,
     label: this.label,
+    color: this.color,
     isRegistered: this.isRegistered,
     ...this._fields,
     connections: this._connections.size,

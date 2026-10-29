@@ -126,9 +126,12 @@ function errorMessage(error: unknown): string {
 
 function normalizeInput(input: IDaemonInput): IDaemonInput {
   const label = input.label?.trim();
-  const labelPart = label ? { label } : {};
+  const appearance = {
+    ...(label ? { label } : {}),
+    ...(input.color ? { color: input.color } : {}),
+  };
   if (input.kind === 'local') {
-    return { kind: 'local', pm2Home: resolveLocalPath(input.pm2Home), ...labelPart };
+    return { kind: 'local', pm2Home: resolveLocalPath(input.pm2Home), ...appearance };
   }
   const pm2Home = input.pm2Home?.trim().replace(/(.)\/+$/, '$1');
   if (pm2Home && !REMOTE_PM2_HOME_PATTERN.test(pm2Home)) {
@@ -136,7 +139,7 @@ function normalizeInput(input: IDaemonInput): IDaemonInput {
       'A remote PM2 home must be an absolute path or start with ~, and cannot contain ":".'
     );
   }
-  return { kind: 'ssh', sshArgs: input.sshArgs, ...(pm2Home ? { pm2Home } : {}), ...labelPart };
+  return { kind: 'ssh', sshArgs: input.sshArgs, ...(pm2Home ? { pm2Home } : {}), ...appearance };
 }
 
 function isSameDaemon(left: IDaemonInput, right: IDaemonInput) {
@@ -150,6 +153,7 @@ function editableFields(daemon: IDaemonInput | IDaemonConfig): string {
     daemon.kind === 'ssh' ? daemon.sshArgs : null,
     daemon.pm2Home ?? null,
     daemon.label ?? null,
+    daemon.color ?? null,
   ]);
 }
 
@@ -243,6 +247,7 @@ export function createDaemonManager({
     connectionId: runtime.connectionId,
     kind: runtime.config.kind,
     label: labelFor(runtime),
+    color: runtime.config.color ?? null,
     hostname: runtime.hostname,
     username: runtime.username,
     status: runtime.status,
@@ -284,9 +289,9 @@ export function createDaemonManager({
   };
 
   /**
-   * Makes the runtimes match a validated list. Label edits and reordering keep
-   * connections; a new location is a new connection. Runs in the mutation
-   * queue. Resolves to the retirements it started.
+   * Makes the runtimes match a validated list. Label and color edits and
+   * reordering keep connections; a new location is a new connection. Runs in
+   * the mutation queue. Resolves to the retirements it started.
    */
   const reconcile = (configs: IDaemonConfig[]) => {
     const previous = new Map(runtimes);

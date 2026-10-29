@@ -207,18 +207,28 @@ export function createFakeWorld({ settings, log }: IContainer) {
       if (command.type === 'registry.edit') {
         const daemons = editableRegistry();
         const entry = storedEntry(daemons, command.daemon);
-        if (command.label === undefined && command.pm2Home === undefined) {
-          throw new InvalidFakeCommandError('registry.edit needs a label or a pm2Home.');
+        if (
+          command.label === undefined &&
+          command.color === undefined &&
+          command.pm2Home === undefined
+        ) {
+          throw new InvalidFakeCommandError('registry.edit needs a label, a color or a pm2Home.');
         }
-        const { label: _label, ...unlabeled } = entry;
+        const { label: _label, color: _color, ...unlabeled } = entry;
         const label = command.label === undefined ? entry.label : (command.label ?? undefined);
+        const color = command.color === undefined ? entry.color : (command.color ?? undefined);
         const pm2Home =
           command.pm2Home === undefined
             ? entry.pm2Home
             : entry.kind === 'local'
               ? resolveLocalPath(command.pm2Home)
               : command.pm2Home;
-        const edited = { ...unlabeled, pm2Home, ...(label ? { label } : {}) } as IDaemonConfig;
+        const edited = {
+          ...unlabeled,
+          pm2Home,
+          ...(label ? { label } : {}),
+          ...(color ? { color } : {}),
+        } as IDaemonConfig;
         changeRegistry({
           ...registry,
           daemons: daemons.map(config => (config === entry ? edited : config)),

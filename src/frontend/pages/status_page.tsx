@@ -20,6 +20,7 @@ import { trpc } from '@/lib/trpc';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 
 import { useDaemonManager } from '@/components/daemon_manager';
+import { daemonColorStyle } from '@/components/daemon_option';
 import { ErrorPanel } from '@/components/error_panel';
 import { Highlighted } from '@/components/highlighted';
 import { ProcessActions } from '@/components/process_actions';
@@ -157,6 +158,7 @@ export function StatusPage() {
   });
   const selectedDaemon = query.data?.daemons.find(daemon => daemon.daemonId === selectedDaemonId);
   const isDaemonAvailable = selectedDaemon?.status === 'online';
+  const daemonColor = selectedDaemon?.color ?? null;
   const daemonProcesses = useMemo(
     () => (query.data?.processes || []).filter(process => process.daemonId === selectedDaemonId),
     [query.data?.processes, selectedDaemonId]
@@ -182,7 +184,10 @@ export function StatusPage() {
                   : 'border border-muted'
               )}
             />
-            <span className="truncate font-sans font-semibold text-white">
+            <span
+              className="truncate font-sans font-semibold text-white"
+              style={daemonColorStyle(daemonColor)}
+            >
               <Highlighted text={info.getValue()} regex={filterResult.highlight} />
             </span>
             {info.row.original.isCaptain ? (
@@ -280,7 +285,7 @@ export function StatusPage() {
         ),
       }),
     ],
-    [filterResult.highlight, isDaemonAvailable]
+    [filterResult.highlight, isDaemonAvailable, daemonColor]
   );
 
   const table = useReactTable({
@@ -551,7 +556,10 @@ export function StatusPage() {
                   onClick={() => navigate(processLink(process.daemonId, [process.pmId]))}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold text-white">
+                    <span
+                      className="font-semibold text-white"
+                      style={daemonColorStyle(daemonColor)}
+                    >
                       <Highlighted text={process.name} regex={filterResult.highlight} />
                     </span>
                     <span

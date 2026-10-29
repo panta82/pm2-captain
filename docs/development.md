@@ -59,7 +59,7 @@ The find bar is a `WebContentsView` of its own over the window's top-right corne
 
 Main restarts an unexpectedly exited backend up to three times in two minutes, without replaying process actions. On quit it stops the backend and its SSH children, escalating after ten seconds. The backend also shuts down if its parent disappears. Startup must check whether quit began while awaiting the backend or window, so it cannot resume the UI during shutdown.
 
-Both desktop and npm Captains write the shared registry through `daemonStore.mutate`: lock, read the latest file, validate, apply the change, then save atomically. The watcher reloads external edits; invalid data preserves the last working runtimes. Daemon IDs are UUIDs. A label edit keeps the connection; a location edit replaces it and its `connectionId`, invalidating stale actions. An editor does not take the lock, so simultaneous editor and Captain saves can still conflict.
+Both desktop and npm Captains write the shared registry through `daemonStore.mutate`: lock, read the latest file, validate, apply the change, then save atomically. The watcher reloads external edits; invalid data preserves the last working runtimes. Daemon IDs are UUIDs. A label or color edit keeps the connection; a location edit replaces it and its `connectionId`, invalidating stale actions. An editor does not take the lock, so simultaneous editor and Captain saves can still conflict.
 
 Desktop UI preferences live in the profile's `preferences.json`. The default profile is `~/.config/PM2 Captain` on Linux and `~/Library/Application Support/PM2 Captain` on macOS. Logs are in its `logs` folder. On macOS, main adds existing `/opt/homebrew/bin`, `/usr/local/bin` and `/opt/local/bin` directories to the GUI app's PATH for SSH ProxyCommand helpers.
 
@@ -128,30 +128,31 @@ pm2-captain fake world.reset multi
 
 A daemon is named by its key in the scenario, and a process by its name or PM2 ID.
 
-| Command                           | What it does                                                                                    |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `world.reset`                     | Loads a scenario (by default the one Captain started with) and resets Captain's daemon list.    |
-| `daemon.set`                      | Takes a daemon down or up, sets the error it reports, or slows it down.                         |
-| `process.add`                     | Adds a process, or a cluster with `instances`.                                                  |
-| `process.remove`                  | Removes a process.                                                                              |
-| `process.set`                     | Sets any field of a process: status, metrics, restarts, log generation, the next action's fate. |
-| `log.emit`                        | Prints the given lines now, so they arrive live.                                                |
-| `log.history`                     | Replaces or extends what is already in a log file.                                              |
-| `log.rotate`                      | Starts a log file over, as a rotation does.                                                     |
-| `registry.edit`                   | Edits a daemon in Captain's stored list from outside: `label=…` (or `label=null`), `pm2Home=…`. |
-| `registry.remove`, `registry.add` | Removes a daemon from Captain's stored list, or adds the scenario's daemon back.                |
-| `registry.fail`                   | Breaks the stored list: `reason=invalid`, `missing` or `unreadable`.                            |
-| `registry.recover`                | Makes the stored list readable again, with the daemons it held before.                          |
-| `update.set`                      | Puts the simulated desktop update into a state (see below).                                     |
-| `update.install-outcome`          | What a simulated installation does: `outcome=fail` (the default) or `stay`.                     |
-| `update.reset`                    | Clears the simulated update.                                                                    |
+| Command                           | What it does                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `world.reset`                     | Loads a scenario (by default the one Captain started with) and resets Captain's daemon list.              |
+| `daemon.set`                      | Takes a daemon down or up, sets the error it reports, or slows it down.                                   |
+| `process.add`                     | Adds a process, or a cluster with `instances`.                                                            |
+| `process.remove`                  | Removes a process.                                                                                        |
+| `process.set`                     | Sets any field of a process: status, metrics, restarts, log generation, the next action's fate.           |
+| `log.emit`                        | Prints the given lines now, so they arrive live.                                                          |
+| `log.history`                     | Replaces or extends what is already in a log file.                                                        |
+| `log.rotate`                      | Starts a log file over, as a rotation does.                                                               |
+| `registry.edit`                   | Edits a daemon in Captain's stored list from outside: `label=…`, `color=…` (either `=null`), `pm2Home=…`. |
+| `registry.remove`, `registry.add` | Removes a daemon from Captain's stored list, or adds the scenario's daemon back.                          |
+| `registry.fail`                   | Breaks the stored list: `reason=invalid`, `missing` or `unreadable`.                                      |
+| `registry.recover`                | Makes the stored list readable again, with the daemons it held before.                                    |
+| `update.set`                      | Puts the simulated desktop update into a state (see below).                                               |
+| `update.install-outcome`          | What a simulated installation does: `outcome=fail` (the default) or `stay`.                               |
+| `update.reset`                    | Clears the simulated update.                                                                              |
 
 ### The daemon list and updates
 
-The `registry.*` commands change Captain's stored daemon list the way a text editor or another Captain would change `daemons.json`, so Captain's own reload runs: a renamed daemon keeps its connection, a new `pm2Home` is a new connection (an open process page goes back to the status), a removed daemon disappears, and a broken list shows a warning while the last working daemons stay. Editing a daemon while its form is open in Captain makes the form's Save report the conflict and keep the draft.
+The `registry.*` commands change Captain's stored daemon list the way a text editor or another Captain would change `daemons.json`, so Captain's own reload runs: a renamed or recolored daemon keeps its connection, a new `pm2Home` is a new connection (an open process page goes back to the status), a removed daemon disappears, and a broken list shows a warning while the last working daemons stay. Editing a daemon while its form is open in Captain makes the form's Save report the conflict and keep the draft.
 
 ```bash
 pm2-captain fake registry.edit local label="Edited outside"
+pm2-captain fake registry.edit local color=red
 pm2-captain fake registry.edit local pm2Home=/srv/elsewhere/.pm2
 pm2-captain fake registry.remove local
 pm2-captain fake registry.add local

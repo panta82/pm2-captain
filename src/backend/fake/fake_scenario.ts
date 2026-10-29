@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import libPath from 'node:path';
 import { z } from 'zod';
 
-import type { IProcessStatus } from '../../shared/contracts';
+import { DAEMON_COLORS, type IProcessStatus } from '../../shared/contracts';
 
 const FAKE_PROCESS_STATUSES = [
   'online',
@@ -96,6 +96,7 @@ const FakeDaemonInputSchema = FakeDaemonFieldsSchema.extend({
   pm2Home: z.string().min(1).optional(),
   sshArgs: z.array(z.string()).min(1).optional(),
   label: z.string().min(1).optional(),
+  color: z.enum(DAEMON_COLORS).optional(),
   /** False keeps the daemon out of Captain's list, so it can be added by hand. */
   isRegistered: z.boolean().optional(),
   processes: z.array(FakeProcessInputSchema).optional(),
@@ -251,6 +252,7 @@ const BUILT_IN_SCENARIOS: Record<string, () => IFakeScenario> = {
         key: 'blue',
         pm2Home: '/srv/pm2-blue',
         label: 'Blue stack',
+        color: 'blue',
         processes: [{ name: 'api', instances: 2, history: 50 }],
       },
       {
@@ -258,6 +260,7 @@ const BUILT_IN_SCENARIOS: Record<string, () => IFakeScenario> = {
         kind: 'ssh',
         sshArgs: ['deploy@staging.example.com'],
         hostname: 'staging-01',
+        color: 'yellow',
         processes: [
           { name: 'api', logRate: 1, history: 100 },
           { name: 'queue', status: 'errored', restarts: 31, exitCode: 1, history: 30 },
@@ -268,6 +271,7 @@ const BUILT_IN_SCENARIOS: Record<string, () => IFakeScenario> = {
         kind: 'ssh',
         sshArgs: ['-p', '2222', 'deploy@prod.example.com'],
         hostname: 'prod-01',
+        color: 'red',
         isUp: false,
         error: 'ssh: connect to host prod.example.com port 2222: Connection timed out',
         processes: [{ name: 'api', instances: 4 }],

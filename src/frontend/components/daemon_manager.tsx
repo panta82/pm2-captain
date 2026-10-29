@@ -1,4 +1,4 @@
-import { LoaderCircle, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Ban, LoaderCircle, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import {
   type ChangeEvent,
   type FormEvent,
@@ -19,9 +19,21 @@ import { fieldsToSshArgs, sshArgsToFields } from '@/lib/ssh_arguments';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
-import type { IDaemonConfig, IDaemonInput, IDaemonKind, IDaemonSummary } from '@shared/contracts';
+import {
+  DAEMON_COLORS,
+  type IDaemonColor,
+  type IDaemonConfig,
+  type IDaemonInput,
+  type IDaemonKind,
+  type IDaemonSummary,
+} from '@shared/contracts';
 
-import { DAEMON_OPTION_LIST_CLASS, DaemonOption, DaemonStatusIcon } from './daemon_option';
+import {
+  DAEMON_OPTION_LIST_CLASS,
+  DaemonOption,
+  DaemonStatusIcon,
+  daemonColorStyle,
+} from './daemon_option';
 import { Button, ToggleGroup } from './ui';
 
 type IDaemonManagerView = 'daemon' | 'add';
@@ -61,10 +73,15 @@ function DaemonOverview({ daemon }: { daemon: IDaemonSummary }) {
 
   return (
     <div data-component="DaemonOverview" className="flex items-start gap-3">
-      <DaemonStatusIcon status={daemon.status} className="mt-1" />
+      <DaemonStatusIcon status={daemon.status} color={daemon.color} className="mt-1" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-sm font-semibold text-white">{daemon.label}</h3>
+          <h3
+            className="truncate text-sm font-semibold text-white"
+            style={daemonColorStyle(daemon.color)}
+          >
+            {daemon.label}
+          </h3>
           <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted">
             {daemon.kind}
           </span>
@@ -125,16 +142,62 @@ function TextField({
   );
 }
 
+function DaemonColorField({
+  value,
+  onChange,
+}: {
+  value: IDaemonColor | null;
+  onChange: (color: IDaemonColor | null) => void;
+}) {
+  const name = useId();
+
+  return (
+    <fieldset data-component="DaemonColorField" className="text-xs text-muted">
+      <legend>
+        Color <span className="opacity-60">(optional)</span>
+      </legend>
+      <div className="mt-2 flex flex-wrap gap-2.5">
+        {[null, ...DAEMON_COLORS].map(color => (
+          <span key={color ?? 'none'} className="relative grid">
+            <input
+              type="radio"
+              name={name}
+              title={color ?? 'none'}
+              aria-label={color ?? 'none'}
+              checked={value === color}
+              onChange={() => onChange(color)}
+              className="size-6 cursor-pointer appearance-none rounded-full border border-line bg-input checked:ring-2 checked:ring-white checked:ring-offset-2 checked:ring-offset-surface-plane focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan"
+              style={color ? { backgroundColor: `var(--color-daemon-${color})` } : undefined}
+            />
+            {color ? null : (
+              <Ban
+                aria-hidden
+                className="pointer-events-none absolute inset-0 m-auto size-3.5 text-muted"
+              />
+            )}
+          </span>
+        ))}
+      </div>
+      <p className="mt-2 leading-5 opacity-80">
+        Colors the daemon's name, for example red for production.
+      </p>
+    </fieldset>
+  );
+}
+
 /** The fields a user edits, as the server compares them for a conflicting edit. */
 function editableInput(config: IDaemonConfig): IDaemonInput {
-  const label = config.label ? { label: config.label } : {};
+  const appearance = {
+    ...(config.label ? { label: config.label } : {}),
+    ...(config.color ? { color: config.color } : {}),
+  };
   return config.kind === 'local'
-    ? { kind: 'local', pm2Home: config.pm2Home, ...label }
+    ? { kind: 'local', pm2Home: config.pm2Home, ...appearance }
     : {
         kind: 'ssh',
         sshArgs: config.sshArgs,
         ...(config.pm2Home ? { pm2Home: config.pm2Home } : {}),
-        ...label,
+        ...appearance,
       };
 }
 
@@ -143,6 +206,7 @@ function toFields(kind: IDaemonKind, config: IDaemonConfig | null) {
     ...sshArgsToFields(config?.kind === 'ssh' ? config.sshArgs : []),
     pm2Home: config?.pm2Home ?? (kind === 'local' ? '~/.pm2' : ''),
     label: config?.label ?? '',
+    color: config?.color ?? null,
   };
 }
 
@@ -205,19 +269,27 @@ function DaemonForm({
     fields.port !== stored.port ||
     fields.options !== stored.options;
   const isDirty =
-    isSshArgsChanged || fields.pm2Home !== stored.pm2Home || fields.label !== stored.label;
+    isSshArgsChanged ||
+    fields.pm2Home !== stored.pm2Home ||
+    fields.label !== stored.label ||
+    fields.color !== stored.color;
   const isBusy = add.isPending || update.isPending || remove.isPending;
 
-  const setField = (name: keyof typeof fields) => (event: ChangeEvent<HTMLInputElement>) =>
-    setFields(current => ({ ...current, [name]: event.target.value }));
+  const setField =
+    (name: Exclude<keyof typeof fields, 'color'>) => (event: ChangeEvent<HTMLInputElement>) =>
+      setFields(current => ({ ...current, [name]: event.target.value }));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const label = fields.label.trim();
     const pm2Home = fields.pm2Home.trim();
+    const appearance = {
+      ...(label ? { label } : {}),
+      ...(fields.color ? { color: fields.color } : {}),
+    };
     let input: IDaemonInput;
     if (kind === 'local') {
-      input = { kind, pm2Home, ...(label ? { label } : {}) };
+      input = { kind, pm2Home, ...appearance };
     } else {
       let sshArgs: string[];
       try {
@@ -231,7 +303,7 @@ function DaemonForm({
         toast.error(error instanceof Error ? error.message : 'Invalid SSH options');
         return;
       }
-      input = { kind, sshArgs, ...(pm2Home ? { pm2Home } : {}), ...(label ? { label } : {}) };
+      input = { kind, sshArgs, ...(pm2Home ? { pm2Home } : {}), ...appearance };
     }
     if (baseline) {
       update.mutate({
@@ -344,6 +416,10 @@ function DaemonForm({
         isMonospace={false}
         value={fields.label}
         onChange={setField('label')}
+      />
+      <DaemonColorField
+        value={fields.color}
+        onChange={color => setFields(current => ({ ...current, color }))}
       />
       <div className="flex flex-wrap items-center gap-2 pt-2">
         {config ? (

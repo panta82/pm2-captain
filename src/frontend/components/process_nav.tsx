@@ -8,9 +8,10 @@ import { type ProcessTab, processLink } from '@/lib/process_route';
 import { formatPmIds, selectRange, toggleSelection } from '@/lib/process_selection';
 import { cn } from '@/lib/utils';
 
+import { daemonColorStyle } from '@/components/daemon_option';
 import { Highlighted } from '@/components/highlighted';
 
-import type { IProcessSummary } from '@shared/contracts';
+import type { IDaemonColor, IProcessSummary } from '@shared/contracts';
 
 /** The row the arrow keys move from, ringed while the list has keyboard focus. */
 const CURSOR_CLASS =
@@ -21,6 +22,7 @@ export const ProcessNav = memo(
     processes,
     highlight = null,
     selectedDaemonId,
+    daemonColor = null,
     selectedIds,
     tab,
     className,
@@ -33,6 +35,8 @@ export const ProcessNav = memo(
     processes: IProcessSummary[];
     highlight?: RegExp | null;
     selectedDaemonId: string;
+    /** The selected daemon's color, for the process names. */
+    daemonColor?: IDaemonColor | null;
     /** One process, or several after Ctrl+click and Shift+click. */
     selectedIds: number[];
     tab: ProcessTab;
@@ -242,6 +246,7 @@ export const ProcessNav = memo(
               key={`${process.daemonId}:${process.pmId}`}
               pmId={process.pmId}
               name={process.name}
+              color={daemonColor}
               status={process.status}
               isCaptain={process.isCaptain}
               isSelected={isSelected}
@@ -296,6 +301,7 @@ export const ProcessNav = memo(
 const ProcessNavRow = memo(function ProcessNavRow({
   pmId,
   name,
+  color,
   status,
   isCaptain,
   isSelected,
@@ -306,6 +312,7 @@ const ProcessNavRow = memo(function ProcessNavRow({
 }: {
   pmId: number;
   name: string;
+  color: IDaemonColor | null;
   status: IProcessSummary['status'];
   isCaptain: boolean;
   isSelected: boolean;
@@ -325,7 +332,7 @@ const ProcessNavRow = memo(function ProcessNavRow({
           )}
         />
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="truncate font-semibold">
+          <span className="truncate font-semibold" style={daemonColorStyle(color)}>
             <Highlighted text={name} regex={highlight} />
           </span>
           {isCaptain ? (
@@ -339,7 +346,7 @@ const ProcessNavRow = memo(function ProcessNavRow({
         </span>
       </>
     ),
-    [status, name, highlight, isCaptain]
+    [status, name, color, highlight, isCaptain]
   );
   return (
     <div

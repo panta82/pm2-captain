@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { DAEMON_COLORS } from '../../shared/contracts';
 import {
   FakeDaemonFieldsSchema,
   FakeProcessCreationSchema,
@@ -88,6 +89,7 @@ export const FakeCommandSchema = z.discriminatedUnion('type', [
       type: z.literal('registry.edit'),
       daemon: daemonKey,
       label: z.string().min(1).nullable().optional(),
+      color: z.enum(DAEMON_COLORS).nullable().optional(),
       pm2Home: z.string().min(1).optional(),
     })
     .describe(
