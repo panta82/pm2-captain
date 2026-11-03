@@ -4,7 +4,9 @@ import {
   FAKE_LAUNCH_PATH,
   FAKE_TOKEN,
   FAKE_XDG_CONFIG_HOME,
+  daemonRow,
   expect,
+  openDaemonManager,
   openProcessTab,
   processRow,
   test,
@@ -153,9 +155,7 @@ test('follows a daemon that goes away and comes back', async ({ page, fake }) =>
   await fake.send({ type: 'daemon.set', daemon: 'local', isUp: false });
   await expect(restart).toBeDisabled();
   await expect(restart).toHaveAttribute('title', 'Daemon is not connected');
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await expect(page.getByRole('menuitemradio')).toContainText('connecting');
-  await page.keyboard.press('Escape');
+  await expect(daemonRow(page, LOCAL_LABEL)).toContainText('connecting');
 
   await fake.send({ type: 'daemon.set', daemon: 'local', isUp: true });
   await expect(restart).toBeEnabled();
@@ -176,7 +176,7 @@ test('explains a daemon that cannot be reached, and retries it', async ({ page, 
     },
   });
   await page.goto(FAKE_LAUNCH_PATH);
-  await expect(page.getByRole('heading', { name: `Can't reach ${LOCAL_LABEL}` })).toBeVisible();
+  await expect(daemonRow(page, LOCAL_LABEL)).toContainText('unreachable');
   await expect(page.getByText('The PM2 daemon is busy exploding.')).toBeVisible();
 
   await fake.send({ type: 'daemon.set', daemon: 'local', isUp: true });
@@ -189,23 +189,16 @@ test('shows several daemons, and connects one that is added by hand', async ({ p
   await page.goto(FAKE_LAUNCH_PATH);
   await expect(processRow(page, 'worker')).toBeVisible();
 
-  const picker = page.getByRole('button', { name: /^Daemon: / });
-  await picker.click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(4);
-  await expect(page.getByRole('menuitemradio', { name: /Blue stack/ })).toBeVisible();
-  await expect(page.getByRole('menuitemradio', { name: /prod\.example\.com/ })).toContainText(
-    'unreachable'
-  );
+  await expect(page.locator('[data-tree-daemon]')).toHaveCount(4);
+  await expect(daemonRow(page, 'Blue stack')).toBeVisible();
+  await expect(daemonRow(page, /prod\.example\.com/)).toContainText('unreachable');
 
-  // A remote daemon is named by what the server reported about itself.
-  await page.getByRole('menuitemradio', { name: /deploy@staging-01/ }).click();
+  // A remote daemon is named by what the server reported about itself. All show together.
+  await expect(daemonRow(page, /deploy@staging-01/)).toBeVisible();
   await expect(processRow(page, 'queue')).toBeVisible();
-  await expect(processRow(page, 'worker')).toHaveCount(0);
 
   // The scenario keeps this daemon out of Captain's list until someone adds it.
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
+  const dialog = await openDaemonManager(page);
   await dialog.getByRole('tab', { name: 'Add daemon' }).click();
   await dialog.getByRole('button', { name: 'Local', exact: true }).click();
   await dialog.getByLabel('PM2 home').fill('/srv/pm2-spare');
@@ -216,8 +209,7 @@ test('shows several daemons, and connects one that is added by hand', async ({ p
   );
   await dialog.getByRole('button', { name: 'Close' }).click();
 
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitemradio', { name: /pm2-spare/ }).click();
+  await expect(daemonRow(page, /pm2-spare/)).toBeVisible();
   await expect(processRow(page, 'spare-app')).toBeVisible();
 });
 

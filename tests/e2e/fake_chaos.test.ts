@@ -59,11 +59,11 @@ for (const seed of [1, 2, 3]) {
   }) => {
     const expectNoPageError = failOnPageError(page);
     await page.goto(FAKE_LAUNCH_PATH);
-    await expect(page.locator('tbody tr')).toHaveCount(4);
+    await expect(page.locator('[data-tree-process]')).toHaveCount(4);
 
     // The changes arrive in bursts while the page keeps polling and re-sorting.
     const commands = churn(seed, 90);
-    const sortable = ['ID', 'NAME', 'CPU', 'PID'];
+    const sortable = ['ID', 'NAMESPACE', 'CPU', 'PID'];
     for (let start = 0; start < commands.length; start += 6) {
       await fake.send(...commands.slice(start, start + 6));
       await page
@@ -90,22 +90,22 @@ for (const seed of [1, 2, 3]) {
 
     const readTable = async () =>
       (
-        await page.locator('tbody tr').evaluateAll(rows =>
+        await page.locator('[data-tree-process]').evaluateAll(rows =>
           rows.map(row => {
-            const cells = Array.from((row as HTMLTableRowElement).cells);
-            const text = (index: number) => cells[index]?.innerText.trim() ?? '';
-            const primary = cells[10]?.querySelector('button');
+            const text = (column: string) =>
+              row.querySelector(`[data-column="${column}"]`)?.textContent?.trim() ?? '';
+            const primary = row.querySelector('[data-column="actions"] button');
             return {
-              id: text(0),
-              name: text(1),
-              namespace: text(2),
-              mode: text(3),
-              restarts: text(4),
-              cpu: text(5),
-              pid: text(8),
-              version: text(9),
+              id: text('id'),
+              name: row.querySelector('a')?.textContent?.trim() ?? '',
+              namespace: text('namespace'),
+              mode: text('mode'),
+              restarts: text('restarts'),
+              cpu: text('cpu'),
+              pid: text('pid'),
+              version: text('version'),
               action: primary?.textContent?.trim() ?? '',
-              isActionEnabled: primary ? !primary.disabled : false,
+              isActionEnabled: primary ? !(primary as HTMLButtonElement).disabled : false,
             };
           })
         )

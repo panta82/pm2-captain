@@ -1,13 +1,12 @@
 // Runs the desktop app from source. Its backend is the same code as `npm run
-// dev`, in its own process on its own port, with Vite's middleware, so
+// web:dev`, in its own process on its own port, with Vite's middleware, so
 // frontend edits hot-reload. Main, preload and backend edits are rebuilt and
 // restart Electron; dev_backend.mjs compiles the backend into dist/ as `npm
-// run build` does. Shows simulated daemons (PM2_CAPTAIN_DESKTOP_FAKE, default
-// "basic") unless --real is given, which uses the real daemon registry shared
-// with the npm command. The profile is build/desktop/dev-profile unless
+// run build` does. Uses the real daemon registry unless --fake-data is given.
+// The profile is build/desktop/dev-profile unless
 // PM2_CAPTAIN_DESKTOP_PROFILE_DIR is set.
 //
-// Usage: npm run desktop:dev [-- --real] [-- <electron arguments>]
+// Usage: npm run desktop:dev -- --help
 import electronBinary from 'electron';
 import { context } from 'esbuild';
 import { spawn } from 'node:child_process';
@@ -15,6 +14,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import libPath from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readDevLaunch } from '../dev_options.mjs';
 import { watchBackend } from './dev_backend.mjs';
 import { createRestartableProcess } from './restartable_process.mjs';
 
@@ -22,9 +22,7 @@ import { createRestartableProcess } from './restartable_process.mjs';
 const ELECTRON_STOP_LIMIT_MS = 10_000;
 const rootDir = libPath.resolve(libPath.dirname(fileURLToPath(import.meta.url)), '../..');
 const devDir = libPath.join(rootDir, 'build/desktop/dev');
-const args = process.argv.slice(2);
-const isReal = args.includes('--real');
-const electronArgs = args.filter(argument => argument !== '--real');
+const launch = await readDevLaunch('desktop');
 const { version } = JSON.parse(readFileSync(libPath.join(rootDir, 'package.json'), 'utf8'));
 
 mkdirSync(devDir, { recursive: true });
@@ -32,9 +30,6 @@ writeFileSync(
   libPath.join(devDir, 'package.json'),
   `${JSON.stringify({ name: 'pm2-captain-desktop', productName: 'PM2 Captain', version, main: 'main.js' }, null, 2)}\n`
 );
-
-// --real means real daemons, even when the shell exports a fake scenario.
-const { PM2_CAPTAIN_DESKTOP_FAKE: fakeScenario, ...inheritedEnvironment } = process.env;
 
 let isStopping = false;
 // Both builds report on their first run; Electron starts once both are done.
@@ -45,10 +40,10 @@ const pendingFirstBuilds = new Set(['shell', 'backend']);
 // reaches the app instead of leaving it running without the wrapper.
 const electron = createRestartableProcess({
   start: () =>
-    spawn(electronBinary, [devDir, ...electronArgs], {
+    spawn(electronBinary, [...launch.debugArgs, devDir, ...launch.args], {
       stdio: 'inherit',
       env: {
-        ...inheritedEnvironment,
+        ...launch.env,
         PM2_CAPTAIN_DESKTOP_DEV_BACKEND: libPath.join(
           rootDir,
           'dist/desktop/backend/desktop_backend.js'
@@ -56,7 +51,6 @@ const electron = createRestartableProcess({
         PM2_CAPTAIN_DESKTOP_PROFILE_DIR:
           process.env.PM2_CAPTAIN_DESKTOP_PROFILE_DIR ||
           libPath.join(rootDir, 'build/desktop/dev-profile'),
-        ...(isReal ? {} : { PM2_CAPTAIN_DESKTOP_FAKE: fakeScenario || 'basic' }),
       },
     }),
   stopLimitMs: ELECTRON_STOP_LIMIT_MS,

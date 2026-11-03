@@ -36,9 +36,22 @@ export const test = base.extend<{ fake: IFakeControl }>({
 
 export { expect };
 
-/** The status table row of a process. Only for names that are unique on the page. */
+/** The tree row of a process. Only for names that are unique on the page. */
 export const processRow = (page: Page, name: string) =>
   page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) });
+
+/** The tree row of a daemon. */
+export const daemonRow = (page: Page, label: string | RegExp) =>
+  page.locator('[data-tree-daemon]').filter({ has: page.getByRole('button', { name: label }) });
+
+/** Process rows in tree order. */
+export const processRows = (page: Page) => page.locator('[data-tree-process]');
+
+/** Opens daemon settings from the summary bar. */
+export async function openDaemonManager(page: Page) {
+  await page.getByRole('button', { name: 'Daemons', exact: true }).click();
+  return page.getByRole('dialog', { name: 'PM2 daemons' });
+}
 
 /**
  * Goes from the status page to a tab of a process. For the logs it waits until

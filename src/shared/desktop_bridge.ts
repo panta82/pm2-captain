@@ -4,7 +4,8 @@
  * with every launch, so its localStorage does not last.
  */
 export const DESKTOP_PREFERENCE_KEYS = [
-  'pm2-captain-selected-daemon',
+  'pm2-captain-collapsed-daemons',
+  'pm2-captain-process-sort',
   'pm2-captain-process-tab',
   'pm2-captain:process-sidebar-width',
   'pm2-captain-matrix-only-differences',
@@ -78,17 +79,26 @@ export interface IDesktopBridge {
   };
 }
 
+const COLLAPSED_DAEMONS_PATTERN = /^\[("[0-9a-f-]{36}"(,"[0-9a-f-]{36}")*)?\]$/i;
+
 /** Accepts only values the renderer could have written itself. */
 export function isValidDesktopPreference(
   key: string,
   value: unknown
 ): key is IDesktopPreferenceKey {
-  if (typeof value !== 'string' || value.length > 200) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  // A JSON list of daemon IDs, so it grows with the daemons.
+  if (key === 'pm2-captain-collapsed-daemons') {
+    return value.length <= 20_000 && COLLAPSED_DAEMONS_PATTERN.test(value);
+  }
+  if (value.length > 200) {
     return false;
   }
   switch (key) {
-    case 'pm2-captain-selected-daemon':
-      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    case 'pm2-captain-process-sort':
+      return value === '' || /^[a-z]+:(asc|desc)$/.test(value);
     case 'pm2-captain-process-tab':
       return value === 'info' || value === 'env' || value === 'logs';
     case 'pm2-captain:process-sidebar-width':

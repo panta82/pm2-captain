@@ -5,11 +5,32 @@ project dependencies:
 
 ```bash
 npm install
-npm run dev
+npm run web:dev
 ```
 
-Development runs one Fastify process with Vite middleware and hot module
-replacement. Useful checks are:
+`web:dev` runs one Fastify process with Vite middleware and hot module
+replacement. Both `web:dev` and `desktop:dev` use real daemons by default.
+Use `--fake-data [scenario]` for simulated data and `--inspect-brk [port]` to
+pause at startup until a debugger attaches. `--inspect [port]` enables the
+debugger without pausing. The web debugger defaults to port `9229`.
+
+```bash
+npm run web:dev -- --fake-data
+npm run web:dev -- --fake-data busy --inspect-brk
+npm run web:dev -- --help
+npm run desktop:dev -- --help
+npm run desktop:dev -- --interactive
+```
+
+The first `--` passes arguments through npm. A second `--` passes arguments
+through the dev launcher to Captain or Electron:
+
+```bash
+npm run web:dev -- --fake-data -- --port 3216 --no-open
+npm run desktop:dev -- -- --remote-debugging-port=9340
+```
+
+The published `pm2-captain` CLI still uses `--fake [scenario]`. Useful checks are:
 
 ```bash
 npm run typecheck
@@ -33,12 +54,14 @@ Most actions press a control: give it `data-shortcut="<action>"` and a `<Shortcu
 ## The desktop app
 
 ```bash
-npm run desktop:dev                                # fake mode, "basic" scenario
-PM2_CAPTAIN_DESKTOP_FAKE=multi npm run desktop:dev  # another fake scenario
-npm run desktop:dev -- --real                      # the real daemon list
+npm run desktop:dev                              # the real daemon list
+npm run desktop:dev -- --fake-data                # fake mode, "basic" scenario
+npm run desktop:dev -- --fake-data multi          # another fake scenario
+npm run desktop:dev -- --inspect-brk              # pause Electron main on port 9338
+npm run desktop:dev -- --inspect-brk=9348          # choose another debugger port
 ```
 
-The desktop app runs the same backend code as `npm run dev`, in its own process on an OS-assigned port. Both can run at once. `--real` uses the shared `daemons.json` and ignores an inherited `PM2_CAPTAIN_DESKTOP_FAKE` value.
+The desktop app runs the same backend code as `npm run web:dev`, in its own process on an OS-assigned port. Both can run at once. Without `--fake-data`, it uses the shared `daemons.json`. The dev launcher ignores an inherited `PM2_CAPTAIN_DESKTOP_FAKE` value. The backend debugger listens on port `9339`; set `PM2_CAPTAIN_BACKEND_DEBUG_PORT` to change it.
 
 `desktop:dev` compiles the backend into `dist/` and serves the frontend through Vite. Frontend edits reload in place. Backend, main-process and preload edits rebuild and restart the app, including added or removed backend files. The development profile is `build/desktop/dev-profile`; set `PM2_CAPTAIN_DESKTOP_PROFILE_DIR` to use another folder.
 
@@ -46,7 +69,7 @@ If Electron's development binary cannot start its sandbox, add `--no-sandbox`:
 
 ```bash
 npm run desktop:dev -- --no-sandbox
-npm run desktop:dev -- --real --no-sandbox
+npm run desktop:dev -- --fake-data --no-sandbox
 ```
 
 ### Architecture
@@ -90,8 +113,8 @@ The updater downloads stable releases but installs only after an explicit user a
 In fake mode Captain shows simulated PM2 daemons, with processes and logs you control. It is meant for working on the UI and for tests, by people and by agents.
 
 ```bash
-npm run dev:fake                         # development server, "basic" scenario
-npm run dev:fake -- busy
+npm run web:dev -- --fake-data          # development server, "basic" scenario
+npm run web:dev -- --fake-data busy
 npx pm2-captain --fake ./scenario.json   # the published CLI has it too
 ```
 

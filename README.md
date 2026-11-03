@@ -106,7 +106,7 @@ To change the keys, create `~/.config/pm2-captain/keybindings.json` (or `$XDG_CO
 }
 ```
 
-In the example above, we define an override for switching to the log tab, add 2 shortcuts for the "find" action, and remove the shortcut for the daemon picker. You can find available action names in the help screen (`?`). Supported modifiers: `Mod` (Ctrl or ⌘), `Alt`, `Shift`, `Meta`.
+This example changes the log tab shortcut, adds two shortcuts for "find", and removes the shortcut for focusing the daemon tree. You can find available action names in the help screen (`?`). Supported modifiers: `Mod` (Ctrl or ⌘), `Alt`, `Shift`, `Meta`.
 
 ## Service setup
 
@@ -119,6 +119,13 @@ Read [this guide](docs/service_setup.md) for details.
 Read [development.md](docs/development.md) for more details.
 
 ## Version history
+
+#### `2.7.0` (2026-11-03)
+
+- Get rid of the daemon picker. All daemons and hosts are now in the same list.
+- Click on daemons or logo to expand/collapse parts of the process list.
+- The process list in the details view can now be sorted. Also, we show the sort value next to the process name.
+- Improved cli tools
 
 #### `2.6.0` (2026-10-29)
 

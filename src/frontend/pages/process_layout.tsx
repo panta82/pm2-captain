@@ -1,30 +1,37 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Menu, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { BulkActionProvider } from '@/lib/bulk_action';
 import { useConnectionReplaced } from '@/lib/daemon_connection';
 import { focusProcessList, useShortcutAria, useShortcutHandler } from '@/lib/keyboard_shortcuts';
-import { useFilteredProcesses } from '@/lib/process_list_filter';
-import { getProcessTab, processLink, processRouteApi, setProcessTab } from '@/lib/process_route';
+import {
+  daemonLink,
+  getProcessTab,
+  processLink,
+  processRouteApi,
+  setProcessTab,
+} from '@/lib/process_route';
 import { formatPmIds } from '@/lib/process_selection';
+import { useProcessTree } from '@/lib/process_tree';
+import { type IProcessTreeRow, processRowKey } from '@/lib/process_tree_rows';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
-import { AppHeader } from '@/components/app_header';
 import { BulkProcessActions } from '@/components/bulk_process_actions';
+import { daemonColorStyle } from '@/components/daemon_option';
 import { ErrorPanel } from '@/components/error_panel';
 import { ProcessActions } from '@/components/process_actions';
 import { ProcessCounts } from '@/components/process_counts';
-import { ProcessFilterField } from '@/components/process_filter_field';
-import { ProcessNav } from '@/components/process_nav';
 import { ProcessTabs } from '@/components/process_tabs';
-import { ResizableSidebar } from '@/components/resizable_sidebar';
+import { ProcessTree } from '@/components/process_tree';
 import { ShortcutHint } from '@/components/shortcut_hint';
 import { TruncatedText } from '@/components/truncated_text';
 import { Button, Skeleton } from '@/components/ui';
+import { NarrowHeader, ProcessListNotice, ProcessTreeTools } from '@/components/workspace';
 
+/** The open process or selection, next to the tree. */
 export function ProcessLayout() {
   // Structural sharing keeps `pmIds` stable while only the tab changes.
   const { daemonId, pmIds, tab } = processRouteApi.useParams({ structuralSharing: true });
@@ -33,8 +40,7 @@ export function ProcessLayout() {
   const numericId = pmIds[0] ?? 0;
   const selectionKey = formatPmIds(pmIds);
   const navigate = useNavigate();
-  // A multi-selection can be on Info while the remembered single-process tab is Logs.
-  const sidebarTab = isMulti ? getProcessTab() : tab;
+  const tree = useProcessTree();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const list = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
   const connectionId = list.data?.daemons.find(
@@ -75,13 +81,12 @@ export function ProcessLayout() {
   );
   const process = detail.data ?? listProcess;
   const selectedDaemon = list.data?.daemons.find(daemon => daemon.daemonId === daemonId);
-  const daemonProcesses = useMemo(
-    () => (list.data?.processes || []).filter(process => process.daemonId === daemonId),
-    [list.data?.processes, daemonId]
-  );
   const selectedProcesses = useMemo(
-    () => daemonProcesses.filter(process => pmIds.includes(process.pmId)),
-    [daemonProcesses, pmIds]
+    () =>
+      (list.data?.processes || []).filter(
+        process => process.daemonId === daemonId && pmIds.includes(process.pmId)
+      ),
+    [daemonId, list.data?.processes, pmIds]
   );
   const isListLoaded = Boolean(list.data);
 
@@ -106,29 +111,24 @@ export function ProcessLayout() {
     }
   }, [daemonId, isListLoaded, isMulti, navigate, pmIds, selectedProcesses, tab]);
 
-  const filtered = useFilteredProcesses(daemonProcesses);
-  const visibleProcesses = useMemo(() => {
-    // Keep every action target visible, in the daemon's normal process order.
-    const visibleIds = new Set([...pmIds, ...filtered.processes.map(process => process.pmId)]);
-    return daemonProcesses.filter(process => visibleIds.has(process.pmId));
-  }, [daemonProcesses, filtered.processes, pmIds]);
-  const listNotice =
-    filtered.error || (visibleProcesses.length ? null : 'No processes match the filter.');
-
   // Ctrl+Down and Ctrl+Up move to the process after or before the selection, in
-  // the sidebar's order, and focus the sidebar, where the arrow keys go on.
+  // the tree's order, over to the next daemon if need be, and focus the tree,
+  // where the arrow keys go on.
   useShortcutHandler(['process.next', 'process.previous'], actionId => {
-    const selectedIndexes = visibleProcesses
-      .map((process, index) => (pmIds.includes(process.pmId) ? index : -1))
-      .filter(index => index >= 0);
+    const processRows = tree.rows.filter((row): row is IProcessTreeRow => row.kind === 'process');
+    const selectedKeys = new Set(pmIds.map(pmId => processRowKey(daemonId, pmId)));
+    const selectedIndexes = processRows.flatMap((row, index) =>
+      selectedKeys.has(row.key) ? [index] : []
+    );
     if (!selectedIndexes.length) {
       return false;
     }
     const nextIndex =
       actionId === 'process.next'
-        ? Math.min(Math.max(...selectedIndexes) + 1, visibleProcesses.length - 1)
+        ? Math.min(Math.max(...selectedIndexes) + 1, processRows.length - 1)
         : Math.max(Math.min(...selectedIndexes) - 1, 0);
-    void navigate(processLink(daemonId, [visibleProcesses[nextIndex].pmId], sidebarTab));
+    const next = processRows[nextIndex].process;
+    void navigate(processLink(next.daemonId, [next.pmId], isMulti ? getProcessTab() : tab));
     focusProcessList();
   });
   const tabShortcuts = {
@@ -136,11 +136,6 @@ export function ProcessLayout() {
     env: useShortcutAria('tab.env'),
     logs: useShortcutAria('tab.logs'),
   };
-  const listNoticeElement = listNotice ? (
-    <p className={cn('px-4 pt-4 font-mono text-xs', filtered.error ? 'text-danger' : 'text-muted')}>
-      {listNotice}
-    </p>
-  ) : null;
 
   if ((list.isLoading && !list.data) || (isMulti && !selectedProcesses.length && list.data)) {
     return (
@@ -191,32 +186,25 @@ export function ProcessLayout() {
   }
 
   const isDaemonAvailable = selectedDaemon?.status === 'online';
+  const daemonCrumb = selectedDaemon ? (
+    <>
+      <Link
+        {...daemonLink(daemonId)}
+        title={`Show ${selectedDaemon.label}`}
+        className="hidden max-w-48 shrink truncate font-mono text-xs text-muted hover:text-white hover:underline sm:block"
+        style={daemonColorStyle(selectedDaemon.color)}
+      >
+        {selectedDaemon.label}
+      </Link>
+      <span aria-hidden className="hidden text-lg text-line sm:block">
+        /
+      </span>
+    </>
+  ) : null;
 
   return (
     <BulkActionProvider daemonId={daemonId} connectionId={connectionId}>
       <div data-component="ProcessLayout" className="flex min-h-0 flex-1">
-        <ResizableSidebar className="hidden min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-r border-line bg-surface-plane lg:flex">
-          <AppHeader data={list.data} loading={false} failed={false} sidebar />
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex h-detail-toolbar shrink-0 items-center border-b border-line bg-surface-control px-3">
-              <ProcessFilterField />
-            </div>
-            {listNoticeElement}
-            <ProcessNav
-              processes={visibleProcesses}
-              highlight={filtered.highlight}
-              selectedDaemonId={daemonId}
-              daemonColor={selectedDaemon?.color}
-              selectedIds={pmIds}
-              tab={sidebarTab}
-              autoFocus
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3"
-              itemClassName="flex h-12 items-center text-sm"
-              selectedItemClassName="bg-panel-hover text-white hover:brightness-110 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.07),inset_0_-1px_0_rgb(0_0_0_/_0.4)]"
-              idleItemClassName="text-white/90 hover:bg-panel"
-            />
-          </div>
-        </ResizableSidebar>
         {mobileMenuOpen ? (
           <div className="fixed inset-0 z-40 flex lg:hidden">
             <button
@@ -224,7 +212,12 @@ export function ProcessLayout() {
               aria-label="Close process menu"
               onClick={() => setMobileMenuOpen(false)}
             />
-            <div className="relative h-full w-[min(82vw,320px)] overflow-y-auto border-r border-line bg-surface-plane p-3">
+            <div
+              data-tree-scroller
+              // Here, the rows are as wide as this menu, not the side menu of a wide screen.
+              style={{ '--sidebar-width': '100%' } as CSSProperties}
+              className="relative h-full w-[min(82vw,320px)] overflow-y-auto border-r border-line bg-surface-plane p-3 [overflow-anchor:none]"
+            >
               <div className="mb-3 flex items-center justify-between px-2">
                 <span className="text-sm font-semibold">Processes</span>
                 <Button
@@ -235,21 +228,9 @@ export function ProcessLayout() {
                   <X className="size-4" />
                 </Button>
               </div>
-              <ProcessFilterField className="mb-3" />
-              {listNoticeElement}
-              <ProcessNav
-                processes={visibleProcesses}
-                highlight={filtered.highlight}
-                selectedDaemonId={daemonId}
-                daemonColor={selectedDaemon?.color}
-                selectedIds={pmIds}
-                tab={sidebarTab}
-                autoFocus
-                onItemClick={() => setMobileMenuOpen(false)}
-                itemClassName="mb-1 flex h-11 items-center rounded-lg text-sm"
-                selectedItemClassName="bg-panel-hover text-white"
-                idleItemClassName="text-muted"
-              />
+              <ProcessTreeTools className="mb-3" />
+              <ProcessListNotice className="px-4 pb-4" />
+              <ProcessTree autoFocus onItemClick={() => setMobileMenuOpen(false)} />
             </div>
           </div>
         ) : null}
@@ -270,7 +251,7 @@ export function ProcessLayout() {
           }}
         >
           <div className="lg:hidden">
-            <AppHeader data={list.data} loading={false} failed={false} />
+            <NarrowHeader />
           </div>
           <section className="flex h-auto shrink-0 flex-col border-b border-line bg-surface-menu px-4 sm:px-7 lg:h-16 lg:justify-end">
             <div
@@ -290,6 +271,7 @@ export function ProcessLayout() {
                 >
                   <Menu className="size-4" />
                 </Button>
+                {daemonCrumb}
                 {isMulti ? (
                   <div className="flex min-w-0 flex-1 items-center gap-4">
                     <h1 className="min-w-0 truncate text-md font-bold text-white sm:text-xl">
@@ -318,7 +300,7 @@ export function ProcessLayout() {
                   variant="ghost"
                   className="size-10 shrink-0 p-0 sm:hidden"
                   aria-label={isMulti ? 'Close selection' : 'Close process'}
-                  onClick={() => navigate({ to: '/' })}
+                  onClick={() => navigate(tree.closeLink)}
                 >
                   <X className="size-4" />
                 </Button>
@@ -365,7 +347,7 @@ export function ProcessLayout() {
                   variant="ghost"
                   className="hidden size-10 p-0 sm:inline-flex"
                   aria-label={isMulti ? 'Close selection' : 'Close process'}
-                  onClick={() => navigate({ to: '/' })}
+                  onClick={() => navigate(tree.closeLink)}
                 >
                   <X className="size-4" />
                 </Button>

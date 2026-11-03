@@ -14,7 +14,6 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
-import { useDaemonSelection } from '@/lib/daemon_selection';
 import { fieldsToSshArgs, sshArgsToFields } from '@/lib/ssh_arguments';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -38,22 +37,37 @@ import { Button, ToggleGroup } from './ui';
 
 type IDaemonManagerView = 'daemon' | 'add';
 
-const DaemonManagerApiContext = createContext<{ open: (view?: IDaemonManagerView) => void }>({
+const DaemonManagerApiContext = createContext<{
+  /** Defaults to the first daemon when no daemon ID is supplied. */
+  open: (view?: IDaemonManagerView, daemonId?: string) => void;
+}>({
   open: () => undefined,
 });
 
 export function DaemonManagerProvider({ children }: { children: ReactNode }) {
-  const [openView, setOpenView] = useState<IDaemonManagerView | null>(null);
+  const [opened, setOpened] = useState<{
+    view: IDaemonManagerView;
+    daemonId: string | null;
+  } | null>(null);
   const api = useMemo(
-    () => ({ open: (view: IDaemonManagerView = 'daemon') => setOpenView(view) }),
+    () => ({
+      open: (view: IDaemonManagerView = 'daemon', daemonId?: string) =>
+        setOpened({ view, daemonId: daemonId ?? null }),
+    }),
     []
   );
-  const close = useCallback(() => setOpenView(null), []);
+  const close = useCallback(() => setOpened(null), []);
 
   return (
     <DaemonManagerApiContext.Provider value={api}>
       {children}
-      {openView ? <DaemonManager initialView={openView} onClose={close} /> : null}
+      {opened ? (
+        <DaemonManager
+          initialView={opened.view}
+          initialDaemonId={opened.daemonId}
+          onClose={close}
+        />
+      ) : null}
     </DaemonManagerApiContext.Provider>
   );
 }
@@ -421,7 +435,9 @@ function DaemonForm({
         value={fields.color}
         onChange={color => setFields(current => ({ ...current, color }))}
       />
-      <div className="flex flex-wrap items-center gap-2 pt-2">
+      {/* Keep Save visible in short windows so users do not close the dialog and lose
+          their edits. The offset compensates for the panel's padding. */}
+      <div className="sticky -bottom-5 -mx-5 -mb-5 flex flex-wrap items-center gap-2 bg-surface-plane px-5 pt-4 pb-5">
         {config ? (
           <Button
             type="button"
@@ -471,13 +487,14 @@ function DaemonForm({
 
 export function DaemonManager({
   initialView,
+  initialDaemonId,
   onClose,
 }: {
   initialView: IDaemonManagerView;
+  initialDaemonId: string | null;
   onClose: () => void;
 }) {
-  const { selectedDaemonId } = useDaemonSelection();
-  const [activeDaemonId, setActiveDaemonId] = useState(selectedDaemonId);
+  const [activeDaemonId, setActiveDaemonId] = useState(initialDaemonId);
   const [isAdding, setIsAdding] = useState(initialView === 'add');
   const [addKind, setAddKind] = useState<IDaemonKind>('ssh');
   const settings = trpc.daemons.list.useQuery(undefined, { refetchInterval: 2_000 });
@@ -520,7 +537,9 @@ export function DaemonManager({
         role="dialog"
         aria-modal="true"
         aria-labelledby="daemon-manager-title"
-        className="flex h-[min(640px,92svh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface-plane shadow-2xl"
+        // Tall enough for an SSH daemon's form, so moving between daemons does not
+        // resize it. A longer form, such as one with a conflict notice, grows it.
+        className="flex max-h-[92svh] min-h-[min(720px,92svh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface-plane shadow-2xl"
       >
         <header className="border-b border-line px-5 py-4">
           <h2 id="daemon-manager-title" className="font-semibold text-white">

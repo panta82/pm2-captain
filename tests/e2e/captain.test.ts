@@ -5,8 +5,7 @@ const launchPath = '/launch?token=pm2-captain-e2e-token';
 const fixturePm2Home = '/tmp/pm2-captain-e2e';
 
 async function openDaemonManager(page: Page) {
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
+  await page.getByRole('button', { name: 'Daemons', exact: true }).click();
   return page.getByRole('dialog', { name: 'PM2 daemons' });
 }
 
@@ -112,16 +111,12 @@ test('redirects a stale process route back to status', async ({ page }) => {
   await expect(page).toHaveURL('http://127.0.0.1:3214/');
 });
 
-test('shows one daemon at a time and manages daemons in the settings screen', async ({ page }) => {
+test('shows the daemons in a tree and manages them in the settings screen', async ({ page }) => {
   await page.goto(launchPath);
   const localRow = page.getByRole('row', { name: /captain-fixture/ });
+  const daemonRows = page.locator('[data-tree-daemon]');
   await expect(localRow).toBeVisible();
-
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(1);
-  await expect(page.getByRole('menuitemradio')).toHaveAttribute('aria-checked', 'true');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(daemonRows).toHaveCount(1);
 
   // The fixture PM2 is a regular entry, and the screen closes from the backdrop or its button.
   let dialog = await openDaemonManager(page);
@@ -182,63 +177,55 @@ test('shows one daemon at a time and manages daemons in the settings screen', as
   await expect(dialog.getByRole('tab')).toHaveCount(3);
   await dialog.getByRole('button', { name: 'Close' }).click();
 
-  // Managing daemons leaves the page on the daemon it was showing.
+  // Managing daemons leaves the page where it was.
   await expect(localRow).toBeVisible();
 
   // Daemons are summarized by process counts; an unreachable one has none to show.
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  const localOption = page.getByRole('menuitemradio').first();
-  await expect(localOption.getByTitle('1 online')).toBeVisible();
-  await expect(localOption.getByTitle('0 offline')).toBeVisible();
-  const remoteOption = page.getByRole('menuitemradio', { name: /broken/ });
-  await expect(remoteOption).toContainText('unreachable');
-  await remoteOption.click();
-  const remotePicker = page.getByRole('button', { name: 'Daemon: broken' });
-  await expect(remotePicker).toBeVisible();
-  await expect(localRow).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: "Can't reach broken" })).toBeVisible();
-
-  await remotePicker.click();
-  await page.getByRole('menuitemradio').first().click();
-  await expect(localRow).toBeVisible();
+  const localDaemon = daemonRows.first();
+  await expect(localDaemon.getByTitle('1 online')).toBeVisible();
+  await expect(localDaemon.getByTitle('0 offline')).toBeVisible();
+  const brokenDaemon = daemonRows.filter({ hasText: 'broken' });
+  await expect(brokenDaemon).toContainText('unreachable');
   await expect(page.getByRole('columnheader', { name: 'DAEMON' })).toHaveCount(0);
 
   await localRow.getByText('captain-fixture', { exact: true }).click();
   await expect(page).toHaveURL(/\/daemons\/[0-9a-f-]+\/processes\/0\//);
-  const sidebar = page.locator('[data-component="ResizableSidebar"]');
+  const captainNode = page.locator('[data-component="CaptainNode"]');
   const processLink = page
     .getByRole('navigation', { name: 'Processes' })
     .getByRole('link', { name: 'captain-fixture', exact: true });
-  expect((await processLink.boundingBox())?.height).toBe(48);
+  expect((await page.locator('[data-tree-process]').first().boundingBox())?.height).toBe(48);
 
   // The filter keeps the open process in the sidebar even without a match.
-  const sidebarFilter = sidebar.getByPlaceholder('Filter processes…');
+  const sidebarFilter = page.getByPlaceholder('Filter…');
   await sidebarFilter.fill('no-such-process');
   await expect(processLink).toBeVisible();
-  await expect(sidebar.getByText('No processes match the filter.')).toHaveCount(0);
+  await expect(page.getByText('No processes match the filter.')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'captain-fixture', exact: true })).toBeVisible();
   await sidebarFilter.fill('fixture');
   await expect(processLink.locator('mark')).toHaveText('fixture');
   await sidebarFilter.fill('');
   await expect(processLink.locator('mark')).toHaveCount(0);
 
-  const sidebarWidth = (await sidebar.boundingBox())?.width || 0;
+  const sidebarWidth = (await captainNode.boundingBox())?.width || 0;
   const resizeHandle = page.getByRole('separator', { name: 'Resize process sidebar' });
   await resizeHandle.focus();
   await resizeHandle.press('ArrowRight');
-  expect((await sidebar.boundingBox())?.width).toBeGreaterThan(sidebarWidth);
+  expect((await captainNode.boundingBox())?.width).toBeGreaterThan(sidebarWidth);
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('pm2-captain:process-sidebar-width')))
     .toBe(String(sidebarWidth + 16));
 
-  // A daemon without processes has no process page to switch to.
-  await sidebar.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitemradio', { name: /broken/ }).click();
-  await expect(page).toHaveURL('http://127.0.0.1:3214/');
-  await expect(page.getByRole('heading', { name: "Can't reach broken" })).toBeVisible();
+  // A daemon that cannot be reached still has its own place, which says why.
+  await page.getByRole('button', { name: 'broken', exact: true }).click();
+  await expect(page).toHaveURL(/\/daemons\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'broken', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
 
-  // The settings screen opens on the current daemon, which can be deleted from its tab.
-  dialog = await openDaemonManager(page);
+  // The settings screen opens on that daemon, which can be deleted from its tab. The
+  // page leaves with it.
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
   await expect(dialog.getByRole('tab', { name: /broken/ })).toHaveAttribute(
     'aria-selected',
     'true'
@@ -246,8 +233,9 @@ test('shows one daemon at a time and manages daemons in the settings screen', as
   page.once('dialog', confirmation => confirmation.accept());
   await dialog.getByRole('button', { name: 'Delete' }).click();
   await expect(dialog.getByRole('tab')).toHaveCount(2);
+  await expect(page).toHaveURL('http://127.0.0.1:3214/');
 
-  // Without any daemon, the status page offers to add one.
+  // Without any daemon, the page offers to add one.
   await dialog.getByRole('tab', { name: /pm2-captain-e2e/ }).click();
   page.once('dialog', confirmation => confirmation.accept());
   await dialog.getByRole('button', { name: 'Delete' }).click();

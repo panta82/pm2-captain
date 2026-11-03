@@ -258,7 +258,7 @@ const pressInFindBar = (key: string, modifiers: { ctrlKey?: boolean; shiftKey?: 
 
 test('finds in the page with a find bar of its own, after the filter box', async () => {
   const { app, page } = await launch();
-  const filter = page.getByPlaceholder('Filter processes…').first();
+  const filter = page.getByPlaceholder('Filter…').first();
   const isFilterActive = () => filter.evaluate(element => element === document.activeElement);
 
   await page.keyboard.press('Control+f');

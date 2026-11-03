@@ -101,7 +101,7 @@ for (const processCount of [14, 180]) {
         },
       });
       await page.goto(FAKE_LAUNCH_PATH);
-      await expect(page.getByRole('row')).toHaveCount(processCount + 1);
+      await expect(page.locator('[data-tree-process]')).toHaveCount(processCount);
       await page
         .getByRole('row')
         .filter({ hasText: 'frame-process-0' })

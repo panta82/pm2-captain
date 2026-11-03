@@ -1,7 +1,9 @@
 import {
   FAKE_LAUNCH_PATH,
+  daemonRow,
   expect,
   failOnPageError,
+  openDaemonManager,
   processRow,
   test,
 } from '../support/fake_fixture';
@@ -33,7 +35,7 @@ test('follows renames and removals made outside Captain', async ({ page, fake })
   await expect(processRow(page, 'api')).toBeVisible();
 
   await fake.send({ type: 'registry.edit', daemon: 'local', label: 'Renamed outside' });
-  await expect(page.getByRole('button', { name: /^Daemon: / })).toContainText('Renamed outside');
+  await expect(daemonRow(page, 'Renamed outside')).toBeVisible();
 
   await fake.send({ type: 'registry.remove', daemon: 'local' });
   await expect(page.getByRole('heading', { name: 'No PM2 daemons' })).toBeVisible();
@@ -48,11 +50,8 @@ test('colors a daemon from its form and follows colors changed outside Captain',
 }) => {
   await page.goto(FAKE_LAUNCH_PATH);
   await expect(processRow(page, 'api')).toBeVisible();
-  const picker = page.getByRole('button', { name: /^Daemon: / });
-  const pickerLabel = picker.getByText(/^captain@fake-host/);
-  await picker.click();
-  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
+  const treeLabel = page.getByRole('button', { name: /^captain@fake-host/ });
+  const dialog = await openDaemonManager(page);
 
   await dialog.getByRole('radio', { name: 'red' }).check();
   await dialog.getByRole('button', { name: 'Save' }).click();
@@ -60,7 +59,7 @@ test('colors a daemon from its form and follows colors changed outside Captain',
   expect((await fake.state()).registry.daemons?.[0].color).toBe('red');
   await dialog.getByRole('button', { name: 'Close' }).click();
   // --color-daemon-red
-  await expect(pickerLabel).toHaveCSS('color', 'rgb(255, 107, 107)');
+  await expect(treeLabel).toHaveCSS('color', 'rgb(255, 107, 107)');
   await expect(processRow(page, 'api').getByText('api', { exact: true })).toHaveCSS(
     'color',
     'rgb(255, 107, 107)'
@@ -68,10 +67,53 @@ test('colors a daemon from its form and follows colors changed outside Captain',
 
   await fake.send({ type: 'registry.edit', daemon: 'local', color: 'blue' });
   // --color-daemon-blue
-  await expect(pickerLabel).toHaveCSS('color', 'rgb(92, 184, 255)');
+  await expect(treeLabel).toHaveCSS('color', 'rgb(92, 184, 255)');
 
   await fake.send({ type: 'registry.edit', daemon: 'local', color: null });
-  await expect(pickerLabel).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(treeLabel).toHaveCSS('color', 'rgb(255, 255, 255)');
+});
+
+test('keeps the buttons of a daemon form in view, however short the window', async ({
+  page,
+  fake,
+}) => {
+  await fake.send({ type: 'world.reset', scenario: 'multi' });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await expect(processRow(page, 'worker')).toBeVisible();
+  const dialog = await openDaemonManager(page);
+  const save = dialog.getByRole('button', { name: 'Save' });
+  const remove = dialog.getByRole('button', { name: 'Delete' });
+  // An SSH daemon has the longest form.
+  await dialog.getByRole('tab', { name: /deploy@staging/ }).click();
+
+  // With room, the whole form shows, and nothing scrolls.
+  await expect(save).toBeInViewport({ ratio: 1 });
+  const panel = dialog.getByRole('tabpanel');
+  expect(await panel.evaluate(element => element.scrollHeight - element.clientHeight)).toBe(0);
+
+  // Moving between daemons leaves the dialog in place.
+  const box = await dialog.boundingBox();
+  await dialog.getByRole('tab', { name: 'Blue stack' }).click();
+  await expect(dialog.getByLabel('PM2 home')).toHaveValue('/srv/pm2-blue');
+  expect(await dialog.boundingBox()).toEqual(box);
+
+  // Without room, the fields scroll under the buttons.
+  await dialog.getByRole('tab', { name: /deploy@staging/ }).click();
+  await page.setViewportSize({ width: 1500, height: 520 });
+  await expect(save).toBeInViewport({ ratio: 1 });
+  await expect(remove).toBeInViewport({ ratio: 1 });
+  expect(
+    await panel.evaluate(element => element.scrollHeight - element.clientHeight)
+  ).toBeGreaterThan(0);
+  // Nothing shows below them.
+  const edges = await save.evaluate(element => [
+    element.parentElement!.getBoundingClientRect().bottom,
+    element.closest('[role="tabpanel"]')!.getBoundingClientRect().bottom,
+  ]);
+  expect(Math.abs(edges[0] - edges[1])).toBeLessThan(1);
+  await dialog.getByLabel(/^Label/).fill('Still typing');
+  await expect(save).toBeInViewport({ ratio: 1 });
+  await expect(save).toBeEnabled();
 });
 
 test('leaves a process page when its daemon is moved elsewhere', async ({ page, fake }) => {
@@ -97,9 +139,7 @@ test('keeps a draft when the daemon was changed outside Captain while its form w
 }) => {
   await page.goto(FAKE_LAUNCH_PATH);
   await expect(processRow(page, 'api')).toBeVisible();
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
+  const dialog = await openDaemonManager(page);
   const label = dialog.getByLabel(/^Label/);
   await label.fill('My draft');
 
@@ -153,9 +193,7 @@ test('keeps the draft and the notice when the saved version cannot be loaded', a
 }) => {
   await page.goto(FAKE_LAUNCH_PATH);
   await expect(processRow(page, 'api')).toBeVisible();
-  await page.getByRole('button', { name: /^Daemon: / }).click();
-  await page.getByRole('menuitem', { name: 'Manage daemons…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'PM2 daemons' });
+  const dialog = await openDaemonManager(page);
   const label = dialog.getByLabel(/^Label/);
   await label.fill('My draft');
   await fake.send({ type: 'registry.edit', daemon: 'local', label: 'Edited outside' });

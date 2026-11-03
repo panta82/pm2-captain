@@ -110,15 +110,15 @@ export function clickShortcutTarget(actionId: IKeyboardActionId): boolean {
 }
 
 /**
- * Marks the process list on screen: the sidebar, or the status page's rows.
+ * Marks the process list on screen: the tree, or the cards on a narrow screen.
  * The list itself takes the focus when it can; otherwise its first entry does.
  */
 export const PROCESS_LIST_ATTRIBUTE = 'data-process-list';
 
 /**
  * Moves the focus into the process list on screen, where the arrow keys go on:
- * to the list itself when it takes the focus, otherwise to its first or last
- * entry (a status table row, or a card's button).
+ * to the tree, which starts at the end it was entered from, otherwise to the
+ * first or last entry (a card's button).
  */
 export function focusProcessList(isFromEnd = false): boolean {
   for (const list of document.querySelectorAll<HTMLElement>(`[${PROCESS_LIST_ATTRIBUTE}]`)) {
@@ -130,7 +130,12 @@ export function focusProcessList(isFromEnd = false): boolean {
       : Array.from(list.querySelectorAll<HTMLElement>(':scope > [tabindex], :scope > * > button'));
     const target = isFromEnd ? entries.at(-1) : entries[0];
     if (target) {
-      target.focus();
+      if (target !== document.activeElement) {
+        target.dataset.enterFrom = isFromEnd ? 'end' : 'start';
+      }
+      // The tree scrolls to its cursor itself: a list taller than the window would
+      // otherwise scroll to its own top.
+      target.focus({ preventScroll: target === list });
       return true;
     }
   }

@@ -54,8 +54,8 @@ describe('toggleSelection', () => {
     expect(toggleSelection([1, 2, 5], 2)).toEqual([1, 5]);
   });
 
-  it('keeps the last selected process', () => {
-    expect(toggleSelection([4], 4)).toEqual([4]);
+  it('removes the last selected process', () => {
+    expect(toggleSelection([4], 4)).toEqual([]);
   });
 });
 

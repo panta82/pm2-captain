@@ -76,7 +76,7 @@ Keep the tRPC surface small and stable. Whitelist process-detail fields and neve
 
 ### Fake mode
 
-- `--fake [scenario]` (and `npm run dev:fake`, `npm run desktop:dev`) shows simulated daemons. It never looks for PM2, never runs SSH, and never reads or writes the real `daemons.json`; its store is in memory but uses the production registry validation.
+- `--fake [scenario]` (and `npm run web:dev -- --fake-data`, `npm run desktop:dev -- --fake-data`) shows simulated daemons. It never looks for PM2, never runs SSH, and never reads or writes the real `daemons.json`; its store is in memory but uses the production registry validation.
 - The fake world is driven by commands (`process.*`, `daemon.*`, `log.*`, `world.reset`, `registry.*` for outside edits of the stored list, `update.*` for the simulated desktop update), defined in `src/backend/fake/fake_commands.ts`. `pm2-captain fake <command>` sends them to the fake Captain on the port; `/api/fake/*` exists only in fake mode.
 - The desktop app in fake mode (`PM2_CAPTAIN_DESKTOP_FAKE=<scenario>`) writes `fake-control.json` (0600, removed on stop) into its profile, with its address and a separate token that only the fake routes accept; `pm2-captain fake --control <file> <command>` uses it. Its launch token never leaves the app. Desktop updates are simulated in fake mode, except in the release update test's loopback feed.
 

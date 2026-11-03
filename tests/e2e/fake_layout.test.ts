@@ -46,11 +46,17 @@ test('keeps the action buttons on screen next to a very long process name', asyn
   await page.goto(FAKE_LAUNCH_PATH);
   const row = processRow(page, 'status-online');
   await expect(row).toBeVisible();
-  await expect(row.getByRole('button', { name: 'Restart' })).toBeAttached();
+  await expect(row.getByRole('button', { name: 'Restart' })).toBeInViewport();
+});
 
-  test.fail(
-    true,
-    'Known bug: the NAME cell never truncates, so one long name widens the status table past the window.'
-  );
-  await expect(row.getByRole('button', { name: 'Restart' })).toBeInViewport({ timeout: 2_000 });
+test('fits the tree in the menu of a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await page
+    .locator('article')
+    .first()
+    .getByRole('button', { name: /^Open / })
+    .click();
+  await page.locator('button:has(svg.lucide-menu)').click();
+  await expect(page.getByRole('checkbox', { name: 'Select api' })).toBeInViewport({ ratio: 1 });
 });

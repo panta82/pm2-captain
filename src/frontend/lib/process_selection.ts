@@ -17,12 +17,11 @@ export function formatPmIds(pmIds: number[]): string {
   return [...new Set(pmIds)].sort((left, right) => left - right).join(',');
 }
 
-/** Ctrl+click: adds the process, or removes it unless it is the only one selected. */
+/** Toggles a process in the selection. Removing the last process closes the detail view. */
 export function toggleSelection(selectedIds: number[], pmId: number): number[] {
-  if (!selectedIds.includes(pmId)) {
-    return [...selectedIds, pmId];
-  }
-  return selectedIds.length > 1 ? selectedIds.filter(id => id !== pmId) : selectedIds;
+  return selectedIds.includes(pmId)
+    ? selectedIds.filter(id => id !== pmId)
+    : [...selectedIds, pmId];
 }
 
 /**

@@ -134,7 +134,7 @@ for (const latencyMs of [0, 150]) {
       }
     });
     await page.goto(FAKE_LAUNCH_PATH);
-    await expect(page.getByRole('row')).toHaveCount(53);
+    await expect(page.locator('[data-tree-process]')).toHaveCount(52);
     const samples: INavigationSample[] = [];
     for (let round = 0; round < 4; round++) {
       for (const [pmId, name] of PROCESS_NAMES.entries()) {

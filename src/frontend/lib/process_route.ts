@@ -17,6 +17,13 @@ export const PROCESS_ROUTE = '/daemons/$daemonId/processes/$pmIds/$tab';
 
 export const processRouteApi = getRouteApi(PROCESS_ROUTE);
 
+/** Route for selecting a daemon in the tree. */
+export const DAEMON_ROUTE = '/daemons/$daemonId';
+
+export function daemonLink(daemonId: string) {
+  return linkOptions({ to: DAEMON_ROUTE, params: { daemonId } });
+}
+
 export function getProcessTab(): ProcessTab {
   const storedTab = readPreference(STORAGE_KEY);
   return storedTab && isProcessTab(storedTab) ? storedTab : 'info';

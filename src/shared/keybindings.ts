@@ -97,8 +97,9 @@ export const KEYBOARD_ACTIONS = [
     browserKeys: ['3'],
   },
   {
+    // Keep this ID for existing keybindings.json overrides.
     id: 'daemon.picker',
-    label: 'Open the daemon picker',
+    label: 'Go to the daemons',
     group: 'Navigation',
     desktopKeys: ['Mod+K'],
     browserKeys: ['Mod+K'],

@@ -1,6 +1,6 @@
 {
   "name": "pm2-captain",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "A local web control room for PM2 processes and logs",
   "author": "Ivan Pantic",
   "repository": {
@@ -31,8 +31,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "cross-env NODE_ENV=development SERVER_DEV_MODE=true DEBUG=true tsx watch src/backend/app.ts",
-    "dev:fake": "cross-env NODE_ENV=development SERVER_DEV_MODE=true DEBUG=true tsx watch src/backend/app.ts --fake",
+    "web:dev": "node support/web/dev.mjs",
     "start": "node dist/backend/app.js",
     "build": "bash support/build.sh",
     "build:frontend": "vite build",
@@ -45,8 +44,7 @@
     "test:performance": "cross-env CAPTAIN_PERFORMANCE=1 playwright test fake_performance.test.ts --project=fake",
     "test:frames": "cross-env CAPTAIN_FRAMES=1 playwright test fake_frames.test.ts --project=fake",
     "test:package": "bash support/test-package.sh",
-    "desktop:dev": "PM2_CAPTAIN_BACKEND_DEBUG_PORT=9339 node support/desktop/dev.mjs",
-    "desktop:dev-inspect-brk": "PM2_CAPTAIN_BACKEND_DEBUG_PORT=9339 node support/desktop/dev.mjs --inspect-brk=9338",
+    "desktop:dev": "node support/desktop/dev.mjs",
     "desktop:stage": "node support/desktop/stage.mjs",
     "desktop:package:linux": "npm run build && npm run desktop:stage && node support/desktop/package-linux.mjs",
     "desktop:package:mac": "npm run build && npm run desktop:stage && electron-builder --config electron-builder.yml --mac --publish never",
@@ -68,7 +66,6 @@
     "@fontsource/inter": "5.3.0",
     "@tanstack/react-query": "5.101.4",
     "@tanstack/react-router": "1.170.18",
-    "@tanstack/react-table": "8.21.3",
     "@tanstack/react-virtual": "3.14.8",
     "@trpc/client": "11.18.0",
     "@trpc/react-query": "11.18.0",

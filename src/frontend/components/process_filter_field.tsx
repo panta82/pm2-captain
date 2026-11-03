@@ -19,7 +19,7 @@ export function ProcessFilterField({ className }: { className?: string }) {
       // Type, then go on to the processes that are left.
       onGoToList={focusProcessList}
       onLeave={focusProcessList}
-      placeholder="Filter processes…"
+      placeholder="Filter…"
       className={cn('w-full max-w-none sm:w-full', className)}
     />
   );

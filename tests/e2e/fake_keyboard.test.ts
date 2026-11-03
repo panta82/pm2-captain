@@ -35,7 +35,12 @@ async function trackKeys(page: Page) {
   return () => page.evaluate(() => (window as unknown as { wasTaken: boolean }).wasTaken);
 }
 
-const processFilter = (page: Page) => page.getByPlaceholder('Filter processes…').first();
+const processFilter = (page: Page) => page.getByPlaceholder('Filter…').first();
+/** The tree has the focus, and its keys act on this row. */
+const expectCursorOn = async (page: Page, name: string) => {
+  await expect(page.getByRole('navigation', { name: 'Processes' })).toBeFocused();
+  await expect(processRow(page, name)).toHaveAttribute('data-cursor', 'true');
+};
 /** The hints on screen; narrow-screen variants of a control are rendered but hidden. */
 const hints = (page: Page) =>
   page.locator('[data-component="ShortcutHint"]').filter({ visible: true });
@@ -105,19 +110,19 @@ test('goes from a filter box into its list, and clears the process filter with E
 
   // With nothing focused, the arrow keys go into the list, from either end.
   await page.keyboard.press('ArrowUp');
-  await expect(processRow(page, 'mailer')).toBeFocused();
+  await expectCursorOn(page, 'mailer');
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
   await page.keyboard.press('ArrowDown');
-  await expect(processRow(page, 'api')).toBeFocused();
+  await expectCursorOn(page, 'api');
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
 
   // Ctrl+F, type, Down: the first process that is left.
   await page.keyboard.press('Control+f');
   await page.keyboard.type('er');
   await page.keyboard.press('ArrowDown');
-  await expect(processRow(page, 'worker')).toBeFocused();
+  await expectCursorOn(page, 'worker');
   await page.keyboard.press('ArrowDown');
-  await expect(processRow(page, 'scheduler')).toBeFocused();
+  await expectCursorOn(page, 'scheduler');
   // Escape clears the filter from the list as well.
   await page.keyboard.press('Escape');
   await expect(processFilter(page)).toHaveValue('');
@@ -125,7 +130,7 @@ test('goes from a filter box into its list, and clears the process filter with E
   // Enter goes on to the list too.
   await processFilter(page).fill('sched');
   await processFilter(page).press('Enter');
-  await expect(processRow(page, 'scheduler')).toBeFocused();
+  await expectCursorOn(page, 'scheduler');
   await page.keyboard.press('Enter');
   await expect(heading('scheduler')).toBeVisible();
 
@@ -152,8 +157,9 @@ test('goes from a filter box into its list, and clears the process filter with E
   await page.keyboard.press('Control+f');
   await expect(page.getByPlaceholder('Filter loaded logs…')).toBeFocused();
 
-  // The list is one tab stop: from the filter's buttons, Tab lands on it.
+  // The list is one tab stop: from the filter's buttons and the sort button, Tab lands on it.
   await processFilter(page).focus();
+  await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
@@ -187,11 +193,8 @@ test('goes into the open process from the sidebar, and back with Escape', async 
   await page.keyboard.press('Escape');
   await expect(sidebar).toBeFocused();
 
-  // So do the daemon picker and the empty process filter in the sidebar.
-  await page
-    .getByRole('button', { name: /^Daemon: / })
-    .first()
-    .focus();
+  // So do the sort button and the empty process filter in the sidebar.
+  await page.getByRole('button', { name: /^Sort processes/ }).focus();
   await page.keyboard.press('Escape');
   await expect(sidebar).toBeFocused();
   await processFilter(page).focus();
@@ -247,18 +250,29 @@ test('restarts, moves through processes and switches tabs from the keyboard', as
   await expect(page).toHaveURL(/\/processes\/1\/info$/);
   await processFilter(page).fill('');
 
-  // On the status page they move through the rows, and Enter opens one.
+  // With no process open they move through the rows, and Enter opens one.
   await page.goto('/');
   await expect(processRow(page, 'api')).toBeVisible();
   await page.keyboard.press('Control+ArrowDown');
-  await expect(processRow(page, 'api')).toBeFocused();
+  await expectCursorOn(page, 'api');
   await page.keyboard.press('ArrowDown');
-  await expect(processRow(page, 'worker')).toBeFocused();
+  await expectCursorOn(page, 'worker');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'worker', exact: true })).toBeVisible();
 
+  // Escape closes it, and the keys are still on the same row, so Enter comes back.
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(/:3215\/$/);
+  await expectCursorOn(page, 'worker');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'worker', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Ctrl+K goes to the daemons: up to the daemon's row, from anywhere.
+  await processFilter(page).focus();
   await page.keyboard.press('Control+k');
-  await expect(page.getByRole('menu', { name: 'Daemons' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Processes' })).toBeFocused();
+  await expect(page.locator('[data-tree-daemon]').first()).toHaveAttribute('data-cursor', 'true');
 });
 
 test('follows the latest log lines again on End', async ({ page }) => {
@@ -301,7 +315,7 @@ test('lists the shortcuts, and takes other keys from keybindings.json', async ({
   await page.goto('/');
   await expect(processRow(page, 'api')).toBeVisible();
   await page.keyboard.down('Control');
-  // No daemon picker key any more, and the filter's new key.
+  // No key for going to the daemons any more, and the filter's new key.
   await expect(hints(page)).toHaveText(['Alt+F']);
   await page.keyboard.up('Control');
   await page.keyboard.press('Alt+f');
@@ -313,5 +327,5 @@ test('lists the shortcuts, and takes other keys from keybindings.json', async ({
   await page.goto('/');
   await expect(page.getByText(/"process\.kill" is not a shortcut action/)).toBeVisible();
   await page.keyboard.press('Control+k');
-  await expect(page.getByRole('menu', { name: 'Daemons' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Processes' })).toBeFocused();
 });

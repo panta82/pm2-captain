@@ -19,9 +19,10 @@ describe('desktop preferences', () => {
   it('keeps UI preferences and the window across launches, privately', async () => {
     const directory = libPath.join(root, 'profile');
     const store = createPreferenceStore(directory);
-    expect(store.setUi('pm2-captain-selected-daemon', '830f902f-c88b-4ed8-8051-c3a81c44ed87')).toBe(
-      true
-    );
+    expect(
+      store.setUi('pm2-captain-collapsed-daemons', '["830f902f-c88b-4ed8-8051-c3a81c44ed87"]')
+    ).toBe(true);
+    expect(store.setUi('pm2-captain-process-sort', 'cpu:desc')).toBe(true);
     expect(store.setUi('pm2-captain-process-tab', 'logs')).toBe(true);
     expect(store.setUi('pm2-captain:process-sidebar-width', '320')).toBe(true);
     expect(store.setUi('pm2-captain-matrix-only-differences', 'true')).toBe(true);
@@ -31,7 +32,8 @@ describe('desktop preferences', () => {
 
     const reloaded = createPreferenceStore(directory);
     expect(reloaded.ui()).toEqual({
-      'pm2-captain-selected-daemon': '830f902f-c88b-4ed8-8051-c3a81c44ed87',
+      'pm2-captain-collapsed-daemons': '["830f902f-c88b-4ed8-8051-c3a81c44ed87"]',
+      'pm2-captain-process-sort': 'cpu:desc',
       'pm2-captain-process-tab': 'logs',
       'pm2-captain:process-sidebar-width': '320',
       'pm2-captain-matrix-only-differences': 'true',
@@ -49,12 +51,25 @@ describe('desktop preferences', () => {
     expect(JSON.parse(await fs.readFile(path, 'utf8'))).toMatchObject({ version: 1 });
   });
 
+  it('keeps a list of collapsed daemons that is longer than other preferences', () => {
+    const store = createPreferenceStore(root);
+    const daemonIds = Array.from(
+      { length: 40 },
+      (_, index) => `830f902f-c88b-4ed8-8051-c3a81c44e${String(index).padStart(3, '0')}`
+    );
+    expect(store.setUi('pm2-captain-collapsed-daemons', JSON.stringify(daemonIds))).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-daemons', '[]')).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-daemons', `["${'a'.repeat(20_000)}"]`)).toBe(false);
+  });
+
   it('refuses keys and values a page could not legitimately send', () => {
     const store = createPreferenceStore(root);
 
     expect(store.setUi('launch-token', 'secret')).toBe(false);
     expect(store.setUi('pm2-captain-process-tab', 'settings')).toBe(false);
-    expect(store.setUi('pm2-captain-selected-daemon', '../../etc')).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-daemons', '../../etc')).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-daemons', '["../../etc"]')).toBe(false);
+    expect(store.setUi('pm2-captain-process-sort', '../../etc')).toBe(false);
     expect(store.setUi('pm2-captain:process-sidebar-width', 320)).toBe(false);
     expect(store.setUi('pm2-captain-skipped-update-version', '../../etc')).toBe(false);
     expect(store.setUi('pm2-captain-skipped-update-version', '1'.repeat(201))).toBe(false);
@@ -69,7 +84,7 @@ describe('desktop preferences', () => {
       libPath.join(root, 'preferences.json'),
       JSON.stringify({
         version: 1,
-        ui: { 'pm2-captain-process-tab': 'env', other: 'x', 'pm2-captain-selected-daemon': 'no' },
+        ui: { 'pm2-captain-process-tab': 'env', other: 'x', 'pm2-captain-process-sort': 'no' },
         window: { width: 5, height: 800 },
       })
     );

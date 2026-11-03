@@ -169,7 +169,7 @@ test('keeps selected processes visible while filtering and removes deselected no
   await expect(heading(page, '3 processes')).toBeVisible();
 
   const navigation = page.getByRole('navigation', { name: 'Processes' });
-  const filter = page.getByPlaceholder('Filter processes…');
+  const filter = page.getByPlaceholder('Filter…');
   const checkBox = (name: string) => navigation.getByRole('checkbox', { name: `Select ${name}` });
   await filter.fill('export');
   await expect(navigation.getByRole('link')).toHaveText(['api', 'mail', 'billing', 'export']);
@@ -213,7 +213,7 @@ test('keeps selected processes visible while filtering and removes deselected no
   ]);
 });
 
-test('opens the rows picked in the status table once the key is let go', async ({ page, fake }) => {
+test('opens the rows picked in the table once the key is let go', async ({ page, fake }) => {
   await fake.send({ type: 'world.reset', scenario: SELECTION_SCENARIO });
   await page.goto(FAKE_LAUNCH_PATH);
   const name = (process: string) => processRow(page, process).getByText(process, { exact: true });
@@ -249,4 +249,51 @@ test('keeps the rest of a selection when one of its processes is gone', async ({
   await expect(heading(page, '2 processes')).toBeVisible({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/processes\/1,2\/info$/);
   await expect(page.getByRole('columnheader')).toContainText(['mail', 'billing']);
+});
+
+test('closes the open process with a second click on it', async ({ page, fake }) => {
+  await fake.send({ type: 'world.reset', scenario: SELECTION_SCENARIO });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await openProcessTab(page, 'api', 'Info');
+
+  await sidebarLink(page, 'api').click();
+  await expect(page).toHaveURL(/:3215\/$/);
+  await expect(processRow(page, 'billing').getByRole('button', { name: 'Restart' })).toBeVisible();
+
+  // A double-click opens it and leaves it open.
+  await processRow(page, 'api').getByText('api', { exact: true }).dblclick();
+  await expect(heading(page, 'api')).toBeVisible();
+
+  // Its check box closes it too, once it is the only one left.
+  await page.getByRole('checkbox', { name: 'Select api' }).click();
+  await expect(page).toHaveURL(/:3215\/$/);
+
+  // The check box of a process opens it from the table.
+  await page.getByRole('checkbox', { name: 'Select mail' }).click();
+  await expect(heading(page, 'mail')).toBeVisible();
+  await page.getByRole('button', { name: 'Close process' }).click();
+  await expect(page).toHaveURL(/:3215\/$/);
+
+  // So does a click anywhere on its row, including the columns.
+  await processRow(page, 'mail').getByRole('cell').nth(2).click();
+  await expect(heading(page, 'mail')).toBeVisible();
+});
+
+test('keeps a selection inside one daemon', async ({ page, fake }) => {
+  await fake.send({ type: 'world.reset', scenario: 'multi' });
+  await page.goto(FAKE_LAUNCH_PATH);
+  await expect(processRow(page, 'worker')).toBeVisible();
+
+  await page.getByRole('checkbox', { name: 'Select worker' }).click();
+  await expect(heading(page, 'worker')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select api' }).first().click();
+  await expect(heading(page, '2 processes')).toBeVisible();
+
+  // A process of another daemon starts over, whichever way it was added.
+  await page.getByRole('checkbox', { name: 'Select queue' }).click();
+  await expect(heading(page, 'queue')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select api' }).first().click();
+  await expect(heading(page, 'api')).toBeVisible();
+  await sidebarLink(page, 'queue').click({ modifiers: ['Control'] });
+  await expect(heading(page, 'queue')).toBeVisible();
 });
