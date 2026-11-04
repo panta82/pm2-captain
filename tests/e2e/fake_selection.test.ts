@@ -228,7 +228,9 @@ test('opens the rows picked in the table once the key is let go', async ({ page,
   await expect(page).toHaveURL(/\/processes\/0,3\/info$/);
   await expect(heading(page, '2 processes')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Close selection' }).click();
+  await page.getByRole('checkbox', { name: 'Select api' }).click();
+  await page.getByRole('checkbox', { name: 'Select export' }).click();
+  await expect(page).toHaveURL(/:3215\/$/);
   await page.keyboard.down('Shift');
   await name('mail').click();
   await name('export').click();
@@ -271,7 +273,7 @@ test('closes the open process with a second click on it', async ({ page, fake })
   // The check box of a process opens it from the table.
   await page.getByRole('checkbox', { name: 'Select mail' }).click();
   await expect(heading(page, 'mail')).toBeVisible();
-  await page.getByRole('button', { name: 'Close process' }).click();
+  await processRow(page, 'mail').getByText('mail', { exact: true }).click();
   await expect(page).toHaveURL(/:3215\/$/);
 
   // So does a click anywhere on its row, including the columns.

@@ -9,13 +9,14 @@ import { focusProcessList, useShortcutAria, useShortcutHandler } from '@/lib/key
 import {
   daemonLink,
   getProcessTab,
+  namespaceLink,
   processLink,
   processRouteApi,
   setProcessTab,
 } from '@/lib/process_route';
 import { formatPmIds } from '@/lib/process_selection';
 import { useProcessTree } from '@/lib/process_tree';
-import { type IProcessTreeRow, processRowKey } from '@/lib/process_tree_rows';
+import { DEFAULT_NAMESPACE, type IProcessTreeRow, processRowKey } from '@/lib/process_tree_rows';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +24,8 @@ import { BulkProcessActions } from '@/components/bulk_process_actions';
 import { daemonColorStyle } from '@/components/daemon_option';
 import { ErrorPanel } from '@/components/error_panel';
 import { ProcessActions } from '@/components/process_actions';
-import { ProcessCounts } from '@/components/process_counts';
+import { ProcessStack } from '@/components/process_stack';
+import { ProcessStatusDot } from '@/components/process_status_dot';
 import { ProcessTabs } from '@/components/process_tabs';
 import { ProcessTree } from '@/components/process_tree';
 import { ShortcutHint } from '@/components/shortcut_hint';
@@ -186,20 +188,42 @@ export function ProcessLayout() {
   }
 
   const isDaemonAvailable = selectedDaemon?.status === 'online';
+  // The namespace the whole selection is in, unless that is PM2's default one.
+  const selectedNamespaces = new Set(selectedProcesses.map(item => item.namespace));
+  const [sharedNamespace] = selectedNamespaces.size === 1 ? selectedNamespaces : [];
+  const crumbNamespace =
+    sharedNamespace && sharedNamespace !== DEFAULT_NAMESPACE ? sharedNamespace : null;
+  const crumbSeparator = (
+    <span aria-hidden className="shrink-0 text-lg text-line">
+      /
+    </span>
+  );
+  // The crumbs give way to the name: the daemon's label truncates first, and the
+  // whole trail is cut off once there is no room left for it.
   const daemonCrumb = selectedDaemon ? (
-    <>
+    <span className="hidden min-w-0 items-center gap-3 overflow-hidden sm:flex">
       <Link
         {...daemonLink(daemonId)}
         title={`Show ${selectedDaemon.label}`}
-        className="hidden max-w-48 shrink truncate font-mono text-xs text-muted hover:text-white hover:underline sm:block"
+        className="max-w-48 min-w-0 truncate font-mono text-xs text-muted hover:text-white hover:underline"
         style={daemonColorStyle(selectedDaemon.color)}
       >
         {selectedDaemon.label}
       </Link>
-      <span aria-hidden className="hidden text-lg text-line sm:block">
-        /
-      </span>
-    </>
+      {crumbSeparator}
+      {crumbNamespace ? (
+        <>
+          <Link
+            {...namespaceLink(daemonId, crumbNamespace)}
+            title={`Show namespace ${crumbNamespace}`}
+            className="max-w-32 shrink-0 truncate font-mono text-xs text-muted hover:text-white hover:underline"
+          >
+            {crumbNamespace}
+          </Link>
+          {crumbSeparator}
+        </>
+      ) : null}
+    </span>
   ) : null;
 
   return (
@@ -273,22 +297,15 @@ export function ProcessLayout() {
                 </Button>
                 {daemonCrumb}
                 {isMulti ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-4 sm:max-w-[calc(100%-5rem)] sm:shrink-0 sm:basis-auto">
                     <h1 className="min-w-0 truncate text-md font-bold text-white sm:text-xl">
                       {selectedProcesses.length} processes
                     </h1>
-                    <ProcessCounts processes={selectedProcesses} className="shrink-0" />
+                    <ProcessStack processes={selectedProcesses} />
                   </div>
                 ) : process ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <i
-                      className={cn(
-                        'size-2 shrink-0 self-center rounded-full',
-                        process.status === 'online'
-                          ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                          : 'border border-muted'
-                      )}
-                    />
+                  <div className="flex min-w-0 flex-1 items-center gap-3 sm:max-w-[calc(100%-5rem)] sm:shrink-0 sm:basis-auto">
+                    <ProcessStatusDot status={process.status} className="self-center" />
                     <h1 className="min-w-0 text-md font-bold text-white sm:text-xl">
                       <TruncatedText text={process.name} />
                     </h1>
@@ -343,9 +360,10 @@ export function ProcessLayout() {
                     </div>
                   </>
                 ) : null}
+                {/* With the tree beside the page, the open process closes from there. */}
                 <Button
                   variant="ghost"
-                  className="hidden size-10 p-0 sm:inline-flex"
+                  className="hidden size-10 p-0 sm:inline-flex lg:hidden"
                   aria-label={isMulti ? 'Close selection' : 'Close process'}
                   onClick={() => navigate(tree.closeLink)}
                 >

@@ -17,8 +17,8 @@ import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 
 import { useDaemonManager } from './daemon_manager';
-import { ProcessCounts } from './process_counts';
 import { ProcessFilterField } from './process_filter_field';
+import { ProcessStack } from './process_stack';
 import { ProcessStatsHeader } from './process_stats';
 import { ProcessTree } from './process_tree';
 import { ShortcutHint } from './shortcut_hint';
@@ -148,7 +148,7 @@ export function NarrowHeader() {
           <span className="text-cyan">Captain</span>
         </span>
       </Link>
-      <ProcessCounts processes={data?.processes ?? []} className="ml-auto shrink-0" />
+      <ProcessStack processes={data?.processes ?? []} className="ml-auto" />
       <DaemonsButton isCompact />
     </header>
   );
@@ -315,7 +315,10 @@ export function Workspace({ children }: { children: ReactNode }) {
   const { focusedDaemonId } = useProcessTree();
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const routeId = useRouterState({ select: state => state.matches.at(-1)?.routeId });
-  const isOverview = routeId === '/' || routeId === '/daemons/$daemonId';
+  const isOverview =
+    routeId === '/' ||
+    routeId === '/daemons/$daemonId' ||
+    routeId === '/daemons/$daemonId/namespaces/$namespace';
   // A page of its own explains an empty or failed list, next to the tree.
   const isTable = isWide && isOverview && !list.error && Boolean(list.data?.daemons.length);
   const isRootSelected = isOverview && !focusedDaemonId;

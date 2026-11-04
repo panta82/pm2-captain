@@ -33,7 +33,7 @@ test('keeps the side menu the same between the table and an open process', async
       };
       return {
         checkBox: right('[data-tree-process] [role="checkbox"]'),
-        counts: right('[data-tree-daemon] [data-component="ProcessCounts"]'),
+        dots: right('[data-tree-daemon] [data-component="ProcessStack"]'),
         daemonLine: line('[data-tree-daemon]'),
         processLine: line('[data-tree-process]'),
       };

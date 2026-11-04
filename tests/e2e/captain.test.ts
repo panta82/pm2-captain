@@ -180,10 +180,10 @@ test('shows the daemons in a tree and manages them in the settings screen', asyn
   // Managing daemons leaves the page where it was.
   await expect(localRow).toBeVisible();
 
-  // Daemons are summarized by process counts; an unreachable one has none to show.
+  // Daemons are summarized by status dots, which only name the kinds there are. An
+  // unreachable one has none to show.
   const localDaemon = daemonRows.first();
-  await expect(localDaemon.getByTitle('1 online')).toBeVisible();
-  await expect(localDaemon.getByTitle('0 offline')).toBeVisible();
+  await expect(localDaemon.getByTitle('1 online', { exact: true })).toBeVisible();
   const brokenDaemon = daemonRows.filter({ hasText: 'broken' });
   await expect(brokenDaemon).toContainText('unreachable');
   await expect(page.getByRole('columnheader', { name: 'DAEMON' })).toHaveCount(0);

@@ -91,7 +91,7 @@ test('selects and opens or closes a daemon with every click', async ({ page, fak
   await staging.click();
   await processRow(page, 'queue').getByText('queue', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'queue', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Close process' }).click();
+  await processRow(page, 'queue').getByText('queue', { exact: true }).click();
   await expect(page).toHaveURL(stagingUrl);
   await page.getByRole('button', { name: 'Close daemon' }).click();
   await expect(page).toHaveURL(/:3215\/$/);
@@ -300,7 +300,11 @@ test('starts with the local daemons it detects on a first launch', async ({ page
 });
 
 test('slides only the rows whose move can be seen', async ({ page, fake }) => {
-  await fake.send({ type: 'world.reset', scenario: 'busy' });
+  // Without namespaces, so that reversing the sort reverses the whole list.
+  await fake.send({
+    type: 'world.reset',
+    scenario: { daemons: [{ key: 'local', processes: [{ name: 'worker', instances: 52 }] }] },
+  });
   await page.setViewportSize({ width: 1500, height: 600 });
   await page.goto(FAKE_LAUNCH_PATH);
   const rows = processRows(page);
@@ -353,8 +357,9 @@ test('counts, filters and sorts a crowded daemon', async ({ page, fake }) => {
   await page.goto(FAKE_LAUNCH_PATH);
   const rows = processRows(page);
   await expect(rows).toHaveCount(52);
-  await expect(page.getByTitle('48 online')).toHaveCount(2);
-  await expect(page.getByTitle('4 offline')).toHaveCount(2);
+  // The band and the daemon add up all of them; the cron namespace has the stopped ones.
+  await expect(page.getByTitle('48 online, 4 offline', { exact: true })).toHaveCount(2);
+  await expect(page.getByTitle('4 offline', { exact: true })).toHaveCount(1);
 
   const filter = page.getByPlaceholder('Filter…');
   await filter.fill('worker-');
@@ -371,16 +376,23 @@ test('counts, filters and sorts a crowded daemon', async ({ page, fake }) => {
   await filter.fill('');
   await expect(rows).toHaveCount(52);
 
-  // CPU wanders in this scenario, so every poll puts the rows in a new order.
+  // CPU wanders in this scenario, so every poll puts the rows in a new order. A sort
+  // applies inside each namespace, which is a group of its own in the tree.
   const cpuColumn = () =>
-    rows.evaluateAll(items =>
-      items.map(item =>
+    rows.evaluateAll(items => {
+      const groups = new Map<string, number[]>();
+      for (const item of items) {
         // The rows off screen are not rendered, so they have text but no innerText.
-        Number.parseFloat(item.querySelector('[data-column="cpu"]')!.textContent!)
-      )
+        const namespace = item.querySelector('[data-column="namespace"]')!.textContent!;
+        const cpu = Number.parseFloat(item.querySelector('[data-column="cpu"]')!.textContent!);
+        groups.set(namespace, [...(groups.get(namespace) ?? []), cpu]);
+      }
+      return [...groups.values()];
+    });
+  const isSorted = (groups: number[][], direction: 1 | -1) =>
+    groups.every(values =>
+      values.every((value, index) => index === 0 || (value - values[index - 1]) * direction >= 0)
     );
-  const isSorted = (values: number[], direction: 1 | -1) =>
-    values.every((value, index) => index === 0 || (value - values[index - 1]) * direction >= 0);
   await page.getByRole('button', { name: 'CPU', exact: true }).click();
   const firstDirection = isSorted(await cpuColumn(), 1) ? 1 : -1;
   await expect.poll(async () => isSorted(await cpuColumn(), firstDirection)).toBe(true);

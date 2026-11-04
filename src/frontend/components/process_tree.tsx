@@ -14,14 +14,17 @@ import {
 
 import { focusProcessList, focusProcessPane, useShortcutHandler } from '@/lib/keyboard_shortcuts';
 import { useProcessListFilter } from '@/lib/process_list_filter';
-import { daemonLink, getProcessTab, processLink } from '@/lib/process_route';
+import { daemonLink, getProcessTab, namespaceLink, processLink } from '@/lib/process_route';
 import { formatPmIds, selectRange, toggleSelection } from '@/lib/process_selection';
 import { useProcessTree } from '@/lib/process_tree';
 import {
   type IDaemonTreeRow,
+  type INamespaceTreeRow,
   type IProcessTreeRow,
   type ITreeRow,
   daemonRowKey,
+  namespaceRowKey,
+  parentRowKey,
   processRowKey,
   sumProcesses,
 } from '@/lib/process_tree_rows';
@@ -33,13 +36,14 @@ import { DaemonRetryButton, isDaemonConnecting } from './daemon_actions';
 import { useDaemonManager } from './daemon_manager';
 import { DaemonStatusIcon, daemonColorStyle } from './daemon_option';
 import { Highlighted } from './highlighted';
-import { ProcessCounts } from './process_counts';
+import { ProcessStack } from './process_stack';
 import {
   ProcessStatCells,
   STATS_GRID_CLASS,
   TREE_TABLE_WIDTH_CLASS,
   formatSortValue,
 } from './process_stats';
+import { ProcessStatusDot } from './process_status_dot';
 
 /**
  * The row the arrow keys move from, ringed while the tree has keyboard focus. The
@@ -86,8 +90,17 @@ export const ProcessTree = memo(function ProcessTree({
   const navigate = useNavigate();
   const router = useRouter();
   const filter = useProcessListFilter();
-  const { rows, highlight, sort, toggleDaemon, closeLink, focusedDaemonId, locationOf } =
-    useProcessTree();
+  const {
+    rows,
+    highlight,
+    sort,
+    toggleDaemon,
+    toggleNamespace,
+    closeLink,
+    focusedDaemonId,
+    focusedNamespace,
+    locationOf,
+  } = useProcessTree();
   const routeDaemonId = useParams({ strict: false, select: params => params.daemonId });
   const routeTab = useParams({ strict: false, select: params => params.tab });
   const routePmIds = useParams({
@@ -225,7 +238,13 @@ export const ProcessTree = memo(function ProcessTree({
   const rowOrder = rows.map(row => row.key).join(',');
   const positionsRef = useRef(new Map<string, number>());
   const anchorKeyRef = useRef<string | null>(null);
-  const previousFocusRef = useRef(focusedDaemonId);
+  const focusedKey =
+    focusedDaemonId && focusedNamespace
+      ? namespaceRowKey(focusedDaemonId, focusedNamespace)
+      : focusedDaemonId
+        ? daemonRowKey(focusedDaemonId)
+        : null;
+  const previousFocusRef = useRef(focusedKey);
   const previousSelectedKeyRef = useRef(lastSelectedKey);
   useLayoutEffect(() => {
     const nav = navRef.current;
@@ -236,14 +255,12 @@ export const ProcessTree = memo(function ProcessTree({
     // Focusing a daemon and leaving the focus both happen around that daemon,
     // whichever control asked for it.
     const previousFocus = previousFocusRef.current;
-    previousFocusRef.current = focusedDaemonId;
-    const changedFocus =
-      focusedDaemonId !== previousFocus ? (focusedDaemonId ?? previousFocus) : null;
+    previousFocusRef.current = focusedKey;
+    const changedFocus = focusedKey !== previousFocus ? (focusedKey ?? previousFocus) : null;
     // A process that was closed stays where it was too, as everything opens around it.
     const closedSelectionKey = lastSelectedKey ? null : previousSelectedKeyRef.current;
     previousSelectedKeyRef.current = lastSelectedKey;
-    const anchorKey =
-      anchorKeyRef.current ?? (changedFocus ? daemonRowKey(changedFocus) : closedSelectionKey);
+    const anchorKey = anchorKeyRef.current ?? changedFocus ?? closedSelectionKey;
     anchorKeyRef.current = null;
 
     const previousScrollTop = scrollTopRef.current;
@@ -289,31 +306,56 @@ export const ProcessTree = memo(function ProcessTree({
       }
     }
     positionsRef.current = positions;
-  }, [rowOrder, focusedDaemonId, lastSelectedKey]);
+  }, [rowOrder, focusedKey, lastSelectedKey]);
 
-  /** Opens or closes a daemon that was acted on, which keeps its place. */
-  const toggleInPlace = (row: IDaemonTreeRow) => {
+  /** Opens or closes a daemon or namespace that was acted on, which keeps its place. */
+  const toggleInPlace = (row: IDaemonTreeRow | INamespaceTreeRow) => {
     // A daemon with nothing to show changes no rows.
     if (row.processes.length) {
       anchorKeyRef.current = row.key;
     }
-    toggleDaemon(row.daemon.daemonId);
+    if (row.kind === 'namespace') {
+      toggleNamespace(row.daemon.daemonId, row.namespace);
+    } else {
+      toggleDaemon(row.daemon.daemonId);
+    }
   };
 
   /**
-   * A click on a daemon's row, or Enter on it, always does both: it selects the
-   * daemon, which shows the table, and opens or closes it. Only the chevron opens
-   * and closes a daemon without selecting it.
+   * A click on a daemon's or namespace's row, or Enter on it, always does both: it
+   * selects it, which shows the table, and opens or closes it. Only the chevron
+   * opens and closes it without selecting it.
    */
-  const activateDaemon = (row: IDaemonTreeRow) => {
+  const activateGroup = (row: IDaemonTreeRow | INamespaceTreeRow) => {
     const { daemonId } = row.daemon;
+    const namespace = row.kind === 'namespace' ? row.namespace : null;
     setCursorKey(row.key);
     focusTree();
     toggleInPlace(row);
-    if (isProcessOpen || routeDaemonId !== daemonId) {
+    if (isProcessOpen || focusedDaemonId !== daemonId || focusedNamespace !== namespace) {
       onItemClick?.();
-      void navigate(daemonLink(daemonId));
+      void navigate(namespace ? namespaceLink(daemonId, namespace) : daemonLink(daemonId));
     }
+  };
+
+  /**
+   * A daemon's or namespace's check box selects every process it lists, next to
+   * what is selected in the same daemon. With all of them selected, it lets them go.
+   */
+  const toggleGroupSelection = (row: IDaemonTreeRow | INamespaceTreeRow) => {
+    const { daemonId } = row.daemon;
+    const pmIds = row.listed.map(process => process.pmId);
+    if (!pmIds.length) {
+      return;
+    }
+    // One action request carries one daemon's connection, so a selection stays inside a daemon.
+    const current = selectedDaemonId === daemonId ? selectedIds : [];
+    const isAllSelected = pmIds.every(pmId => current.includes(pmId));
+    const next = isAllSelected
+      ? current.filter(pmId => !pmIds.includes(pmId))
+      : [...current, ...pmIds.filter(pmId => !current.includes(pmId))];
+    const cursorId = next.includes(pmIds[0]) ? pmIds[0] : (next.at(-1) ?? pmIds[0]);
+    openSelection(daemonId, next, cursorId, cursorId);
   };
 
   useEffect(() => {
@@ -401,13 +443,16 @@ export const ProcessTree = memo(function ProcessTree({
     void navigate(processLink(daemonId, [pmId], linkTab));
   };
 
-  const clickDaemon = (event: MouseEvent<HTMLElement>, row: IDaemonTreeRow) => {
-    if ((event.target as Element).closest('[data-tree-chevron]')) {
+  const clickGroup = (event: MouseEvent<HTMLElement>, row: IDaemonTreeRow | INamespaceTreeRow) => {
+    const target = event.target as Element;
+    if (target.closest('[data-tree-check]')) {
+      toggleGroupSelection(row);
+    } else if (target.closest('[data-tree-chevron]')) {
       toggleInPlace(row);
       focusTree();
     } else if (event.detail <= 1) {
       // The second click of a double-click must not undo what the first one did.
-      activateDaemon(row);
+      activateGroup(row);
     }
   };
 
@@ -422,7 +467,7 @@ export const ProcessTree = memo(function ProcessTree({
     if (row?.kind === 'process') {
       clickProcess(event, row);
     } else if (row) {
-      clickDaemon(event, row);
+      clickGroup(event, row);
     }
   };
 
@@ -464,25 +509,36 @@ export const ProcessTree = memo(function ProcessTree({
     if (!row) {
       return;
     }
-    if (row.kind === 'daemon') {
+    if (row.kind !== 'process') {
+      const child = rows[rows.indexOf(row) + 1];
+      const isChild =
+        row.kind === 'daemon'
+          ? child && child.kind !== 'daemon'
+          : child?.kind === 'process' && child.isGrouped;
       if (row.isOpen !== isRight) {
         toggleInPlace(row);
-      } else if (isRight) {
-        const child = rows[rows.indexOf(row) + 1];
-        if (child?.kind === 'process') {
-          setCursorKey(child.key);
-        }
+      } else if (isRight && isChild) {
+        setCursorKey(child.key);
+      } else if (!isRight && row.kind === 'namespace') {
+        // A closed namespace goes up to its daemon.
+        setCursorKey(daemonRowKey(row.daemon.daemonId));
+        scrollToRow(daemonRowKey(row.daemon.daemonId));
       }
       return;
     }
     if (isRight) {
       return;
     }
-    if (isProcessOpen) {
+    const parentKey = parentRowKey(row);
+    if (isProcessOpen && row.isGrouped) {
+      setCursorKey(parentKey);
+      focusTree();
+      void navigate(namespaceLink(row.daemon.daemonId, row.process.namespace));
+    } else if (isProcessOpen) {
       showDaemon(row.daemon.daemonId);
     } else {
-      setCursorKey(daemonRowKey(row.daemon.daemonId));
-      scrollToRow(daemonRowKey(row.daemon.daemonId));
+      setCursorKey(parentKey);
+      scrollToRow(parentKey);
     }
   };
 
@@ -500,6 +556,9 @@ export const ProcessTree = memo(function ProcessTree({
       } else if (isProcessOpen) {
         event.preventDefault();
         closeSelection();
+      } else if (focusedDaemonId && focusedNamespace) {
+        event.preventDefault();
+        void navigate(daemonLink(focusedDaemonId));
       } else if (focusedDaemonId) {
         event.preventDefault();
         void navigate({ to: '/' });
@@ -539,7 +598,7 @@ export const ProcessTree = memo(function ProcessTree({
       if (row?.kind === 'process') {
         openSelection(row.process.daemonId, [row.process.pmId], row.process.pmId, row.process.pmId);
       } else if (row) {
-        activateDaemon(row);
+        activateGroup(row);
       }
       return;
     }
@@ -617,6 +676,15 @@ export const ProcessTree = memo(function ProcessTree({
     return href;
   };
 
+  /** How much of what a daemon or namespace lists is selected. */
+  const checkStateOf = (row: IDaemonTreeRow | INamespaceTreeRow): ICheckState => {
+    if (selectedDaemonId !== row.daemon.daemonId || !row.listed.length) {
+      return false;
+    }
+    const count = row.listed.filter(process => selectedIds.includes(process.pmId)).length;
+    return count === row.listed.length ? true : count ? 'mixed' : false;
+  };
+
   const renderRow = (row: ITreeRow) => {
     if (row.kind === 'daemon') {
       const { daemon } = row;
@@ -636,8 +704,35 @@ export const ProcessTree = memo(function ProcessTree({
           cpu={totals.cpu}
           memory={totals.memory}
           isOpen={row.isOpen}
-          isSelected={!isProcessOpen && routeDaemonId === daemon.daemonId}
+          isSelected={!isProcessOpen && focusedKey === row.key}
           holdsSelection={!row.isOpen && selectedDaemonId === daemon.daemonId}
+          checkState={row.listed.length ? checkStateOf(row) : null}
+          isCursor={activeKey === row.key}
+          highlight={highlight}
+          isTable={isTable}
+        />
+      );
+    }
+    if (row.kind === 'namespace') {
+      const totals = sumProcesses(row.processes);
+      const isHoldingSelection =
+        !row.isOpen &&
+        selectedDaemonId === row.daemon.daemonId &&
+        row.processes.some(process => selectedIds.includes(process.pmId));
+      return (
+        <NamespaceRow
+          key={row.key}
+          rowKey={row.key}
+          namespace={row.namespace}
+          isDaemonAvailable={row.daemon.status === 'online'}
+          processes={row.processes}
+          restarts={totals.restarts}
+          cpu={totals.cpu}
+          memory={totals.memory}
+          isOpen={row.isOpen}
+          isSelected={!isProcessOpen && focusedKey === row.key}
+          holdsSelection={isHoldingSelection}
+          checkState={row.listed.length ? checkStateOf(row) : null}
           isCursor={activeKey === row.key}
           highlight={highlight}
           isTable={isTable}
@@ -651,6 +746,7 @@ export const ProcessTree = memo(function ProcessTree({
         key={row.key}
         rowKey={row.key}
         process={process}
+        isGrouped={row.isGrouped}
         color={daemon.color}
         isDaemonAvailable={daemon.status === 'online'}
         isSelected={isSelected}
@@ -703,6 +799,7 @@ export const ProcessTree = memo(function ProcessTree({
 const ProcessRow = memo(function ProcessRow({
   rowKey,
   process,
+  isGrouped,
   color,
   isDaemonAvailable,
   isSelected,
@@ -717,6 +814,7 @@ const ProcessRow = memo(function ProcessRow({
 }: {
   rowKey: string;
   process: IProcessSummary;
+  isGrouped: boolean;
   color: IDaemonColor | null;
   isDaemonAvailable: boolean;
   isSelected: boolean;
@@ -739,7 +837,7 @@ const ProcessRow = memo(function ProcessRow({
       data-tree-process
       data-cursor={isCursor || undefined}
       role="row"
-      aria-level={2}
+      aria-level={isGrouped ? 3 : 2}
       aria-selected={isSelected}
       className={cn(
         rowClass(isTable),
@@ -759,18 +857,19 @@ const ProcessRow = memo(function ProcessRow({
           title={isOnlySelected ? 'Click to close' : undefined}
           tabIndex={-1}
           className={cn(
-            'relative flex h-full min-w-0 flex-1 items-center gap-3 pr-3 pl-11',
+            'relative flex h-full min-w-0 flex-1 items-center gap-3 pr-3',
+            isGrouped ? 'pl-[4.25rem]' : 'pl-11',
             // The line that ties the process to its daemon's chevron.
             'before:absolute before:inset-y-0 before:left-[1.6875rem] before:w-px',
-            isSelected ? 'before:bg-white/15' : 'before:bg-line'
+            isSelected ? 'before:bg-white/15' : 'before:bg-line',
+            // And the one that ties it to its namespace's.
+            isGrouped && 'after:absolute after:inset-y-0 after:left-[3rem] after:w-px',
+            isGrouped && (isSelected ? 'after:bg-white/15' : 'after:bg-line')
           )}
         >
-          <i
-            className={cn(
-              'size-2 shrink-0 rounded-full',
-              isOnline ? 'bg-online shadow-[0_0_9px_#35D07F]' : 'border border-muted',
-              !isDaemonAvailable && 'opacity-55'
-            )}
+          <ProcessStatusDot
+            status={process.status}
+            className={cn(!isDaemonAvailable && 'opacity-55')}
           />
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             <span
@@ -808,20 +907,7 @@ const ProcessRow = memo(function ProcessRow({
             </span>
           ) : null}
         </a>
-        <button
-          type="button"
-          role="checkbox"
-          data-tree-check
-          aria-checked={isChecked}
-          aria-label={`Select ${process.name}`}
-          tabIndex={-1}
-          className={cn(
-            'mr-5 grid size-[18px] shrink-0 place-items-center rounded-[4px] border border-line hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan',
-            isChecked && 'bg-surface-control text-control-muted'
-          )}
-        >
-          {isChecked ? <Check className="size-3" strokeWidth={2} /> : null}
-        </button>
+        <TreeCheckbox state={isChecked} label={`Select ${process.name}`} className="mr-5" />
       </div>
       {isTable ? (
         <ProcessStatCells
@@ -829,6 +915,121 @@ const ProcessRow = memo(function ProcessRow({
           highlight={highlight}
           isDaemonAvailable={isDaemonAvailable}
         />
+      ) : null}
+    </div>
+  );
+});
+
+/**
+ * A named PM2 namespace inside a daemon. It groups the processes under it, and
+ * sums them in the table, like a daemon does.
+ */
+const NamespaceRow = memo(function NamespaceRow({
+  rowKey,
+  namespace,
+  isDaemonAvailable,
+  processes,
+  restarts,
+  cpu,
+  memory,
+  isOpen,
+  isSelected,
+  holdsSelection,
+  checkState,
+  isCursor,
+  highlight,
+  isTable,
+}: {
+  rowKey: string;
+  namespace: string;
+  isDaemonAvailable: boolean;
+  processes: IProcessSummary[];
+  restarts: number;
+  cpu: number;
+  memory: number;
+  isOpen: boolean;
+  isSelected: boolean;
+  holdsSelection: boolean;
+  /** Null when it lists no process to select. */
+  checkState: ICheckState | null;
+  isCursor: boolean;
+  highlight: RegExp | null;
+  isTable: boolean;
+}) {
+  return (
+    <div
+      data-component="NamespaceRow"
+      data-row-key={rowKey}
+      data-tree-namespace
+      data-cursor={isCursor || undefined}
+      role="row"
+      aria-level={2}
+      aria-expanded={isOpen}
+      aria-selected={isSelected}
+      className={cn(
+        rowClass(isTable),
+        'h-9 items-center',
+        isSelected
+          ? 'bg-panel-hover text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.07),inset_0_-1px_0_rgb(0_0_0_/_0.4)]'
+          : 'bg-surface-plane text-muted hover:bg-panel hover:text-white',
+        isCursor && CURSOR_CLASS
+      )}
+    >
+      <div
+        role="cell"
+        className={cn(
+          nameCellClass(isTable),
+          'relative gap-2 pr-5',
+          // The daemon's line goes on through its namespaces.
+          'before:absolute before:inset-y-0 before:left-[1.6875rem] before:w-px before:bg-line',
+          holdsSelection && 'shadow-[inset_2px_0_0_var(--color-cyan)]'
+        )}
+      >
+        <button
+          type="button"
+          data-tree-chevron
+          aria-label={`${isOpen ? 'Collapse' : 'Expand'} namespace ${namespace}`}
+          tabIndex={-1}
+          className="flex h-full w-[3.4375rem] shrink-0 items-center justify-end"
+        >
+          <ChevronRight
+            className={cn('size-3.5 transition-transform duration-150', isOpen && 'rotate-90')}
+          />
+        </button>
+        <span
+          title={`Namespace ${namespace}`}
+          className={cn(
+            'min-w-0 flex-1 truncate font-mono text-xs',
+            !isDaemonAvailable && 'opacity-55'
+          )}
+        >
+          <Highlighted text={namespace} regex={highlight} />
+        </span>
+        {isDaemonAvailable ? <ProcessStack processes={processes} /> : null}
+        {checkState !== null ? (
+          <TreeCheckbox state={checkState} label={`Select all in ${namespace}`} />
+        ) : null}
+      </div>
+      {isTable ? (
+        <div className={cn(STATS_GRID_CLASS, 'font-mono text-xs tabular-nums')}>
+          {isDaemonAvailable ? (
+            <>
+              <div role="cell" className="col-span-3" />
+              <div role="cell" className="truncate px-1 text-center">
+                {restarts}
+              </div>
+              <div role="cell" className="truncate px-4 text-cyan/80">
+                {cpu.toFixed(1)}%
+              </div>
+              <div role="cell" className="truncate px-4 text-[#73a8ff]/80">
+                {formatBytes(memory)}
+              </div>
+              <div className="col-span-4" />
+            </>
+          ) : (
+            <div className="col-span-10" />
+          )}
+        </div>
       ) : null}
     </div>
   );
@@ -849,6 +1050,7 @@ const DaemonRow = memo(function DaemonRow({
   isOpen,
   isSelected,
   holdsSelection,
+  checkState,
   isCursor,
   highlight,
   isTable,
@@ -867,6 +1069,8 @@ const DaemonRow = memo(function DaemonRow({
   isOpen: boolean;
   isSelected: boolean;
   holdsSelection: boolean;
+  /** Null when it lists no process to select. */
+  checkState: ICheckState | null;
   isCursor: boolean;
   highlight: RegExp | null;
   isTable: boolean;
@@ -924,7 +1128,7 @@ const DaemonRow = memo(function DaemonRow({
           <Highlighted text={label} regex={highlight} />
         </button>
         {isOnline ? (
-          <ProcessCounts processes={processes} className="shrink-0 gap-2.5 text-[11px]" />
+          <ProcessStack processes={processes} />
         ) : (
           <span
             className={cn(
@@ -935,6 +1139,9 @@ const DaemonRow = memo(function DaemonRow({
             {isConnecting ? 'connecting' : 'unreachable'}
           </span>
         )}
+        {checkState !== null ? (
+          <TreeCheckbox state={checkState} label={`Select all in ${label}`} />
+        ) : null}
       </div>
       {isTable ? (
         <div className={cn(STATS_GRID_CLASS, 'font-mono text-xs tabular-nums')}>
@@ -992,3 +1199,41 @@ const DaemonRow = memo(function DaemonRow({
     </div>
   );
 });
+
+/** Checked, unchecked, or partly checked for a daemon or namespace with some of its processes selected. */
+type ICheckState = boolean | 'mixed';
+
+/** A row's check box. The tree handles its clicks, by the row it is in. */
+function TreeCheckbox({
+  state,
+  label,
+  className,
+}: {
+  state: ICheckState;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <button
+      data-component="TreeCheckbox"
+      type="button"
+      role="checkbox"
+      data-tree-check
+      aria-checked={state}
+      aria-label={label}
+      tabIndex={-1}
+      className={cn(
+        'group/check grid size-[18px] shrink-0 place-items-center rounded-[4px] border border-line hover:border-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan',
+        state === true && 'bg-surface-control text-control-muted',
+        className
+      )}
+    >
+      {state === 'mixed' ? (
+        // Filled with the border's own color, which it follows on hover.
+        <i className="size-2 rounded-[2px] bg-line group-hover/check:bg-muted" />
+      ) : state ? (
+        <Check className="size-3" strokeWidth={2} />
+      ) : null}
+    </button>
+  );
+}

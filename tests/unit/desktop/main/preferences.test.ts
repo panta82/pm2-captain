@@ -62,6 +62,39 @@ describe('desktop preferences', () => {
     expect(store.setUi('pm2-captain-collapsed-daemons', `["${'a'.repeat(20_000)}"]`)).toBe(false);
   });
 
+  it('keeps the collapsed namespaces, and refuses anything else in their list', () => {
+    const store = createPreferenceStore(root);
+    const key = 'namespace:830f902f-c88b-4ed8-8051-c3a81c44ed87:aup';
+    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify([key]))).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', '[]')).toBe(true);
+    // A namespace's name is PM2's to choose, and may hold a colon or a space.
+    expect(
+      store.setUi(
+        'pm2-captain-collapsed-namespaces',
+        JSON.stringify([`${key}:with colon`, `${key} space`])
+      )
+    ).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', '{broken')).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify(key))).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', '[1]')).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', '["../../etc"]')).toBe(false);
+    expect(
+      store.setUi(
+        'pm2-captain-collapsed-namespaces',
+        JSON.stringify(['namespace:830f902f-c88b-4ed8-8051-c3a81c44ed87:'])
+      )
+    ).toBe(false);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify([`${key}\nline`]))).toBe(
+      false
+    );
+    expect(
+      store.setUi(
+        'pm2-captain-collapsed-namespaces',
+        JSON.stringify(Array.from({ length: 400 }, (_, index) => `${key}${index}`))
+      )
+    ).toBe(false);
+  });
+
   it('refuses keys and values a page could not legitimately send', () => {
     const store = createPreferenceStore(root);
 

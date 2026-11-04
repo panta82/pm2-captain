@@ -10,6 +10,7 @@ import { type IValueDiff, diffValues } from '@/lib/value_diff';
 import type { IProcessSummary } from '@shared/contracts';
 
 import { ErrorPanel } from './error_panel';
+import { ProcessStatusDot } from './process_status_dot';
 import { Button, Skeleton, ToggleGroup } from './ui';
 
 const ONLY_DIFFERENCES_STORAGE_KEY = 'pm2-captain-matrix-only-differences';
@@ -108,14 +109,7 @@ export function ProcessMatrix({
                     className="sticky top-0 z-20 h-12 max-w-80 min-w-48 border-r border-b border-line bg-surface-control px-4 text-left font-sans text-sm font-semibold"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      <i
-                        className={cn(
-                          'size-2 shrink-0 rounded-full',
-                          process.status === 'online'
-                            ? 'bg-online shadow-[0_0_9px_#35D07F]'
-                            : 'border border-muted'
-                        )}
-                      />
+                      <ProcessStatusDot status={process.status} />
                       <button
                         type="button"
                         className="min-w-0 truncate text-white hover:text-cyan"

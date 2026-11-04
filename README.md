@@ -36,7 +36,7 @@ in a web UI.
 
 ### Features
 
-- Filterable process list
+- Filterable process list, grouped by daemon and PM2 namespace
 - Info, environment, and logs for each process
 - Multiple PM2 daemons, local and remote (via SSH)
 - Start/stop/restart multiple apps at once
@@ -119,6 +119,15 @@ Read [this guide](docs/service_setup.md) for details.
 Read [development.md](docs/development.md) for more details.
 
 ## Version history
+
+#### `2.8.0` (2026-11-04)
+
+- Add support for pm2 namespaces in the sidebar.
+- Detail view now shows full app path, and no longer has the X button.
+- Add checkbox to namespaces and daemons, allowing you to easily select the entire subtree of apps
+- New group overview widget, allowing you to see status at a glance (including failed)
+- Improved keyboard navigation
+- Improve search/filter so that it better matches "fuzzy" search strings
 
 #### `2.7.0` (2026-11-03)
 

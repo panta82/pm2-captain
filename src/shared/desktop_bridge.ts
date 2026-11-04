@@ -5,6 +5,7 @@
  */
 export const DESKTOP_PREFERENCE_KEYS = [
   'pm2-captain-collapsed-daemons',
+  'pm2-captain-collapsed-namespaces',
   'pm2-captain-process-sort',
   'pm2-captain-process-tab',
   'pm2-captain:process-sidebar-width',
@@ -81,6 +82,22 @@ export interface IDesktopBridge {
 
 const COLLAPSED_DAEMONS_PATTERN = /^\[("[0-9a-f-]{36}"(,"[0-9a-f-]{36}")*)?\]$/i;
 
+/** The tree's row key of a namespace: its daemon's ID, then the PM2 namespace's name. */
+const COLLAPSED_NAMESPACE_PATTERN = /^namespace:[0-9a-f-]{36}:[^\p{Cc}]{1,200}$/iu;
+
+function isCollapsedNamespaceList(value: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  return (
+    Array.isArray(parsed) &&
+    parsed.every(item => typeof item === 'string' && COLLAPSED_NAMESPACE_PATTERN.test(item))
+  );
+}
+
 /** Accepts only values the renderer could have written itself. */
 export function isValidDesktopPreference(
   key: string,
@@ -92,6 +109,10 @@ export function isValidDesktopPreference(
   // A JSON list of daemon IDs, so it grows with the daemons.
   if (key === 'pm2-captain-collapsed-daemons') {
     return value.length <= 20_000 && COLLAPSED_DAEMONS_PATTERN.test(value);
+  }
+  // A JSON list of namespace row keys, which grows with the namespaces.
+  if (key === 'pm2-captain-collapsed-namespaces') {
+    return value.length <= 20_000 && isCollapsedNamespaceList(value);
   }
   if (value.length > 200) {
     return false;

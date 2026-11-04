@@ -24,6 +24,13 @@ export function daemonLink(daemonId: string) {
   return linkOptions({ to: DAEMON_ROUTE, params: { daemonId } });
 }
 
+/** Route for selecting a PM2 namespace inside a daemon in the tree. */
+export const NAMESPACE_ROUTE = '/daemons/$daemonId/namespaces/$namespace';
+
+export function namespaceLink(daemonId: string, namespace: string) {
+  return linkOptions({ to: NAMESPACE_ROUTE, params: { daemonId, namespace } });
+}
+
 export function getProcessTab(): ProcessTab {
   const storedTab = readPreference(STORAGE_KEY);
   return storedTab && isProcessTab(storedTab) ? storedTab : 'info';

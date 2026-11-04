@@ -10,14 +10,13 @@ import type {
   IProcessSummary,
 } from '@shared/contracts';
 
-import { ProcessCounts } from './process_counts';
+import { ProcessStack } from './process_stack';
 
 /**
  * Column tracks for a list of DaemonOption rows. The rows are subgrids of the
- * list, so labels and process counts line up across daemons.
+ * list, so labels and process dots line up across daemons.
  */
-export const DAEMON_OPTION_LIST_CLASS =
-  'grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2.5';
+export const DAEMON_OPTION_LIST_CLASS = 'grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-x-2.5';
 
 /** Text color for a daemon the user gave a color. Without one, the element keeps its own. */
 export function daemonColorStyle(color: IDaemonColor | null): CSSProperties | undefined {
@@ -91,14 +90,14 @@ export function DaemonOption({
         {daemon.kind === 'local' ? 'local' : null}
       </span>
       {daemon.status === 'online' ? (
-        <ProcessCounts
+        <ProcessStack
           processes={processes.filter(process => process.daemonId === daemon.daemonId)}
-          className="contents"
+          className="justify-self-end"
         />
       ) : (
         <span
           className={cn(
-            'col-span-2 text-right text-[10px] uppercase',
+            'text-right text-[10px] uppercase',
             isConnecting ? 'text-warning' : 'text-danger'
           )}
         >

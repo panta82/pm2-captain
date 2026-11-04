@@ -1,9 +1,9 @@
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ChevronRight, Eye, Plus, RotateCw, Server, Settings2, X } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { useProcessListFilter } from '@/lib/process_list_filter';
-import { processLink } from '@/lib/process_route';
+import { daemonLink, processLink } from '@/lib/process_route';
 import { useProcessTree } from '@/lib/process_tree';
 import { sumProcesses } from '@/lib/process_tree_rows';
 import { trpc } from '@/lib/trpc';
@@ -15,7 +15,7 @@ import { DaemonStatusIcon, daemonColorStyle } from '@/components/daemon_option';
 import { ErrorPanel } from '@/components/error_panel';
 import { Highlighted } from '@/components/highlighted';
 import { ProcessActions } from '@/components/process_actions';
-import { ProcessCounts } from '@/components/process_counts';
+import { ProcessStack } from '@/components/process_stack';
 import { Button, Skeleton } from '@/components/ui';
 import {
   DaemonsButton,
@@ -86,7 +86,7 @@ function AllProcessesBand() {
           ? `${listedProcesses.length} of ${total} processes`
           : `${total} process${total === 1 ? '' : 'es'}`}
       </h1>
-      <ProcessCounts processes={listedProcesses} className="shrink-0" />
+      <ProcessStack processes={listedProcesses} />
       <ProcessTotals
         processes={listedProcesses.filter(process => reachableIds.has(process.daemonId))}
       />
@@ -125,7 +125,7 @@ function DaemonBand({ daemon }: { daemon: IDaemonSummary }) {
       ) : null}
       {isOnline ? (
         <>
-          <ProcessCounts processes={processes} className="shrink-0" />
+          <ProcessStack processes={processes} />
           <ProcessTotals processes={processes} />
         </>
       ) : null}
@@ -143,6 +143,61 @@ function DaemonBand({ daemon }: { daemon: IDaemonSummary }) {
           aria-label="Close daemon"
           title="Back to every process (Esc)"
           onClick={() => navigate({ to: '/' })}
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** The top band with a namespace selected: its daemon, and its processes added up. */
+function NamespaceBand({ daemon, namespace }: { daemon: IDaemonSummary; namespace: string }) {
+  const navigate = useNavigate();
+  const { data } = useProcessTree();
+  const processes = (data?.processes ?? []).filter(
+    process => process.daemonId === daemon.daemonId && process.namespace === namespace
+  );
+  const { restarts } = sumProcesses(processes);
+
+  return (
+    <section
+      data-component="NamespaceBand"
+      className="flex h-16 shrink-0 items-center gap-3 border-b border-line bg-surface-menu px-7"
+    >
+      <DaemonStatusIcon status={daemon.status} color={daemon.color} className="size-4.5" />
+      <Link
+        {...daemonLink(daemon.daemonId)}
+        title={`Show ${daemon.label}`}
+        className="max-w-64 min-w-0 shrink truncate font-mono text-xs text-muted hover:text-white hover:underline"
+        style={daemonColorStyle(daemon.color)}
+      >
+        {daemon.label}
+      </Link>
+      <span aria-hidden className="text-lg text-line">
+        /
+      </span>
+      <h1 className="min-w-0 truncate text-xl font-bold text-white">{namespace}</h1>
+      <span className="shrink-0 font-mono text-[10px] text-muted uppercase">
+        {processes.length} process{processes.length === 1 ? '' : 'es'}
+      </span>
+      {daemon.status === 'online' ? (
+        <>
+          <ProcessStack processes={processes} />
+          <ProcessTotals processes={processes} />
+          <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted tabular-nums">
+            <RotateCw className="size-3" aria-label="Restarts" />
+            <b className="font-normal text-white">{restarts}</b>
+          </span>
+        </>
+      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          className="size-10 p-0"
+          aria-label="Close namespace"
+          title={`Back to ${daemon.label} (Esc)`}
+          onClick={() => navigate(daemonLink(daemon.daemonId))}
         >
           <X className="size-4" />
         </Button>
@@ -180,7 +235,9 @@ function ProcessCard({
               'shrink-0 rounded-full border px-2 py-1 font-mono text-[10px] uppercase',
               process.status === 'online'
                 ? 'border-online/40 bg-online/10 text-online'
-                : 'border-muted/30 text-muted'
+                : process.status === 'errored'
+                  ? 'border-danger/40 bg-danger/10 text-danger'
+                  : 'border-muted/30 text-muted'
             )}
           >
             {process.status}
@@ -215,7 +272,7 @@ function ProcessCard({
 
 /** A narrow screen has no room for the tree beside anything: it is the page, as cards. */
 function ProcessCards() {
-  const { rows, highlight, toggleDaemon } = useProcessTree();
+  const { rows, highlight, toggleDaemon, toggleNamespace } = useProcessTree();
 
   return (
     <main data-component="ProcessCards" className="min-h-0 flex-1 overflow-auto">
@@ -241,7 +298,19 @@ function ProcessCards() {
               >
                 {row.daemon.label}
               </span>
-              <ProcessCounts processes={row.processes} className="shrink-0 font-normal" />
+              <ProcessStack processes={row.processes} />
+            </button>
+          ) : row.kind === 'namespace' ? (
+            <button
+              key={row.key}
+              type="button"
+              aria-expanded={row.isOpen}
+              className="flex min-w-0 items-center gap-2 pt-1 pl-6 text-left font-mono text-xs text-muted"
+              onClick={() => toggleNamespace(row.daemon.daemonId, row.namespace)}
+            >
+              <ChevronRight className={cn('size-3.5 shrink-0', row.isOpen && 'rotate-90')} />
+              <span className="min-w-0 flex-1 truncate">{row.namespace}</span>
+              <ProcessStack processes={row.processes} />
             </button>
           ) : (
             <ProcessCard
@@ -266,15 +335,26 @@ export function StatusPage() {
   const navigate = useNavigate();
   const isWide = useIsWideLayout();
   const routeDaemonId = useParams({ strict: false, select: params => params.daemonId });
+  const routeNamespace = useParams({ strict: false, select: params => params.namespace });
   const query = trpc.processes.list.useQuery(undefined, { refetchInterval: 2_000 });
   const daemon = query.data?.daemons.find(candidate => candidate.daemonId === routeDaemonId);
   const isDaemonGone = Boolean(routeDaemonId && query.data && !daemon);
+  // A namespace lasts only as long as a process in it. An unreachable daemon lists none, but keeps them.
+  const isNamespaceGone = Boolean(
+    routeNamespace &&
+    daemon?.status === 'online' &&
+    !query.data?.processes.some(
+      process => process.daemonId === daemon.daemonId && process.namespace === routeNamespace
+    )
+  );
 
   useEffect(() => {
     if (isDaemonGone) {
       void navigate({ to: '/', replace: true });
+    } else if (isNamespaceGone && routeDaemonId) {
+      void navigate({ ...daemonLink(routeDaemonId), replace: true });
     }
-  }, [isDaemonGone, navigate]);
+  }, [isDaemonGone, isNamespaceGone, navigate, routeDaemonId]);
 
   if (query.isLoading) {
     return (
@@ -304,6 +384,9 @@ export function StatusPage() {
   }
 
   if (isWide) {
+    if (daemon && routeNamespace) {
+      return <NamespaceBand daemon={daemon} namespace={routeNamespace} />;
+    }
     return daemon ? <DaemonBand daemon={daemon} /> : <AllProcessesBand />;
   }
 

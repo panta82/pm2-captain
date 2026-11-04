@@ -133,6 +133,12 @@ const daemonRoute = createRoute({
   path: 'daemons/$daemonId',
   component: StatusPage,
 });
+// One namespace of a daemon selected in the tree: the same page again.
+const namespaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'daemons/$daemonId/namespaces/$namespace',
+  component: StatusPage,
+});
 const processRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'daemons/$daemonId/processes/$pmIds',
@@ -175,6 +181,7 @@ const processTabRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   statusRoute,
   daemonRoute,
+  namespaceRoute,
   processRoute.addChildren([processIndexRoute, processTabRoute]),
 ]);
 const router = createRouter({

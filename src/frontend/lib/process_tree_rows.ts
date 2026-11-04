@@ -8,6 +8,20 @@ export interface IDaemonTreeRow {
   key: string;
   daemon: IDaemonSummary;
   processes: IProcessSummary[];
+  /** The processes the filter lists, in the tree's order, also while closed. Its check box selects these. */
+  listed: IProcessSummary[];
+  isOpen: boolean;
+}
+
+/** A named PM2 namespace inside a daemon, with all its processes. */
+export interface INamespaceTreeRow {
+  kind: 'namespace';
+  key: string;
+  daemon: IDaemonSummary;
+  namespace: string;
+  processes: IProcessSummary[];
+  /** The processes the filter lists, in the tree's order, also while closed. Its check box selects these. */
+  listed: IProcessSummary[];
   isOpen: boolean;
 }
 
@@ -16,12 +30,25 @@ export interface IProcessTreeRow {
   key: string;
   daemon: IDaemonSummary;
   process: IProcessSummary;
+  /** Listed inside its namespace's row rather than directly under the daemon. */
+  isGrouped: boolean;
 }
 
-export type ITreeRow = IDaemonTreeRow | IProcessTreeRow;
+export type ITreeRow = IDaemonTreeRow | INamespaceTreeRow | IProcessTreeRow;
+
+/** A process without a namespace of its own. PM2 gives it this one. */
+export const DEFAULT_NAMESPACE = 'default';
 
 export const daemonRowKey = (daemonId: string) => `daemon:${daemonId}`;
+export const namespaceRowKey = (daemonId: string, namespace: string) =>
+  `namespace:${daemonId}:${namespace}`;
 export const processRowKey = (daemonId: string, pmId: number) => `process:${daemonId}:${pmId}`;
+
+/** The row a process is listed under: its namespace's, or its daemon's. */
+export const parentRowKey = (row: IProcessTreeRow) =>
+  row.isGrouped
+    ? namespaceRowKey(row.daemon.daemonId, row.process.namespace)
+    : daemonRowKey(row.daemon.daemonId);
 
 /** What a filter finds, whichever daemons are open or closed. */
 export interface IFilterMatches {
@@ -65,17 +92,20 @@ export function findFilterMatches({
 }
 
 /**
- * The rows of the process tree. Daemons keep the user's order, and a sort only
- * applies inside each of them, so the tree keeps its shape while the values move.
- * While filtering, a daemon with a match opens by itself, unless it was closed
- * during this filter, and one without any leaves the tree. The selected processes
- * stay listed: they are what the open page acts on.
+ * The rows of the process tree. Daemons keep the user's order. Inside a daemon,
+ * each named namespace is a group, in alphabetical order, and the processes in
+ * PM2's default namespace follow the groups directly. A sort only applies inside
+ * each group, so the tree keeps its shape while the values move. While filtering,
+ * a daemon or group with a match opens by itself, unless it was closed during this
+ * filter, and one without any leaves the tree. The selected processes stay listed:
+ * they are what the open page acts on.
  */
 export function buildTreeRows({
   daemons,
   processes,
   filterMatches,
   isDaemonOpen,
+  isNamespaceOpen,
   closedWhileFiltering,
   selection,
   sort,
@@ -85,12 +115,26 @@ export function buildTreeRows({
   /** Null without a filter. */
   filterMatches: IFilterMatches | null;
   isDaemonOpen: (daemonId: string) => boolean;
+  /** Takes the namespace's row key. */
+  isNamespaceOpen: (key: string) => boolean;
+  /** Row keys of the daemons and namespaces closed during this filter. */
   closedWhileFiltering: ReadonlySet<string>;
   selection: { daemonId: string; pmIds: number[] } | null;
   sort: IProcessSort | null;
 }): ITreeRow[] {
   const matching = filterMatches && new Set(filterMatches.processes);
   const rows: ITreeRow[] = [];
+  const pushProcesses = (daemon: IDaemonSummary, sorted: IProcessSummary[], isGrouped: boolean) => {
+    for (const process of sorted) {
+      rows.push({
+        kind: 'process',
+        key: processRowKey(daemon.daemonId, process.pmId),
+        daemon,
+        process,
+        isGrouped,
+      });
+    }
+  };
   for (const daemon of daemons) {
     const all = processes.filter(process => process.daemonId === daemon.daemonId);
     const listed = matching
@@ -103,26 +147,50 @@ export function buildTreeRows({
     if (filterMatches && !filterMatches.daemonIds.has(daemon.daemonId) && !listed.length) {
       continue;
     }
-    const isOpen = filterMatches
-      ? !closedWhileFiltering.has(daemon.daemonId)
-      : isDaemonOpen(daemon.daemonId);
+    const namespaces = [
+      ...new Set(
+        all.map(process => process.namespace).filter(namespace => namespace !== DEFAULT_NAMESPACE)
+      ),
+    ].sort((a, b) => a.localeCompare(b));
+    const groups = namespaces
+      .map(namespace => ({
+        namespace,
+        key: namespaceRowKey(daemon.daemonId, namespace),
+        processes: all.filter(process => process.namespace === namespace),
+        listed: sortProcesses(
+          listed.filter(process => process.namespace === namespace),
+          sort
+        ),
+      }))
+      .filter(group => !filterMatches || group.listed.length);
+    const loose = sortProcesses(
+      listed.filter(process => process.namespace === DEFAULT_NAMESPACE),
+      sort
+    );
+
+    const key = daemonRowKey(daemon.daemonId);
+    const isOpen = filterMatches ? !closedWhileFiltering.has(key) : isDaemonOpen(daemon.daemonId);
     rows.push({
       kind: 'daemon',
-      key: daemonRowKey(daemon.daemonId),
+      key,
       daemon,
       processes: all,
+      listed: [...groups.flatMap(group => group.listed), ...loose],
       isOpen,
     });
-    if (isOpen) {
-      for (const process of sortProcesses(listed, sort)) {
-        rows.push({
-          kind: 'process',
-          key: processRowKey(daemon.daemonId, process.pmId),
-          daemon,
-          process,
-        });
+    if (!isOpen) {
+      continue;
+    }
+    for (const group of groups) {
+      const isGroupOpen = filterMatches
+        ? !closedWhileFiltering.has(group.key)
+        : isNamespaceOpen(group.key);
+      rows.push({ kind: 'namespace', daemon, ...group, isOpen: isGroupOpen });
+      if (isGroupOpen) {
+        pushProcesses(daemon, group.listed, true);
       }
     }
+    pushProcesses(daemon, loose, false);
   }
   return rows;
 }
