@@ -63,6 +63,7 @@ const build = (overrides: Partial<Parameters<typeof buildTreeRows>[0]> = {}) =>
     filterMatches: null,
     isDaemonOpen: () => true,
     isNamespaceOpen: () => true,
+    isPinned: () => false,
     closedWhileFiltering: new Set(),
     selection: null,
     sort: null,
@@ -130,14 +131,14 @@ describe('buildTreeRows', () => {
         'process:alpha:0',
         'process:alpha:1',
       ]);
-      expect(rows.map(row => row.kind === 'process' && row.isGrouped)).toEqual([
+      expect(rows.map(row => row.kind === 'process' && row.placement)).toEqual([
         false,
         false,
-        true,
-        true,
+        'namespace',
+        'namespace',
         false,
-        true,
-        false,
+        'namespace',
+        'daemon',
       ]);
     });
 
@@ -159,6 +160,71 @@ describe('buildTreeRows', () => {
         isNamespaceOpen: () => false,
       });
       expect(keysOf(rows)).toEqual(['daemon:alpha', 'namespace:alpha:api', 'process:alpha:2']);
+    });
+  });
+
+  describe('with pinned processes', () => {
+    const pinned =
+      (...keys: string[]) =>
+      (item: IProcessSummary) =>
+        keys.includes(`${item.daemonId}:${item.pmId}`);
+
+    it('lists them first, across the daemons, and no longer in their daemons', () => {
+      const rows = build({ isPinned: pinned('beta:0', 'alpha:1') });
+      expect(keysOf(rows)).toEqual([
+        'process:alpha:1',
+        'process:beta:0',
+        'daemon:alpha',
+        'process:alpha:0',
+        'daemon:beta',
+      ]);
+      expect(rows.map(row => row.kind === 'process' && row.placement)).toEqual([
+        'pinned',
+        'pinned',
+        false,
+        'daemon',
+        false,
+      ]);
+      // The daemon still counts them, but its check box no longer selects them.
+      const beta = rows[4];
+      expect(beta.kind === 'daemon' && beta.processes).toHaveLength(1);
+      expect(beta.kind === 'daemon' && beta.listed).toEqual([]);
+    });
+
+    it('sorts them among themselves', () => {
+      const rows = build({
+        isPinned: pinned('alpha:0', 'alpha:1', 'beta:0'),
+        sort: { key: 'cpu', isDescending: true },
+      });
+      expect(keysOf(rows)).toEqual([
+        'process:alpha:1',
+        'process:beta:0',
+        'process:alpha:0',
+        'daemon:alpha',
+        'daemon:beta',
+      ]);
+    });
+
+    it('shows them while their daemon is closed', () => {
+      const rows = build({ isPinned: pinned('alpha:1'), isDaemonOpen: () => false });
+      expect(keysOf(rows)).toEqual(['process:alpha:1', 'daemon:alpha', 'daemon:beta']);
+    });
+
+    it('drops a namespace whose processes are all pinned', () => {
+      const rows = build({
+        daemons: [daemon('alpha')],
+        processes: [process('alpha', 0, { namespace: 'web' }), process('alpha', 1)],
+        isPinned: pinned('alpha:0'),
+      });
+      expect(keysOf(rows)).toEqual(['process:alpha:0', 'daemon:alpha', 'process:alpha:1']);
+    });
+
+    it('keeps them only when they match, and drops a daemon whose only match is pinned', () => {
+      const rows = build({
+        filterMatches: { processes: [PROCESSES[1], PROCESSES[2]], daemonIds: new Set() },
+        isPinned: pinned('alpha:0', 'alpha:1'),
+      });
+      expect(keysOf(rows)).toEqual(['process:alpha:1', 'daemon:beta', 'process:beta:0']);
     });
   });
 

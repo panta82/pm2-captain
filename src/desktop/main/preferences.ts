@@ -68,7 +68,7 @@ export function createPreferenceStore(directory: string) {
     for (const key of DESKTOP_PREFERENCE_KEYS) {
       const value = (content.ui as Record<string, unknown> | undefined)?.[key];
       if (isValidDesktopPreference(key, value)) {
-        ui[key] = value as string;
+        ui[key] = value;
       }
     }
     state = { version: 1, ui, window: parseWindowState(content.window) };
@@ -103,13 +103,13 @@ export function createPreferenceStore(directory: string) {
   return {
     path,
     ui: () => ({ ...state.ui }),
-    /** Returns false for a key or value the renderer could not legitimately send. */
-    setUi: (key: string, value: unknown): boolean => {
+    /** Returns false for a value the renderer could not legitimately send. */
+    setUi: (key: IDesktopPreferenceKey, value: unknown): boolean => {
       if (!isValidDesktopPreference(key, value)) {
         return false;
       }
-      if (state.ui[key as IDesktopPreferenceKey] !== value) {
-        state.ui = { ...state.ui, [key]: value as string };
+      if (state.ui[key] !== value) {
+        state.ui = { ...state.ui, [key]: value };
         scheduleSave();
       }
       return true;

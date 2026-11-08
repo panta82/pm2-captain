@@ -25,6 +25,7 @@ import {
   daemonRowKey,
   findFilterMatches,
   namespaceRowKey,
+  processRowKey,
 } from '@/lib/process_tree_rows';
 import { trpc } from '@/lib/trpc';
 import { compactPath } from '@/lib/utils';
@@ -35,6 +36,7 @@ import type { IDesktopPreferenceKey } from '@shared/desktop_bridge';
 const COLLAPSED_STORAGE_KEY = 'pm2-captain-collapsed-daemons' satisfies IDesktopPreferenceKey;
 const COLLAPSED_NAMESPACES_STORAGE_KEY =
   'pm2-captain-collapsed-namespaces' satisfies IDesktopPreferenceKey;
+const PINNED_STORAGE_KEY = 'pm2-captain-pinned-processes' satisfies IDesktopPreferenceKey;
 const SORT_STORAGE_KEY = 'pm2-captain-process-sort' satisfies IDesktopPreferenceKey;
 
 /** Only the destination of an SSH daemon: its other arguments can carry sensitive values. */
@@ -47,16 +49,40 @@ function describeLocation(config: IDaemonConfig): string {
   return home ? `${destination}:${home}` : destination;
 }
 
-/** Daemon IDs, or the row keys of namespaces, as a JSON list. */
-function loadCollapsed(key: IDesktopPreferenceKey): ReadonlySet<string> {
-  try {
-    const stored: unknown = JSON.parse(readPreference(key) ?? '[]');
-    return new Set(
-      Array.isArray(stored) ? stored.filter(item => typeof item === 'string') : undefined
-    );
-  } catch {
-    return new Set();
+/** A copy of the keys, without the key if it was there, and with it if it was not. */
+function toggleKey(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(keys);
+  if (!next.delete(key)) {
+    next.add(key);
   }
+  return next;
+}
+
+/** A remembered set of daemon IDs, or row keys of namespaces or processes, stored as a JSON list. */
+function useKeySetPreference(
+  key:
+    | typeof COLLAPSED_STORAGE_KEY
+    | typeof COLLAPSED_NAMESPACES_STORAGE_KEY
+    | typeof PINNED_STORAGE_KEY
+) {
+  const [keys, setKeys] = useState((): ReadonlySet<string> => {
+    try {
+      const stored: unknown = JSON.parse(readPreference(key) ?? '[]');
+      return new Set(
+        Array.isArray(stored) ? stored.filter(item => typeof item === 'string') : undefined
+      );
+    } catch {
+      return NO_KEYS;
+    }
+  });
+  const save = useCallback(
+    (next: ReadonlySet<string>) => {
+      setKeys(next);
+      writePreference(key, JSON.stringify([...next]));
+    },
+    [key]
+  );
+  return [keys, save] as const;
 }
 
 /**
@@ -76,6 +102,8 @@ export interface IProcessTree {
   cycleSort: (key: IProcessSortKey) => void;
   toggleDaemon: (daemonId: string) => void;
   toggleNamespace: (daemonId: string, namespace: string) => void;
+  /** Pins a process to the top of the tree, or unpins it. */
+  togglePin: (process: IProcessSummary) => void;
   setAllDaemonsOpen: (isOpen: boolean) => void;
   isEveryDaemonOpen: boolean;
   /** The daemon selected in the tree: its row was clicked, or a process was opened from it. */
@@ -111,10 +139,12 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
   });
   const processFilter = useProcessListFilter();
   const [sort, setSortState] = useState(() => parseProcessSort(readPreference(SORT_STORAGE_KEY)));
-  const [collapsedIds, setCollapsedIds] = useState(() => loadCollapsed(COLLAPSED_STORAGE_KEY));
-  const [collapsedNamespaces, setCollapsedNamespaces] = useState(() =>
-    loadCollapsed(COLLAPSED_NAMESPACES_STORAGE_KEY)
+  const [collapsedIds, saveCollapsed] = useKeySetPreference(COLLAPSED_STORAGE_KEY);
+  const [collapsedNamespaces, saveCollapsedNamespaces] = useKeySetPreference(
+    COLLAPSED_NAMESPACES_STORAGE_KEY
   );
+  // Pins are remembered by the process's row key: its daemon and its PM2 ID.
+  const [pinKeys, savePinKeys] = useKeySetPreference(PINNED_STORAGE_KEY);
   // What was closed while filtering belongs to that filter text, by row key. A
   // filter opens what it finds, and never changes what is remembered without one.
   const [closedInFilter, setClosedInFilter] = useState<{
@@ -158,20 +188,20 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
     (key: string) => !collapsedNamespaces.has(key),
     [collapsedNamespaces]
   );
+  const isPinned = useCallback(
+    (process: IProcessSummary) => pinKeys.has(processRowKey(process.daemonId, process.pmId)),
+    [pinKeys]
+  );
+
+  const togglePin = useCallback(
+    (process: IProcessSummary) =>
+      savePinKeys(toggleKey(pinKeys, processRowKey(process.daemonId, process.pmId))),
+    [pinKeys, savePinKeys]
+  );
 
   const setSort = useCallback((next: IProcessSort | null) => {
     setSortState(next);
     writePreference(SORT_STORAGE_KEY, formatProcessSort(next));
-  }, []);
-
-  const saveCollapsed = useCallback((next: ReadonlySet<string>) => {
-    setCollapsedIds(next);
-    writePreference(COLLAPSED_STORAGE_KEY, JSON.stringify([...next]));
-  }, []);
-
-  const saveCollapsedNamespaces = useCallback((next: ReadonlySet<string>) => {
-    setCollapsedNamespaces(next);
-    writePreference(COLLAPSED_NAMESPACES_STORAGE_KEY, JSON.stringify([...next]));
   }, []);
 
   const setDaemonOpen = useCallback(
@@ -188,17 +218,19 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
   );
 
   // A process opened by its address, or from outside the tree, shows in its daemon
-  // and its namespace.
+  // and its namespace. A pinned one already shows at the top.
   const selectionKey = routePmIds?.join(',');
   useEffect(() => {
-    if (!routeDaemonId || !routePmIds) {
+    const selected = (processes ?? NO_PROCESSES).filter(
+      item => item.daemonId === routeDaemonId && routePmIds?.includes(item.pmId) && !isPinned(item)
+    );
+    if (!routeDaemonId || !selected.length) {
       return;
     }
     if (!isDaemonOpen(routeDaemonId)) {
       setDaemonOpen(routeDaemonId, true);
     }
-    const groupKeys = (processes ?? NO_PROCESSES)
-      .filter(item => item.daemonId === routeDaemonId && routePmIds.includes(item.pmId))
+    const groupKeys = selected
       .map(item => namespaceRowKey(routeDaemonId, item.namespace))
       .filter(key => collapsedNamespaces.has(key));
     if (groupKeys.length) {
@@ -240,6 +272,7 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
         filterMatches,
         isDaemonOpen,
         isNamespaceOpen,
+        isPinned,
         closedWhileFiltering,
         selection:
           routeDaemonId && routePmIds ? { daemonId: routeDaemonId, pmIds: routePmIds } : null,
@@ -251,6 +284,7 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
       filterMatches,
       isDaemonOpen,
       isNamespaceOpen,
+      isPinned,
       closedWhileFiltering,
       routeDaemonId,
       routePmIds,
@@ -260,11 +294,10 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
 
   const toggleClosedInFilter = useCallback(
     (key: string) => {
-      const keys = new Set(closedWhileFiltering);
-      if (!keys.delete(key)) {
-        keys.add(key);
-      }
-      setClosedInFilter({ search: processFilter.search, keys });
+      setClosedInFilter({
+        search: processFilter.search,
+        keys: toggleKey(closedWhileFiltering, key),
+      });
     },
     [closedWhileFiltering, processFilter.search]
   );
@@ -287,11 +320,7 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
         toggleClosedInFilter(key);
         return;
       }
-      const next = new Set(collapsedNamespaces);
-      if (!next.delete(key)) {
-        next.add(key);
-      }
-      saveCollapsedNamespaces(next);
+      saveCollapsedNamespaces(toggleKey(collapsedNamespaces, key));
     },
     [collapsedNamespaces, isFiltering, saveCollapsedNamespaces, toggleClosedInFilter]
   );
@@ -337,6 +366,7 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
       cycleSort: key => setSort(cycleProcessSort(sort, key)),
       toggleDaemon,
       toggleNamespace,
+      togglePin,
       setAllDaemonsOpen,
       isEveryDaemonOpen,
       focusedDaemonId,
@@ -359,6 +389,7 @@ export function ProcessTreeProvider({ children }: { children: ReactNode }) {
       setSort,
       toggleDaemon,
       toggleNamespace,
+      togglePin,
       setAllDaemonsOpen,
       isEveryDaemonOpen,
       focusedDaemonId,

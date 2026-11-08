@@ -261,6 +261,39 @@ test('collapses and expands daemons, and remembers them', async ({ page, fake })
   await expect(processRow(page, 'queue')).toBeVisible();
 });
 
+test('pins processes to the top of the tree, and remembers them', async ({ page, fake }) => {
+  await fake.send({ type: 'world.reset', scenario: 'multi' });
+  await page.goto(FAKE_LAUNCH_PATH);
+  const pin = (name: string) => page.getByRole('button', { name, exact: true });
+  const pinnedNames = () => page.locator('[data-tree-process][data-pinned]').locator('a');
+
+  // The pin shows on a hovered row, and moves the process above the daemons.
+  await processRow(page, 'worker').hover();
+  await pin('Pin worker').click();
+  await expect(processRows(page).first()).toHaveAttribute('data-pinned', 'true');
+  await expect(pinnedNames()).toHaveText(['worker']);
+  await expect(page).toHaveURL(/:3215\/$/);
+  await page.reload();
+  await expect(pinnedNames()).toHaveText(['worker']);
+
+  // Space pins the process of the keyboard cursor, in the daemons' order, and unpins it again.
+  await page.getByPlaceholder('Filter…').fill('queue');
+  await page.keyboard.press('ArrowDown');
+  await expect(processRow(page, 'queue')).toHaveAttribute('data-cursor', 'true');
+  await page.keyboard.press('Space');
+  await page.getByPlaceholder('Filter…').fill('');
+  await expect(pinnedNames()).toHaveText(['worker', 'queue']);
+  await page.getByRole('navigation', { name: 'Processes' }).focus();
+  await expect(processRow(page, 'queue')).toHaveAttribute('data-cursor', 'true');
+  await page.keyboard.press('Space');
+  await expect(pinnedNames()).toHaveText(['worker']);
+
+  await processRow(page, 'worker').hover();
+  await pin('Unpin worker').click();
+  await expect(pinnedNames()).toHaveCount(0);
+  await expect(page.locator('[data-row-key]').first()).toHaveAttribute('data-row-key', /^daemon:/);
+});
+
 test('leaves the page of a process that is gone', async ({ page, fake }) => {
   await page.goto(FAKE_LAUNCH_PATH);
   await openProcessTab(page, 'worker', 'Info');

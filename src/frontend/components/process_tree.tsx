@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
-import { Check, ChevronRight, Settings2 } from 'lucide-react';
+import { Check, ChevronRight, Pin, Settings2 } from 'lucide-react';
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -20,6 +20,7 @@ import { useProcessTree } from '@/lib/process_tree';
 import {
   type IDaemonTreeRow,
   type INamespaceTreeRow,
+  type IProcessPlacement,
   type IProcessTreeRow,
   type ITreeRow,
   daemonRowKey,
@@ -54,16 +55,20 @@ const CURSOR_CLASS =
 
 const MOVE_DURATION_MS = 240;
 
+/** A pinned process is at the top of the tree, next to the daemons. */
+const TREE_LEVELS: Record<IProcessPlacement, number> = { pinned: 1, daemon: 2, namespace: 3 };
+
 /**
  * The tree's first column. As a table, it stays put while the columns scroll under
  * it. It has one width in both layouts, so nothing in it moves between them: the
  * side menu's scrollbar lies over the empty margin at the end of each row. Its
- * border is there only to take up the same room.
+ * border is there only to take up the same room. It places the tree's lines and
+ * the pin in both layouts, as sticky or as relative.
  */
 const nameCellClass = (isTable: boolean) =>
   cn(
     'flex h-full w-(--sidebar-width) shrink-0 items-center border-r bg-inherit',
-    isTable ? 'sticky left-0 z-10 border-line' : 'border-transparent'
+    isTable ? 'sticky left-0 z-10 border-line' : 'relative border-transparent'
   );
 
 const rowClass = (isTable: boolean) =>
@@ -96,6 +101,7 @@ export const ProcessTree = memo(function ProcessTree({
     sort,
     toggleDaemon,
     toggleNamespace,
+    togglePin,
     closeLink,
     focusedDaemonId,
     focusedNamespace,
@@ -402,6 +408,12 @@ export const ProcessTree = memo(function ProcessTree({
 
   const clickProcess = (event: MouseEvent<HTMLElement>, row: IProcessTreeRow) => {
     const { daemonId, pmId } = row.process;
+    // A pin moves only its row, and leaves the selection and the view where they are.
+    if ((event.target as Element).closest('[data-tree-pin]')) {
+      togglePin(row.process);
+      focusTree();
+      return;
+    }
     // One action request carries one daemon's connection, so a selection stays inside a daemon.
     const current = selectedDaemonId === daemonId ? selectedIds : [];
     if ((event.target as Element).closest('[data-tree-check]')) {
@@ -514,7 +526,7 @@ export const ProcessTree = memo(function ProcessTree({
       const isChild =
         row.kind === 'daemon'
           ? child && child.kind !== 'daemon'
-          : child?.kind === 'process' && child.isGrouped;
+          : child?.kind === 'process' && child.placement === 'namespace';
       if (row.isOpen !== isRight) {
         toggleInPlace(row);
       } else if (isRight && isChild) {
@@ -526,11 +538,12 @@ export const ProcessTree = memo(function ProcessTree({
       }
       return;
     }
-    if (isRight) {
+    const parentKey = parentRowKey(row);
+    // A pinned process is at the top of the tree, out of its daemon.
+    if (isRight || !parentKey) {
       return;
     }
-    const parentKey = parentRowKey(row);
-    if (isProcessOpen && row.isGrouped) {
+    if (isProcessOpen && row.placement === 'namespace') {
       setCursorKey(parentKey);
       focusTree();
       void navigate(namespaceLink(row.daemon.daemonId, row.process.namespace));
@@ -599,6 +612,21 @@ export const ProcessTree = memo(function ProcessTree({
         openSelection(row.process.daemonId, [row.process.pmId], row.process.pmId, row.process.pmId);
       } else if (row) {
         activateGroup(row);
+      }
+      return;
+    }
+    if (event.key === ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Space on a check box toggles it.
+      if (event.target instanceof HTMLButtonElement) {
+        return;
+      }
+      event.preventDefault();
+      const row = rows.find(candidate => candidate.key === activeKey);
+      // A held key would only pin and unpin it over and over.
+      if (row?.kind === 'process' && !event.repeat) {
+        // The cursor goes along, so Space again puts it back.
+        anchorKeyRef.current = row.key;
+        togglePin(row.process);
       }
       return;
     }
@@ -685,6 +713,12 @@ export const ProcessTree = memo(function ProcessTree({
     return count === row.listed.length ? true : count ? 'mixed' : false;
   };
 
+  /** A closed daemon or namespace marks that a selected process is hidden inside it. */
+  const holdsSelection = (row: IDaemonTreeRow | INamespaceTreeRow) =>
+    !row.isOpen &&
+    selectedDaemonId === row.daemon.daemonId &&
+    row.listed.some(process => selectedIds.includes(process.pmId));
+
   const renderRow = (row: ITreeRow) => {
     if (row.kind === 'daemon') {
       const { daemon } = row;
@@ -705,7 +739,7 @@ export const ProcessTree = memo(function ProcessTree({
           memory={totals.memory}
           isOpen={row.isOpen}
           isSelected={!isProcessOpen && focusedKey === row.key}
-          holdsSelection={!row.isOpen && selectedDaemonId === daemon.daemonId}
+          holdsSelection={holdsSelection(row)}
           checkState={row.listed.length ? checkStateOf(row) : null}
           isCursor={activeKey === row.key}
           highlight={highlight}
@@ -715,10 +749,6 @@ export const ProcessTree = memo(function ProcessTree({
     }
     if (row.kind === 'namespace') {
       const totals = sumProcesses(row.processes);
-      const isHoldingSelection =
-        !row.isOpen &&
-        selectedDaemonId === row.daemon.daemonId &&
-        row.processes.some(process => selectedIds.includes(process.pmId));
       return (
         <NamespaceRow
           key={row.key}
@@ -731,7 +761,7 @@ export const ProcessTree = memo(function ProcessTree({
           memory={totals.memory}
           isOpen={row.isOpen}
           isSelected={!isProcessOpen && focusedKey === row.key}
-          holdsSelection={isHoldingSelection}
+          holdsSelection={holdsSelection(row)}
           checkState={row.listed.length ? checkStateOf(row) : null}
           isCursor={activeKey === row.key}
           highlight={highlight}
@@ -746,7 +776,7 @@ export const ProcessTree = memo(function ProcessTree({
         key={row.key}
         rowKey={row.key}
         process={process}
-        isGrouped={row.isGrouped}
+        placement={row.placement}
         color={daemon.color}
         isDaemonAvailable={daemon.status === 'online'}
         isSelected={isSelected}
@@ -799,7 +829,7 @@ export const ProcessTree = memo(function ProcessTree({
 const ProcessRow = memo(function ProcessRow({
   rowKey,
   process,
-  isGrouped,
+  placement,
   color,
   isDaemonAvailable,
   isSelected,
@@ -814,7 +844,7 @@ const ProcessRow = memo(function ProcessRow({
 }: {
   rowKey: string;
   process: IProcessSummary;
-  isGrouped: boolean;
+  placement: IProcessPlacement;
   color: IDaemonColor | null;
   isDaemonAvailable: boolean;
   isSelected: boolean;
@@ -829,15 +859,18 @@ const ProcessRow = memo(function ProcessRow({
 }) {
   const isOnline = process.status === 'online';
   const isChecked = isSelected || isPicked;
+  const isPinned = placement === 'pinned';
+  const isGrouped = placement === 'namespace';
 
   return (
     <div
       data-component="ProcessRow"
       data-row-key={rowKey}
       data-tree-process
+      data-pinned={isPinned || undefined}
       data-cursor={isCursor || undefined}
       role="row"
-      aria-level={isGrouped ? 3 : 2}
+      aria-level={TREE_LEVELS[placement]}
       aria-selected={isSelected}
       className={cn(
         rowClass(isTable),
@@ -860,8 +893,8 @@ const ProcessRow = memo(function ProcessRow({
             'relative flex h-full min-w-0 flex-1 items-center gap-3 pr-3',
             isGrouped ? 'pl-[4.25rem]' : 'pl-11',
             // The line that ties the process to its daemon's chevron.
-            'before:absolute before:inset-y-0 before:left-[1.6875rem] before:w-px',
-            isSelected ? 'before:bg-white/15' : 'before:bg-line',
+            !isPinned && 'before:absolute before:inset-y-0 before:left-[1.6875rem] before:w-px',
+            !isPinned && (isSelected ? 'before:bg-white/15' : 'before:bg-line'),
             // And the one that ties it to its namespace's.
             isGrouped && 'after:absolute after:inset-y-0 after:left-[3rem] after:w-px',
             isGrouped && (isSelected ? 'after:bg-white/15' : 'after:bg-line')
@@ -907,6 +940,27 @@ const ProcessRow = memo(function ProcessRow({
             </span>
           ) : null}
         </a>
+        {/* After the link, so it is drawn over the link's padding. */}
+        <button
+          type="button"
+          data-tree-pin
+          aria-pressed={isPinned}
+          aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${process.name}`}
+          title={isPinned ? 'Unpin (Space)' : 'Pin to the top (Space)'}
+          tabIndex={-1}
+          className={cn(
+            // The colors of the check box: its edge, and the muted gray on hover.
+            'absolute top-1/2 left-1 grid size-5 -translate-y-1/2 place-items-center rounded text-line hover:text-muted',
+            isPinned
+              ? 'text-muted/70'
+              : cn(
+                  'opacity-0 group-hover/row:opacity-100',
+                  isCursor && 'group-focus-visible/nav:opacity-100'
+                )
+          )}
+        >
+          <Pin className="size-3.5 rotate-45" fill={isPinned ? 'currentColor' : 'none'} />
+        </button>
         <TreeCheckbox state={isChecked} label={`Select ${process.name}`} className="mr-5" />
       </div>
       {isTable ? (
@@ -979,7 +1033,7 @@ const NamespaceRow = memo(function NamespaceRow({
         role="cell"
         className={cn(
           nameCellClass(isTable),
-          'relative gap-2 pr-5',
+          'gap-2 pr-5',
           // The daemon's line goes on through its namespaces.
           'before:absolute before:inset-y-0 before:left-[1.6875rem] before:w-px before:bg-line',
           holdsSelection && 'shadow-[inset_2px_0_0_var(--color-cyan)]'

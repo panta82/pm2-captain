@@ -120,6 +120,11 @@ Read [development.md](docs/development.md) for more details.
 
 ## Version history
 
+#### `2.9.0` (2026-11-08)
+
+- Add the ability to pin processes to the top of the list
+- Keep namespace names in place when the process table scrolls sideways
+
 #### `2.8.0` (2026-11-04)
 
 - Add support for pm2 namespaces in the sidebar.

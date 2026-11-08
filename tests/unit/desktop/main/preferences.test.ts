@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createPreferenceStore } from '../../../../src/desktop/main/preferences';
 
+const DAEMON_ID = '830f902f-c88b-4ed8-8051-c3a81c44ed87';
+
 let root: string;
 
 beforeEach(async () => {
@@ -19,9 +21,11 @@ describe('desktop preferences', () => {
   it('keeps UI preferences and the window across launches, privately', async () => {
     const directory = libPath.join(root, 'profile');
     const store = createPreferenceStore(directory);
-    expect(
-      store.setUi('pm2-captain-collapsed-daemons', '["830f902f-c88b-4ed8-8051-c3a81c44ed87"]')
-    ).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-daemons', `["${DAEMON_ID}"]`)).toBe(true);
+    expect(store.setUi('pm2-captain-collapsed-namespaces', `["namespace:${DAEMON_ID}:web"]`)).toBe(
+      true
+    );
+    expect(store.setUi('pm2-captain-pinned-processes', `["process:${DAEMON_ID}:12"]`)).toBe(true);
     expect(store.setUi('pm2-captain-process-sort', 'cpu:desc')).toBe(true);
     expect(store.setUi('pm2-captain-process-tab', 'logs')).toBe(true);
     expect(store.setUi('pm2-captain:process-sidebar-width', '320')).toBe(true);
@@ -32,7 +36,9 @@ describe('desktop preferences', () => {
 
     const reloaded = createPreferenceStore(directory);
     expect(reloaded.ui()).toEqual({
-      'pm2-captain-collapsed-daemons': '["830f902f-c88b-4ed8-8051-c3a81c44ed87"]',
+      'pm2-captain-collapsed-daemons': `["${DAEMON_ID}"]`,
+      'pm2-captain-collapsed-namespaces': `["namespace:${DAEMON_ID}:web"]`,
+      'pm2-captain-pinned-processes': `["process:${DAEMON_ID}:12"]`,
       'pm2-captain-process-sort': 'cpu:desc',
       'pm2-captain-process-tab': 'logs',
       'pm2-captain:process-sidebar-width': '320',
@@ -51,61 +57,11 @@ describe('desktop preferences', () => {
     expect(JSON.parse(await fs.readFile(path, 'utf8'))).toMatchObject({ version: 1 });
   });
 
-  it('keeps a list of collapsed daemons that is longer than other preferences', () => {
+  // Which values each preference takes is tested with the validators, in tests/unit/shared.
+  it('refuses a value a page could not legitimately send, and keeps none of it', () => {
     const store = createPreferenceStore(root);
-    const daemonIds = Array.from(
-      { length: 40 },
-      (_, index) => `830f902f-c88b-4ed8-8051-c3a81c44e${String(index).padStart(3, '0')}`
-    );
-    expect(store.setUi('pm2-captain-collapsed-daemons', JSON.stringify(daemonIds))).toBe(true);
-    expect(store.setUi('pm2-captain-collapsed-daemons', '[]')).toBe(true);
-    expect(store.setUi('pm2-captain-collapsed-daemons', `["${'a'.repeat(20_000)}"]`)).toBe(false);
-  });
-
-  it('keeps the collapsed namespaces, and refuses anything else in their list', () => {
-    const store = createPreferenceStore(root);
-    const key = 'namespace:830f902f-c88b-4ed8-8051-c3a81c44ed87:aup';
-    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify([key]))).toBe(true);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', '[]')).toBe(true);
-    // A namespace's name is PM2's to choose, and may hold a colon or a space.
-    expect(
-      store.setUi(
-        'pm2-captain-collapsed-namespaces',
-        JSON.stringify([`${key}:with colon`, `${key} space`])
-      )
-    ).toBe(true);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', '{broken')).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify(key))).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', '[1]')).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', '["../../etc"]')).toBe(false);
-    expect(
-      store.setUi(
-        'pm2-captain-collapsed-namespaces',
-        JSON.stringify(['namespace:830f902f-c88b-4ed8-8051-c3a81c44ed87:'])
-      )
-    ).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-namespaces', JSON.stringify([`${key}\nline`]))).toBe(
-      false
-    );
-    expect(
-      store.setUi(
-        'pm2-captain-collapsed-namespaces',
-        JSON.stringify(Array.from({ length: 400 }, (_, index) => `${key}${index}`))
-      )
-    ).toBe(false);
-  });
-
-  it('refuses keys and values a page could not legitimately send', () => {
-    const store = createPreferenceStore(root);
-
-    expect(store.setUi('launch-token', 'secret')).toBe(false);
     expect(store.setUi('pm2-captain-process-tab', 'settings')).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-daemons', '../../etc')).toBe(false);
-    expect(store.setUi('pm2-captain-collapsed-daemons', '["../../etc"]')).toBe(false);
-    expect(store.setUi('pm2-captain-process-sort', '../../etc')).toBe(false);
     expect(store.setUi('pm2-captain:process-sidebar-width', 320)).toBe(false);
-    expect(store.setUi('pm2-captain-skipped-update-version', '../../etc')).toBe(false);
-    expect(store.setUi('pm2-captain-skipped-update-version', '1'.repeat(201))).toBe(false);
     expect(store.ui()).toEqual({});
   });
 

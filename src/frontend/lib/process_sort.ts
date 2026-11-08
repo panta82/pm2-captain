@@ -49,7 +49,12 @@ const DESCENDING_FIRST: ReadonlySet<IProcessSortKey> = new Set([
 // One collator for all comparisons: a sort makes many, on every poll.
 const TEXT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
-function compareProcesses(sort: IProcessSort, left: IProcessSummary, right: IProcessSummary) {
+/** Orders two processes by the sort, and by PM2 ID where it leaves them even. */
+export function compareProcesses(
+  sort: IProcessSort,
+  left: IProcessSummary,
+  right: IProcessSummary
+): number {
   const read = SORT_VALUES[sort.key];
   const leftValue = read(left);
   const rightValue = read(right);

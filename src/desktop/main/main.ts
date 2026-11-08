@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import libOs from 'node:os';
 import libPath from 'node:path';
 
+import { isDesktopPreferenceKey } from '../../shared/desktop_bridge';
 import { IPC_CHANNELS } from '../shared/ipc_channels';
 import { launchAppImage } from './appimage_installer';
 import { BackendStartError, IBackendRun, createBackendHost } from './backend_host';
@@ -507,7 +508,7 @@ function registerIpc() {
   ipcMain.on(IPC_CHANNELS.setPreference, (event, key: unknown, value: unknown) => {
     if (
       !isTrustedSender(event, trusted) ||
-      typeof key !== 'string' ||
+      !isDesktopPreferenceKey(key) ||
       !preferences.setUi(key, value)
     ) {
       log.warn('Rejected a preference change');

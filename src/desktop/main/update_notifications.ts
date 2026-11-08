@@ -1,9 +1,9 @@
-import type { IAppUpdateState } from '../../shared/desktop_bridge';
+import type { IAppUpdateState, IDesktopPreferenceKey } from '../../shared/desktop_bridge';
 import type { IFileLog } from './desktop_log';
 import type { IPreferenceStore } from './preferences';
 import type { IUpdateController } from './updates';
 
-const SKIPPED_VERSION_KEY = 'pm2-captain-skipped-update-version';
+const SKIPPED_VERSION_KEY = 'pm2-captain-skipped-update-version' satisfies IDesktopPreferenceKey;
 
 /** Adds persistent notification choices to either update controller. */
 export function createUpdateNotifications({
