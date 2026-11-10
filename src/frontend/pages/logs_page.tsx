@@ -642,14 +642,14 @@ export function LogsPage({ connectionId }: { connectionId: string | undefined })
     <div data-component="LogsPage" className="flex min-h-0 flex-1 flex-col bg-surface-plane">
       {/* Left to right: what is shown (stream, filter, highlights), then what is loaded
           (count and download) and the stream controls. */}
-      <div className="flex shrink-0 flex-col gap-2 border-b border-line bg-surface-control px-3 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:px-7 lg:min-h-(--height-detail-toolbar) lg:flex-nowrap lg:py-[11px]">
-        <ToggleGroup aria-label="Log stream filter" className="self-start sm:self-auto">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line bg-surface-control px-3 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-3 sm:px-7 lg:min-h-(--height-detail-toolbar) lg:flex-nowrap lg:items-center lg:py-[11px]">
+        <ToggleGroup aria-label="Log stream filter" className="h-9 self-start sm:self-auto">
           {(['combined', 'out', 'err'] as const).map(option => (
             <Button
               key={option}
               variant="toggle"
               aria-pressed={view === option}
-              className="h-9 px-3 font-mono text-xs"
+              className="h-full px-3 font-mono text-xs"
               onClick={() => setView(option)}
             >
               {option === 'combined' ? 'All' : capitalize(option)}
